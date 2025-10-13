@@ -88,13 +88,17 @@ def ask_claude(text: str) -> dict:
     - AccountType        –  (e.g., "Business", "Personal", "Joint")  
     - AccountPurpose    –  (e.g., "Consumer", "Home Loan", "Car Loan", "Education Loan")  
     - OwnershipType     – (e.g., "Single", "Joint", "Multiple")  
-    - DateOpened          – ISO date string or empty string  
-    - DateRevised         – ISO date string or empty string  
-    - OpenedBy            – string (name)  
-    - RevisedBy           – string (name)  
-    - DOB                 – dd-mm-yyyy or yyyy-mm-dd  
-    - CustomerID          – omit if absent    
-    - Stampdate           – any date string found on the page; omit if none  
+    - WSFS Account type   – (e.g., "WSFS Core Savings",....)
+    -Stamp Date    Any date you encounter – regardless of format – must be normalized to dd-mm-yyyy before it is stored.
+        Acceptable incoming patterns include (but are not limited to):
+        – English-month variants: “DEC 262014”, “Dec 26, 2014”, “26 Dec 2014”, “December 26 2014” …
+        – Numeric variants: “12/26/2014”, “26-12-2014”, “2014-12-26” …
+        English-month names may be fully spelled or 3-letter abbreviations; they may appear before, after, or between day/year.
+        If the day or month is missing, still keep whatever is present; if nothing is parseable, return an empty string.
+        Special rule for “random” or “un-attached” dates:
+        – Whenever you find a date that is not clearly tied to DateOpened, DateRevised, DOB, or any other specific field, always place it in Stampdate (normalized to dd-mm-yyyy).
+        – Example: the string “DEC 262014” floating anywhere in the OCR must land in Stampdate as “26-12-2014”.
+
     - Mailing Address     – mailing address
     - SSN                 –Social security number
    

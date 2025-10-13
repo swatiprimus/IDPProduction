@@ -66,8 +66,8 @@ Examine **every page** of the text below, identify each distinct document, and r
 
 Rules
 1.  Each object **must** contain  
-    "documentType" : "Provide the document type"
-2.  Add only the fields normally present on that doc type.
+    "documentType" : "Provide the document type can be DL/ OFAC ......"
+2.  Add only the fields normally present on that doc type and ensure completeness of information.
 4.  Wrap your answer in ```json … ``` fences only.
 
 Example
