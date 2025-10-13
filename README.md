@@ -1,1 +1,270 @@
-# IDP
+# 🤖 Unified IDP Platform
+
+A comprehensive Intelligent Document Processing platform that combines AWS AI services with advanced search capabilities and cost optimization through intelligent caching.
+
+## 🌟 Features
+
+### Core Processing
+- **📄 Document Upload**: Support for PDF, PNG, JPG files up to 50MB
+- **🔍 Text Extraction**: AWS Textract with forms and tables detection
+- **🤖 AI Classification**: Enhanced document classification with confidence scoring
+- **⭐ Quality Assessment**: Automated document quality and completeness analysis
+- **💾 S3 Caching**: Intelligent caching to reduce processing costs
+- **🔍 RAG Search**: Semantic and traditional search across processed documents
+
+### Advanced Features
+- **📊 Real-time Analytics**: Processing statistics and performance metrics
+- **🔄 Batch Processing**: Handle multiple documents efficiently
+- **🌐 REST API**: Complete API for external integrations
+- **📈 Quality Scoring**: Document completeness and accuracy assessment
+- **🎯 Custom Analysis**: User-defined prompts for specific extraction needs
+
+## 🚀 Quick Start
+
+### 1. Install Dependencies
+```bash
+pip install -r requirement.txt
+```
+
+### 2. Configure AWS
+```bash
+aws configure
+# Enter your AWS Access Key ID, Secret Access Key, and region (us-east-1)
+```
+
+### 3. Start the Platform
+```bash
+python start_idp_platform.py
+```
+
+### 4. Access the UI
+Open your browser to: `http://localhost:5000`
+
+## 📋 System Requirements
+
+### Required
+- Python 3.8+
+- AWS Account with configured credentials
+- AWS Services: Textract, Bedrock, S3
+
+### Optional (for enhanced features)
+- MongoDB Atlas (for RAG search)
+- Elasticsearch (for advanced search)
+
+## 🏗️ Architecture
+
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   Web UI        │    │  Document        │    │   AWS Services  │
+│                 │────│  Processor       │────│                 │
+│ • Upload        │    │                  │    │ • Textract      │
+│ • Search        │    │ • Caching        │    │ • Bedrock       │
+│ • Analytics     │    │ • Classification │    │ • S3            │
+└─────────────────┘    │ • Quality Check  │    └─────────────────┘
+                       └──────────────────┘
+                                │
+                       ┌──────────────────┐
+                       │   Data Storage   │
+                       │                  │
+                       │ • MongoDB (RAG)  │
+                       │ • S3 (Cache)     │
+                       │ • Local (Temp)   │
+                       └──────────────────┘
+```
+
+## 💡 Usage Examples
+
+### Basic Document Processing
+1. **Upload Document**: Drag & drop or click to select a PDF/image
+2. **Add Custom Prompt** (optional): "Extract all financial information"
+3. **Process**: Click "Process Document" 
+4. **View Results**: Classification, quality score, and extracted data
+5. **Download**: Get complete JSON results
+
+### RAG Search
+1. **Process Documents**: Upload and process several documents first
+2. **Search**: Use natural language queries like:
+   - "Find all loan documents"
+   - "Show me driver licenses from Delaware"
+   - "Documents with high loan amounts"
+3. **Results**: Get semantically relevant documents with similarity scores
+
+### Cost Optimization
+- **Automatic Caching**: Results saved to S3 automatically
+- **Cache Hits**: Identical documents return cached results instantly
+- **Force Reprocess**: Option to bypass cache when needed
+- **Statistics**: Monitor cache hit rate and cost savings
+
+## 🔧 Configuration
+
+### AWS Configuration
+```python
+AWS_CONFIG = {
+    'region': 'us-east-1',
+    'bucket': 'awsidpdocs',
+    'cache_prefix': 'processed_cache',
+    'temp_prefix': 'temp_uploads'
+}
+```
+
+### MongoDB Configuration (Optional)
+```python
+MONGODB_CONFIG = {
+    'connection_string': 'your_mongodb_connection_string',
+    'database_name': 'document_analysis',
+    'embedding_model': 'all-MiniLM-L6-v2'
+}
+```
+
+## 📊 Available Endpoints
+
+### Web UI
+- `GET /` - Main processing interface
+- `POST /api/process` - Process uploaded document
+- `POST /api/search` - Search processed documents
+- `GET /api/stats` - Get processing statistics
+- `GET /api/download/<hash>` - Download results
+
+### Additional Services
+- `http://localhost:5003` - Analytics Dashboard
+- `http://localhost:5005` - REST API Gateway
+
+## 🎯 Document Types Supported
+
+### Financial Documents
+- Loan agreements
+- Bank statements
+- Tax forms (1040, W-2)
+- Financial statements
+
+### Identity Documents
+- Driver's licenses
+- State IDs
+- Passports
+
+### Legal Documents
+- Power of attorney
+- Contracts
+- Legal agreements
+
+### Business Documents
+- Invoices
+- Purchase orders
+- Business licenses
+
+## 📈 Performance & Costs
+
+### Processing Times
+- **Cache Hit**: < 1 second
+- **New Document**: 30-120 seconds (depending on complexity)
+- **Batch Processing**: Parallel processing for efficiency
+
+### Cost Optimization
+- **S3 Caching**: Avoid reprocessing identical documents
+- **Smart Indexing**: Only index when needed
+- **Efficient APIs**: Minimize API calls through caching
+
+## 🔍 Search Capabilities
+
+### Semantic Search
+- Natural language queries
+- Concept-based matching
+- Similarity scoring
+- Context understanding
+
+### Traditional Search
+- Keyword matching
+- Field-specific filters
+- Boolean operators
+- Exact matches
+
+### Search Examples
+```javascript
+// Semantic search
+"Find all customers from Delaware with high-value loans"
+
+// Traditional search
+account_number: "123456" AND document_type: "loan_agreement"
+```
+
+## 🛠️ Development
+
+### Project Structure
+```
+├── unified_idp_ui.py          # Main application
+├── enhanced_classifier.py     # Document classification
+├── quality_assessor.py        # Quality assessment
+├── mongodb_rag_indexer.py     # RAG search functionality
+├── analytics_dashboard.py     # Analytics interface
+├── api_gateway.py            # REST API
+├── batch_processor.py        # Batch processing
+├── start_idp_platform.py     # Startup script
+├── templates/                # HTML templates
+└── temp_processing/          # Temporary files
+```
+
+### Adding New Document Types
+1. Update `enhanced_classifier.py` patterns
+2. Add quality criteria in `quality_assessor.py`
+3. Update UI document type list
+
+### Custom Analysis Prompts
+The platform supports custom prompts for specific extraction needs:
+- Financial analysis
+- Compliance checking
+- Data validation
+- Custom field extraction
+
+## 🔒 Security Considerations
+
+- **AWS IAM**: Use least-privilege access policies
+- **API Keys**: Implement proper authentication for production
+- **Data Encryption**: S3 encryption at rest
+- **Temporary Files**: Automatic cleanup of uploaded files
+- **Access Logs**: Monitor document access patterns
+
+## 🚨 Troubleshooting
+
+### Common Issues
+
+**AWS Credentials Error**
+```bash
+aws configure
+# Ensure correct region (us-east-1)
+```
+
+**MongoDB Connection Failed**
+- Check connection string
+- Verify network access
+- RAG search will be limited but platform still works
+
+**Textract Job Failed**
+- Check document format and size
+- Verify S3 bucket permissions
+- Ensure document is not corrupted
+
+**High Processing Costs**
+- Monitor cache hit rate
+- Use batch processing for multiple documents
+- Consider document preprocessing
+
+## 📞 Support
+
+For issues and questions:
+1. Check the troubleshooting section
+2. Review AWS service limits
+3. Verify all dependencies are installed
+4. Check application logs for detailed error messages
+
+## 🎉 Success Metrics
+
+Track your IDP platform success:
+- **Cache Hit Rate**: Target >70% for cost efficiency
+- **Processing Accuracy**: Monitor classification confidence
+- **Search Relevance**: User feedback on search results
+- **Processing Speed**: Average time per document
+- **Cost Savings**: Compare with/without caching
+
+---
+
+**Ready to process your documents intelligently? Start with `python start_idp_platform.py`** 🚀

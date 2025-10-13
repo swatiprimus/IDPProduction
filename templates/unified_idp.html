@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Unified IDP Platform</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0;
+            min-height: 600px;
+        }
+
+        .upload-section {
+            padding: 40px;
+            border-right: 1px solid #eee;
+        }
+
+        .search-section {
+            padding: 40px;
+            background: #f8f9fa;
+        }
+
+        .section-title {
+            font-size: 1.5em;
+            font-weight: bold;
+            margin-bottom: 20px;
+            color: #333;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .upload-area {
+            border: 3px dashed #667eea;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            margin-bottom: 20px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .upload-area:hover {
+            border-color: #764ba2;
+            background: #f8f9ff;
+        }
+
+        .upload-area.dragover {
+            border-color: #764ba2;
+            background: #f0f8ff;
+            transform: scale(1.02);
+        }
+
+        .upload-icon {
+            font-size: 3em;
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+
+        .upload-text {
+            font-size: 1.1em;
+            color: #666;
+            margin-bottom: 10px;
+        }
+
+        .file-info {
+            background: #e8f4fd;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            display: none;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .form-group input, .form-group textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s ease;
+        }
+
+        .form-group input:focus, .form-group textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .form-group textarea {
+            height: 100px;
+            resize: vertical;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: auto;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: 100%;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .search-box {
+            position: relative;
+            margin-bottom: 20px;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 15px 50px 15px 15px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+
+        .search-btn {
+            position: absolute;
+            right: 5px;
+            top: 5px;
+            bottom: 5px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 0 15px;
+            cursor: pointer;
+        }
+
+        .search-options {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .radio-group {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .results-area {
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            min-height: 300px;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .result-item {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            border-left: 4px solid #667eea;
+        }
+
+        .result-title {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 8px;
+        }
+
+        .result-meta {
+            font-size: 0.9em;
+            color: #666;
+            margin-bottom: 10px;
+        }
+
+        .result-preview {
+            font-size: 0.9em;
+            color: #555;
+            line-height: 1.4;
+        }
+
+        .processing-status {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            display: none;
+        }
+
+        .success-status {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+
+        .error-status {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+
+        .stats-bar {
+            background: #f8f9fa;
+            padding: 15px;
+            border-top: 1px solid #eee;
+            display: flex;
+            justify-content: space-around;
+            text-align: center;
+        }
+
+        .stat-item {
+            flex: 1;
+        }
+
+        .stat-number {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .stat-label {
+            font-size: 0.9em;
+            color: #666;
+        }
+
+        .cache-indicator {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+
+        .cache-hit {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .cache-miss {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .download-btn {
+            background: #28a745;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9em;
+            margin-top: 10px;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+            
+            .upload-section {
+                border-right: none;
+                border-bottom: 1px solid #eee;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 Unified IDP Platform</h1>
+            <p>Intelligent Document Processing with AI Classification, Quality Assessment & RAG Search</p>
+        </div>
+
+        <div class="main-content">
+            <!-- Upload and Processing Section -->
+            <div class="upload-section">
+                <div class="section-title">
+                    📄 Document Processing
+                </div>
+
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-icon">📁</div>
+                    <div class="upload-text">
+                        <strong>Click to upload</strong> or drag and drop your document
+                    </div>
+                    <div style="font-size: 0.9em; color: #999; margin-top: 5px;">
+                        Supports PDF, PNG, JPG (Max 50MB)
+                    </div>
+                </div>
+
+                <input type="file" id="fileInput" accept=".pdf,.png,.jpg,.jpeg" style="display: none;">
+
+                <div class="file-info" id="fileInfo">
+                    <strong>Selected File:</strong> <span id="fileName"></span><br>
+                    <strong>Size:</strong> <span id="fileSize"></span><br>
+                    <strong>Type:</strong> <span id="fileType"></span>
+                </div>
+
+                <div class="form-group">
+                    <label for="customPrompt">Custom Analysis Prompt (Optional)</label>
+                    <textarea id="customPrompt" placeholder="e.g., Extract all personal information and financial details from this document..."></textarea>
+                </div>
+
+                <div class="checkbox-group">
+                    <input type="checkbox" id="forceReprocess">
+                    <label for="forceReprocess">Force reprocessing (ignore cache)</label>
+                </div>
+
+                <div class="checkbox-group">
+                    <input type="checkbox" id="enableRag" checked>
+                    <label for="enableRag">Enable RAG indexing</label>
+                </div>
+
+                <button class="btn" id="processBtn" disabled>
+                    🚀 Process Document
+                </button>
+
+                <div class="processing-status" id="processingStatus"></div>
+            </div>
+
+            <!-- Search Section -->
+            <div class="search-section">
+                <div class="section-title">
+                    🔍 RAG Search
+                </div>
+
+                <div class="search-box">
+                    <input type="text" class="search-input" id="searchInput" 
+                           placeholder="Search processed documents...">
+                    <button class="search-btn" id="searchBtn">🔍</button>
+                </div>
+
+                <div class="search-options">
+                    <div class="radio-group">
+                        <input type="radio" id="semanticSearch" name="searchType" value="semantic" checked>
+                        <label for="semanticSearch">Semantic Search</label>
+                    </div>
+                    <div class="radio-group">
+                        <input type="radio" id="traditionalSearch" name="searchType" value="traditional">
+                        <label for="traditionalSearch">Traditional Search</label>
+                    </div>
+                </div>
+
+                <div class="results-area" id="searchResults">
+                    <div style="text-align: center; color: #666; padding: 50px;">
+                        Process documents to enable search functionality
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="stats-bar" id="statsBar">
+            <div class="stat-item">
+                <div class="stat-number" id="cacheHits">0</div>
+                <div class="stat-label">Cache Hits</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number" id="totalProcessed">0</div>
+                <div class="stat-label">Documents Processed</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number" id="cacheHitRate">0%</div>
+                <div class="stat-label">Cache Hit Rate</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let selectedFile = null;
+        let currentDocumentHash = null;
+
+        // DOM elements
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const fileInfo = document.getElementById('fileInfo');
+        const processBtn = document.getElementById('processBtn');
+        const processingStatus = document.getElementById('processingStatus');
+        const searchInput = document.getElementById('searchInput');
+        const searchBtn = document.getElementById('searchBtn');
+        const searchResults = document.getElementById('searchResults');
+
+        // File upload handling
+        uploadArea.addEventListener('click', () => fileInput.click());
+        uploadArea.addEventListener('dragover', handleDragOver);
+        uploadArea.addEventListener('dragleave', handleDragLeave);
+        uploadArea.addEventListener('drop', handleDrop);
+        fileInput.addEventListener('change', handleFileSelect);
+
+        function handleDragOver(e) {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        }
+
+        function handleDragLeave(e) {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+        }
+
+        function handleDrop(e) {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFile(files[0]);
+            }
+        }
+
+        function handleFileSelect(e) {
+            if (e.target.files.length > 0) {
+                handleFile(e.target.files[0]);
+            }
+        }
+
+        function handleFile(file) {
+            // Validate file type
+            const validTypes = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg'];
+            if (!validTypes.includes(file.type)) {
+                showStatus('Please select a PDF, PNG, or JPG file.', 'error');
+                return;
+            }
+
+            // Validate file size (50MB)
+            if (file.size > 50 * 1024 * 1024) {
+                showStatus('File size must be less than 50MB.', 'error');
+                return;
+            }
+
+            selectedFile = file;
+            
+            // Update file info
+            document.getElementById('fileName').textContent = file.name;
+            document.getElementById('fileSize').textContent = formatFileSize(file.size);
+            document.getElementById('fileType').textContent = file.type;
+            fileInfo.style.display = 'block';
+            
+            // Enable process button
+            processBtn.disabled = false;
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        // Document processing
+        processBtn.addEventListener('click', processDocument);
+
+        async function processDocument() {
+            if (!selectedFile) {
+                showStatus('Please select a file first.', 'error');
+                return;
+            }
+
+            processBtn.disabled = true;
+            showStatus('Processing document... This may take a few minutes.', 'processing');
+
+            const formData = new FormData();
+            formData.append('document', selectedFile);
+            formData.append('custom_prompt', document.getElementById('customPrompt').value);
+            formData.append('force_reprocess', document.getElementById('forceReprocess').checked);
+            formData.append('enable_rag', document.getElementById('enableRag').checked);
+
+            try {
+                const response = await fetch('/api/process', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    currentDocumentHash = result.document_hash;
+                    
+                    let statusMessage = `✅ Document processed successfully!`;
+                    if (result.from_cache) {
+                        statusMessage += ` <span class="cache-indicator cache-hit">FROM CACHE</span>`;
+                    } else {
+                        statusMessage += ` <span class="cache-indicator cache-miss">NEWLY PROCESSED</span>`;
+                    }
+                    
+                    statusMessage += `<br><strong>Processing Time:</strong> ${result.processing_time?.toFixed(2) || 0}s`;
+                    
+                    if (result.results) {
+                        const classification = result.results.classification;
+                        const quality = result.results.quality_assessment;
+                        
+                        if (classification?.final_classification) {
+                            statusMessage += `<br><strong>Document Type:</strong> ${classification.final_classification}`;
+                            statusMessage += ` (${(classification.confidence * 100).toFixed(1)}% confidence)`;
+                        }
+                        
+                        if (quality?.overall_score) {
+                            statusMessage += `<br><strong>Quality Score:</strong> ${(quality.overall_score * 100).toFixed(1)}%`;
+                        }
+                    }
+                    
+                    statusMessage += `<br><button class="download-btn" onclick="downloadResults('${result.document_hash}')">📥 Download Results</button>`;
+                    
+                    showStatus(statusMessage, 'success');
+                    updateStats();
+                } else {
+                    showStatus(`❌ Processing failed: ${result.message || result.error}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`❌ Processing failed: ${error.message}`, 'error');
+            } finally {
+                processBtn.disabled = false;
+            }
+        }
+
+        // Search functionality
+        searchBtn.addEventListener('click', performSearch);
+        searchInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') performSearch();
+        });
+
+        async function performSearch() {
+            const query = searchInput.value.trim();
+            if (!query) {
+                showSearchResults([]);
+                return;
+            }
+
+            const searchType = document.querySelector('input[name="searchType"]:checked').value;
+
+            try {
+                const response = await fetch('/api/search', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        query: query,
+                        search_type: searchType,
+                        limit: 10
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showSearchResults(result.results);
+                } else {
+                    searchResults.innerHTML = `<div style="color: #721c24; text-align: center; padding: 20px;">Search failed: ${result.message}</div>`;
+                }
+            } catch (error) {
+                searchResults.innerHTML = `<div style="color: #721c24; text-align: center; padding: 20px;">Search error: ${error.message}</div>`;
+            }
+        }
+
+        function showSearchResults(results) {
+            if (results.length === 0) {
+                searchResults.innerHTML = '<div style="text-align: center; color: #666; padding: 50px;">No results found</div>';
+                return;
+            }
+
+            let html = '';
+            results.forEach(result => {
+                const metadata = result.metadata || {};
+                const similarity = result.similarity_score ? ` (${(result.similarity_score * 100).toFixed(1)}% match)` : '';
+                
+                html += `
+                    <div class="result-item">
+                        <div class="result-title">
+                            ${metadata.filename || result.document_id || 'Document'}${similarity}
+                        </div>
+                        <div class="result-meta">
+                            Type: ${metadata.classification?.final_classification || 'Unknown'} | 
+                            Quality: ${metadata.quality?.overall_score ? (metadata.quality.overall_score * 100).toFixed(1) + '%' : 'N/A'} |
+                            Processed: ${result.created_at || result.indexed_at || 'Unknown'}
+                        </div>
+                        <div class="result-preview">
+                            ${result.text_content ? result.text_content.substring(0, 200) + '...' : 'No preview available'}
+                        </div>
+                    </div>
+                `;
+            });
+
+            searchResults.innerHTML = html;
+        }
+
+        // Utility functions
+        function showStatus(message, type) {
+            processingStatus.innerHTML = message;
+            processingStatus.className = `processing-status ${type}-status`;
+            processingStatus.style.display = 'block';
+        }
+
+        async function updateStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const result = await response.json();
+                
+                if (result.success) {
+                    const stats = result.stats;
+                    document.getElementById('cacheHits').textContent = stats.processing_stats.cache_hits;
+                    document.getElementById('totalProcessed').textContent = stats.total_documents;
+                    document.getElementById('cacheHitRate').textContent = (stats.cache_hit_rate * 100).toFixed(1) + '%';
+                }
+            } catch (error) {
+                console.error('Failed to update stats:', error);
+            }
+        }
+
+        function downloadResults(docHash) {
+            window.open(`/api/download/${docHash}`, '_blank');
+        }
+
+        // Initialize
+        updateStats();
+    </script>
+</body>
+</html>
