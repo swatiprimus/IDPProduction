@@ -120,37 +120,74 @@ MONGODB_CONFIG = {
 
 ### Web UI
 - `GET /` - Main processing interface
-- `POST /api/process` - Process uploaded document
-- `POST /api/search` - Search processed documents
-- `GET /api/stats` - Get processing statistics
-- `GET /api/download/<hash>` - Download results
+- `GET /dashboard` - Skills catalog dashboard
+- `GET /codebase` - Codebase documentation
+- `POST /process` - Process uploaded document
+- `GET /status/<job_id>` - Get processing status
+- `GET /document/<doc_id>` - View document details
+
+### API Endpoints
+- `GET /api/documents` - Get all processed documents
+- `GET /api/document/<doc_id>` - Get specific document details
+- `DELETE /api/document/<doc_id>/delete` - Delete a document
+- `POST /api/documents/cleanup` - Delete all documents and OCR files
 
 ### Additional Services
 - `http://localhost:5003` - Analytics Dashboard
 - `http://localhost:5005` - REST API Gateway
+- `http://localhost:5015` - Universal IDP (Main)
+- `http://localhost:5016` - Multi-Document Processor
 
 ## 🎯 Document Types Supported
 
-### Financial Documents
-- Loan agreements
-- Bank statements
-- Tax forms (1040, W-2)
-- Financial statements
+### Hierarchical Classification System
+The platform uses a decision tree-based classification system for accurate document type detection:
 
-### Identity Documents
-- Driver's licenses
+#### WSFS Bank Forms
+- Business Card Order Form
+- Account Withdrawal Form
+- Name Change Request
+- Tax ID Change Form
+- Joint Account Signature Card
+- ATM/Debit Card Request
+
+#### Vital Records
+- Delaware Death Certificate
+- Pennsylvania Death Certificate
+- Marriage Certificate
+
+#### Legal Documents
+- Register of Wills
+- Letters Testamentary
+- Letters of Administration
+- Small Estate Affidavit
+- Power of Attorney
+- Contracts
+
+#### Identity Documents
+- Driver's Licenses (all states)
 - State IDs
 - Passports
 
-### Legal Documents
-- Power of attorney
-- Contracts
-- Legal agreements
+#### Financial Documents
+- Loan agreements
+- Bank statements
+- Tax forms (1040, W-2, 1099)
+- Financial statements
+- Account opening documents
 
-### Business Documents
+#### Business Documents
 - Invoices
+- Funeral invoices
 - Purchase orders
 - Business licenses
+- Receipts
+
+#### Other Documents
+- Insurance policies
+- Medical records
+
+See [DOCUMENT_CLASSIFICATION_GUIDE.md](DOCUMENT_CLASSIFICATION_GUIDE.md) for detailed classification logic.
 
 ## 📈 Performance & Costs
 
@@ -163,6 +200,43 @@ MONGODB_CONFIG = {
 - **S3 Caching**: Avoid reprocessing identical documents
 - **Smart Indexing**: Only index when needed
 - **Efficient APIs**: Minimize API calls through caching
+
+## 🗂️ Document Management
+
+### Upload & Process
+1. **Single Document**: Upload PDF, PNG, JPG, or JPEG files
+2. **Auto-Classification**: Hierarchical decision tree for accurate type detection
+3. **OCR Processing**: Amazon Textract for scanned documents
+4. **Field Extraction**: AI-powered data extraction based on document type
+
+### View & Organize
+- **Dashboard View**: See all processed documents as skills
+- **Document Details**: View extracted fields and accuracy scores
+- **Search & Filter**: Find documents by type, date, or content
+- **Download Results**: Export as JSON or ODF format
+
+### Cleanup & Maintenance
+- **Delete Individual Documents**: Remove specific documents and their OCR files
+- **Bulk Cleanup**: Clear all processed documents at once
+- **Storage Management**: Monitor OCR results directory size
+- **Automatic Cleanup**: Configure retention policies
+
+### API Examples
+
+**Delete a Document:**
+```bash
+curl -X DELETE http://localhost:5015/api/document/<doc_id>/delete
+```
+
+**Cleanup All Documents:**
+```bash
+curl -X POST http://localhost:5015/api/documents/cleanup
+```
+
+**Get All Documents:**
+```bash
+curl http://localhost:5015/api/documents
+```
 
 ## 🔍 Search Capabilities
 
@@ -248,13 +322,39 @@ aws configure
 - Use batch processing for multiple documents
 - Consider document preprocessing
 
+## 📚 Complete Documentation
+
+### Core Documentation
+- **[PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)** - Complete project overview with architecture
+- **[DEMO_GUIDE.md](DEMO_GUIDE.md)** - Comprehensive demo script and presentation guide
+- **[TECHNICAL_ARCHITECTURE.md](TECHNICAL_ARCHITECTURE.md)** - Detailed technical architecture
+- **[LLM_TECHNOLOGY_GUIDE.md](LLM_TECHNOLOGY_GUIDE.md)** - Claude 3.5 Sonnet implementation details
+
+### Classification System
+- **[DOCUMENT_CLASSIFICATION_GUIDE.md](DOCUMENT_CLASSIFICATION_GUIDE.md)** - Classification logic and decision tree
+- **[ENHANCED_CLASSIFICATION_UPDATE.md](ENHANCED_CLASSIFICATION_UPDATE.md)** - Recent enhancements
+- **[QUICK_START_CLASSIFICATION.md](QUICK_START_CLASSIFICATION.md)** - Quick reference guide
+
+### Implementation & Status
+- **[SYSTEM_STATUS.md](SYSTEM_STATUS.md)** - Current system status
+- **[IMPLEMENTATION_COMPLETE.md](IMPLEMENTATION_COMPLETE.md)** - Implementation summary
+- **[READY_TO_USE.md](READY_TO_USE.md)** - Getting started guide
+
+### Feature Documentation
+- **[LARGE_DOCUMENT_PROCESSING.md](LARGE_DOCUMENT_PROCESSING.md)** - Large document handling
+- **[DOCUMENT_SUPPORT.md](DOCUMENT_SUPPORT.md)** - Supported document types
+- **[PROCESSING_OPTIMIZATION.md](PROCESSING_OPTIMIZATION.md)** - Performance optimization
+- **[UPLOAD_PROGRESS_FEATURE.md](UPLOAD_PROGRESS_FEATURE.md)** - Upload progress tracking
+
 ## 📞 Support
 
 For issues and questions:
-1. Check the troubleshooting section
-2. Review AWS service limits
-3. Verify all dependencies are installed
-4. Check application logs for detailed error messages
+1. Check the comprehensive documentation above
+2. Review the troubleshooting section
+3. Check AWS service limits
+4. Verify all dependencies are installed
+5. Review application logs for detailed error messages
+6. Run the test suite: `python test_classification.py`
 
 ## 🎉 Success Metrics
 

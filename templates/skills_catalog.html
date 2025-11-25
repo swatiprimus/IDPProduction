@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Universal IDP</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Inter', sans-serif; background: #f5f7fa; color: #333; }
+        .sidebar { position: fixed; left: 0; top: 0; width: 250px; height: 100vh; background: #1e293b; color: white; padding: 0; z-index: 1000; box-shadow: 4px 0 15px rgba(0,0,0,0.2); overflow-y: auto; }
+        .sidebar-header { padding: 25px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-bottom: 3px solid rgba(255,255,255,0.1); }
+        .sidebar-header h2 { font-size: 1.3em; font-weight: 700; margin: 0; }
+        .sidebar-item { padding: 15px 20px; cursor: pointer; transition: all 0.3s ease; display: flex; align-items: center; gap: 12px; border-left: 4px solid transparent; }
+        .sidebar-item:hover { background: #334155; border-left-color: #667eea; }
+        .sidebar-item.active { background: #334155; border-left-color: #667eea; font-weight: 600; }
+        .sidebar-item .icon { font-size: 1.2em; width: 24px; text-align: center; }
+        .sidebar-divider { height: 1px; background: rgba(255,255,255,0.1); margin: 15px 0; }
+        .sidebar-section { margin: 10px 0; }
+        .section-header { padding: 15px 20px; cursor: pointer; transition: all 0.3s ease; display: flex; align-items: center; gap: 12px; border-left: 4px solid transparent; position: relative; }
+        .section-header:hover { background: #334155; }
+        .section-header .arrow { position: absolute; right: 20px; transition: transform 0.3s ease; font-size: 0.8em; }
+        .section-header.expanded .arrow { transform: rotate(-180deg); }
+        .section-content { max-height: 0; overflow: hidden; transition: max-height 0.3s ease; background: #0f172a; }
+        .section-content.expanded { max-height: 500px; }
+        .sidebar-subitem { padding: 12px 20px 12px 56px; cursor: pointer; transition: all 0.3s ease; display: flex; align-items: center; gap: 10px; font-size: 0.95em; opacity: 0.9; }
+        .sidebar-subitem:hover { background: #1e293b; opacity: 1; padding-left: 60px; }
+        .sidebar-subitem .icon { font-size: 1.1em; }
+        .main-content { margin-left: 250px; padding: 30px; }
+        .header { background: white; padding: 25px 30px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 30px; }
+        .header h1 { font-size: 1.8em; color: #2c3e50; margin-bottom: 20px; }
+        .stats { display: flex; gap: 30px; margin-bottom: 20px; }
+        .stat-item { display: flex; align-items: center; gap: 10px; }
+        .stat-number { font-size: 1.5em; font-weight: 700; color: #3498db; }
+        .stat-label { font-size: 0.85em; color: #7f8c8d; }
+        .toolbar { display: flex; gap: 15px; align-items: center; }
+        .btn { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; transition: all 0.3s; display: flex; align-items: center; gap: 8px; }
+        .btn-primary { background: #3498db; color: white; }
+        .btn-primary:hover { background: #2980b9; transform: translateY(-2px); box-shadow: 0 4px 12px rgba(52, 152, 219, 0.4); }
+        .search-box { flex: 1; max-width: 300px; position: relative; }
+        .search-box input { width: 100%; padding: 10px 15px 10px 40px; border: 1px solid #ddd; border-radius: 6px; }
+        .search-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #7f8c8d; }
+        .skills-table { background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); overflow: hidden; }
+        table { width: 100%; border-collapse: collapse; }
+        thead { background: #f8f9fa; border-bottom: 2px solid #e9ecef; }
+        th { padding: 15px 20px; text-align: left; font-weight: 600; color: #495057; font-size: 0.9em; }
+        td { padding: 15px 20px; border-bottom: 1px solid #f1f3f5; }
+        tbody tr { cursor: pointer; transition: background 0.2s; }
+        tbody tr:hover { background: #f8f9fa; }
+        .skill-name { font-weight: 500; color: #2c3e50; }
+        .version-badge { display: inline-block; padding: 4px 10px; background: #e3f2fd; color: #1976d2; border-radius: 12px; font-size: 0.85em; font-weight: 500; }
+        .description { color: #7f8c8d; font-size: 0.9em; }
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
+        .modal.show { display: flex; }
+        .modal-content { background: white; border-radius: 8px; width: 90%; max-width: 600px; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+        .modal-header { padding: 20px 30px; background: #f8f9fa; border-bottom: 1px solid #e9ecef; display: flex; justify-content: space-between; align-items: center; }
+        .modal-header h2 { font-size: 1.3em; color: #2c3e50; display: flex; align-items: center; gap: 10px; }
+        .close-btn { background: none; border: none; font-size: 1.5em; cursor: pointer; color: #7f8c8d; }
+        .modal-body { padding: 30px; }
+        .form-group { margin-bottom: 25px; }
+        .form-label { display: block; margin-bottom: 8px; font-weight: 500; color: #495057; }
+        .required { color: #e74c3c; margin-right: 4px; }
+        .form-input { width: 100%; padding: 12px 15px; border: 2px solid #e9ecef; border-radius: 6px; font-size: 1em; }
+        .form-input:focus { outline: none; border-color: #3498db; }
+        .form-textarea { min-height: 100px; resize: vertical; }
+        .file-upload { border: 2px dashed #cbd5e0; border-radius: 8px; padding: 30px; text-align: center; cursor: pointer; }
+        .file-upload:hover { border-color: #3498db; background: #f8f9fa; }
+        .file-input { display: none; }
+        .modal-footer { padding: 20px 30px; background: #f8f9fa; border-top: 1px solid #e9ecef; display: flex; justify-content: flex-end; gap: 10px; }
+        .btn-cancel { background: white; color: #7f8c8d; border: 1px solid #ddd; }
+        .btn-create { background: #3498db; color: white; }
+        .btn-create:disabled { background: #cbd5e0; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h2>📄 IDP System</h2>
+        </div>
+        
+        <div class="sidebar-item active" onclick="window.location.href='/dashboard'">
+            <span class="icon">📊</span>
+            <span>Dashboard</span>
+        </div>
+        
+        <div class="sidebar-item" onclick="window.location.href='/codebase'">
+            <span class="icon">📖</span>
+            <span>Codebase</span>
+        </div>
+        
+        <div class="sidebar-divider"></div>
+        
+        <div class="sidebar-section">
+            <div class="section-header" onclick="toggleSection('admin')">
+                <span class="icon">⚙️</span>
+                <span>Admin</span>
+                <span class="arrow" id="admin-arrow">▼</span>
+            </div>
+            <div class="section-content" id="admin-section">
+                <div class="sidebar-subitem" onclick="showComingSoon('Users')">
+                    <span class="icon">👥</span>
+                    <span>Users</span>
+                </div>
+                <div class="sidebar-subitem" onclick="showComingSoon('Configuration')">
+                    <span class="icon">🔧</span>
+                    <span>Configuration</span>
+                </div>
+                <div class="sidebar-subitem" onclick="showComingSoon('Settings')">
+                    <span class="icon">⚙️</span>
+                    <span>Settings</span>
+                </div>
+                <div class="sidebar-subitem" onclick="showComingSoon('Help')">
+                    <span class="icon">❓</span>
+                    <span>Help</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="main-content">
+        <div class="header">
+            <h1>📊 Dashboard</h1>
+            <div class="stats">
+                <div class="stat-item"><div><div class="stat-number">12</div><div class="stat-label">Total Skills</div></div></div>
+                <div class="stat-item"><div><div class="stat-number" id="totalDocs">0</div><div class="stat-label">Documents Processed</div></div></div>
+            </div>
+            <div class="toolbar">
+                <button class="btn btn-primary" onclick="openCreateModal()"><span>+</span><span>Create</span></button>
+                <div class="search-box"><span class="search-icon">🔍</span><input type="text" placeholder="Search..." id="searchInput" onkeyup="filterSkills()"></div>
+            </div>
+        </div>
+        <div class="skills-table">
+            <table>
+                <thead><tr><th style="width:50px;"></th><th>Skill Name</th><th style="width:150px;">Created Date</th><th>Document Type</th><th style="width:120px;">Accuracy</th></tr></thead>
+                <tbody id="skillsTableBody"></tbody>
+            </table>
+        </div>
+    </div>
+    <div class="modal" id="createModal">
+        <div class="modal-content">
+            <div class="modal-header"><h2><span>📄</span><span>Process New Document</span></h2><button class="close-btn" onclick="closeCreateModal()">×</button></div>
+            <div class="modal-body">
+                <div class="form-group"><label class="form-label"><span class="required">*</span>Document Name</label><input type="text" class="form-input" id="docName" placeholder="Enter document name" required></div>
+                <div class="form-group"><label class="form-label">Description</label><textarea class="form-input form-textarea" id="docDescription" placeholder="Optional"></textarea></div>
+                <div class="form-group"><label class="form-label"><span class="required">*</span>Upload Document</label><div class="file-upload" onclick="document.getElementById('fileInput').click()"><div style="font-size:3em;color:#cbd5e0;">📁</div><div>Click to upload or drag and drop</div><div style="font-size:0.85em;color:#adb5bd;">PDF, PNG, JPG, JPEG, TXT</div></div><input type="file" id="fileInput" class="file-input" accept=".pdf,.png,.jpg,.jpeg,.txt" onchange="handleFileSelect(event)"><div id="selectedFileInfo" style="display:none;"></div></div>
+            </div>
+            <div class="modal-footer"><button class="btn btn-cancel" onclick="closeCreateModal()">Cancel</button><button class="btn btn-create" id="createBtn" onclick="processDocument()" disabled>Create</button></div>
+        </div>
+    </div>
+    
+
+    <script>
+        let selectedFile=null;
+        let allSkills=[];
+        window.onload=function(){loadSkills();loadStats();};
+        
+        function toggleSection(sectionId) {
+            const section = document.getElementById(sectionId + '-section');
+            const header = event.currentTarget;
+            if (section.classList.contains('expanded')) {
+                section.classList.remove('expanded');
+                header.classList.remove('expanded');
+            } else {
+                section.classList.add('expanded');
+                header.classList.add('expanded');
+            }
+        }
+        
+        function showComingSoon(feature) {
+            alert(`${feature} feature coming soon! This will be implemented in a future update.`);
+        }
+        
+        async function loadSkills(){
+            try{
+                const response=await fetch('/api/documents');
+                const data=await response.json();
+                allSkills=data.documents||[];
+                displaySkills(allSkills);
+            }catch(error){
+                console.error('Error loading skills:',error);
+                document.getElementById('skillsTableBody').innerHTML='<tr><td colspan="5" style="text-align:center;padding:40px;color:#7f8c8d;">No skills created yet. Click "Create" to add your first document processing skill.</td></tr>';
+            }
+        }
+        
+        function displaySkills(skills){
+            const tbody=document.getElementById('skillsTableBody');
+            tbody.innerHTML='';
+            
+            if(skills.length===0){
+                tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:40px;color:#7f8c8d;">No skills created yet. Click "Create" to add your first document processing skill.</td></tr>';
+                return;
+            }
+            
+            skills.forEach(skill=>{
+                const docTypeInfo=skill.document_type_info||{};
+                const icon=docTypeInfo.icon||'📄';
+                const docType=docTypeInfo.name||'Unknown';
+                const processedDate=new Date(skill.processed_date).toLocaleDateString();
+                
+                // Get accuracy (already calculated in backend with 1 decimal precision)
+                let accuracy=0;
+                if(skill.documents&&skill.documents.length>0){
+                    const doc=skill.documents[0];
+                    // Use the accuracy_score from backend (already calculated correctly)
+                    accuracy=doc.accuracy_score||0;
+                }
+                
+                const accuracyColor=accuracy>=80?'#10b981':accuracy>=60?'#f59e0b':'#ef4444';
+                
+                const row=document.createElement('tr');
+                row.onclick=()=>window.open(`/document/${skill.id}`,'_blank');
+                row.style.cursor='pointer';
+                
+                // Check if PDF is available
+                const hasPDF = skill.filename && skill.filename.toLowerCase().endsWith('.pdf');
+                const pdfButton = hasPDF ? `<button onclick="event.stopPropagation();viewPDF('${skill.id}','${skill.filename}')" style="padding:6px 10px;background:transparent;color:#667eea;border:none;cursor:pointer;transition:all 0.3s;display:inline-flex;align-items:center;justify-content:center;" title="View PDF"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><path d="M10 12h4"></path><path d="M10 16h4"></path></svg></button>` : '';
+                
+                row.innerHTML=`
+                    <td><span style="font-size:1.5em;">${icon}</span></td>
+                    <td>
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <span class="skill-name">${skill.document_name || skill.filename}</span>
+                            <span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;background:#d1fae5;color:#065f46;border-radius:12px;font-size:0.75em;font-weight:600;">
+                                <span style="width:6px;height:6px;background:#10b981;border-radius:50%;animation:blink 1.5s ease-in-out infinite;"></span>
+                                Ready
+                            </span>
+                            ${pdfButton}
+                        </div>
+                    </td>
+                    <td><span class="version-badge">${processedDate}</span></td>
+                    <td><span class="description">${docType}</span></td>
+                    <td>
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <div style="flex:1;height:8px;background:#e5e7eb;border-radius:10px;overflow:hidden;">
+                                <div style="height:100%;width:${accuracy}%;background:${accuracyColor};transition:width 0.3s;"></div>
+                            </div>
+                            <span style="font-weight:600;color:${accuracyColor};min-width:45px;">${accuracy}%</span>
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+        function filterSkills(){
+            const searchTerm=document.getElementById('searchInput').value.toLowerCase();
+            if(!searchTerm){
+                displaySkills(allSkills);
+                return;
+            }
+            const filtered=allSkills.filter(skill=>
+                (skill.document_name || skill.filename).toLowerCase().includes(searchTerm)||
+                (skill.document_type_info&&skill.document_type_info.name.toLowerCase().includes(searchTerm))
+            );
+            displaySkills(filtered);
+        }
+        async function loadStats(){
+            try{
+                const response=await fetch('/api/documents');
+                const data=await response.json();
+                const total=data.total||0;
+                document.getElementById('totalDocs').textContent=total;
+                document.querySelector('.stat-number').textContent=total;
+            }catch(error){
+                console.error('Error:',error);
+            }
+        }
+        function openCreateModal(){document.getElementById('createModal').classList.add('show');}
+        function closeCreateModal(){document.getElementById('createModal').classList.remove('show');selectedFile=null;document.getElementById('selectedFileInfo').style.display='none';document.getElementById('createBtn').disabled=true;}
+        function handleFileSelect(event){
+            const file=event.target.files[0];
+            if(file){
+                selectedFile=file;
+                const fileSize=(file.size/1024/1024).toFixed(2);
+                document.getElementById('selectedFileInfo').innerHTML=`<div style="margin-top:15px;padding:12px;background:#e3f2fd;border-radius:6px;"><strong>${file.name}</strong> (${fileSize} MB)</div>`;
+                document.getElementById('selectedFileInfo').style.display='block';
+                validateForm();
+            }
+        }
+        function validateForm(){const docName=document.getElementById('docName').value.trim();document.getElementById('createBtn').disabled=!(docName&&selectedFile);}
+        document.getElementById('docName').addEventListener('input',validateForm);
+        async function processDocument(){
+            if(!selectedFile)return;
+            const createBtn=document.getElementById('createBtn');
+            createBtn.disabled=true;
+            createBtn.textContent='Processing...';
+            const formData=new FormData();
+            formData.append('file',selectedFile);
+            const docName=document.getElementById('docName').value.trim();
+            if(docName){
+                formData.append('document_name',docName);
+            }
+            
+            try{
+                const response=await fetch('/process',{method:'POST',body:formData});
+                const data=await response.json();
+                if(data.success){
+                    closeCreateModal();
+                    showNotification('Document is being processed...');
+                    pollProcessing(data.job_id);
+                }else{
+                    alert('Upload failed: '+data.message);
+                    createBtn.disabled=false;
+                    createBtn.textContent='Create';
+                }
+            }catch(error){
+                alert('Error: '+error.message);
+                createBtn.disabled=false;
+                createBtn.textContent='Create';
+            }
+        }
+        function showNotification(message){
+            const notification=document.createElement('div');
+            notification.style.cssText='position:fixed;top:20px;right:20px;background:#10b981;color:white;padding:15px 25px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.2);z-index:2000;';
+            notification.textContent=message;
+            document.body.appendChild(notification);
+            setTimeout(()=>notification.remove(),3000);
+        }
+        // Track processing documents
+        const processingDocs = new Map();
+        
+        async function pollProcessing(jobId){
+            // Add to processing list immediately
+            addProcessingDocument(jobId);
+            
+            let attempts=0;
+            const maxAttempts=600; // 10 minutes max (600 seconds)
+            const poll=async()=>{
+                try{
+                    attempts++;
+                    const response=await fetch(`/status/${jobId}`);
+                    const status=await response.json();
+                    
+                    // Update progress in real-time
+                    if(status.progress){
+                        updateProcessingDocument(jobId, status.progress, status.status);
+                        console.log(`Processing: ${status.progress}% - ${status.status}`);
+                    }
+                    
+                    if(status.result||status.progress===100){
+                        showNotification('✅ Document processed successfully!');
+                        removeProcessingDocument(jobId);
+                        loadSkills();
+                        loadStats();
+                    }else if(status.error){
+                        showNotification('❌ Processing failed: ' + (status.error || 'Unknown error'));
+                        console.error('Processing error:', status);
+                        removeProcessingDocument(jobId);
+                    }else if(attempts>=maxAttempts){
+                        showNotification('⚠️ Processing timeout - check server logs');
+                        console.error('Polling timeout after 10 minutes');
+                        removeProcessingDocument(jobId);
+                    }else{
+                        setTimeout(poll,1000);
+                    }
+                }catch(error){
+                    console.error('Polling error:',error);
+                    if(attempts<maxAttempts){
+                        setTimeout(poll,2000); // Retry after 2 seconds on error
+                    }else{
+                        removeProcessingDocument(jobId);
+                    }
+                }
+            };
+            poll();
+        }
+        
+        function addProcessingDocument(jobId){
+            processingDocs.set(jobId, {progress: 0, status: 'Starting...', filename: selectedFile?.name || 'Document'});
+            displayProcessingDocuments();
+        }
+        
+        function updateProcessingDocument(jobId, progress, status){
+            if(processingDocs.has(jobId)){
+                processingDocs.set(jobId, {...processingDocs.get(jobId), progress, status});
+                displayProcessingDocuments();
+            }
+        }
+        
+        function removeProcessingDocument(jobId){
+            processingDocs.delete(jobId);
+            displayProcessingDocuments();
+        }
+        
+        function displayProcessingDocuments(){
+            const tbody=document.getElementById('skillsTableBody');
+            const existingRows=tbody.querySelectorAll('tr:not(.processing-row)');
+            
+            // Remove old processing rows
+            tbody.querySelectorAll('.processing-row').forEach(row=>row.remove());
+            
+            // Add processing documents at the top
+            processingDocs.forEach((doc, jobId)=>{
+                const row=document.createElement('tr');
+                row.className='processing-row';
+                row.style.background='#fffbeb';
+                row.style.borderLeft='4px solid #f59e0b';
+                
+                const progressColor=doc.progress>=80?'#10b981':doc.progress>=40?'#3498db':'#f59e0b';
+                
+                row.innerHTML=`
+                    <td><span style="font-size:1.5em;">⏳</span></td>
+                    <td>
+                        <span class="skill-name">${doc.filename}</span>
+                        <div style="font-size:0.85em;color:#92400e;margin-top:4px;">${doc.status}</div>
+                    </td>
+                    <td><span class="version-badge" style="background:#fef3c7;color:#92400e;">Processing</span></td>
+                    <td><span class="description">Processing...</span></td>
+                    <td>
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <div style="flex:1;height:8px;background:#e5e7eb;border-radius:10px;overflow:hidden;">
+                                <div style="height:100%;width:${doc.progress}%;background:${progressColor};transition:width 0.3s;animation:pulse 1.5s ease-in-out infinite;"></div>
+                            </div>
+                            <span style="font-weight:600;color:${progressColor};min-width:45px;">${doc.progress}%</span>
+                        </div>
+                    </td>
+                `;
+                tbody.insertBefore(row, tbody.firstChild);
+            });
+        }
+        
+        // Add animations for progress bar and ready indicator
+        const style=document.createElement('style');
+        style.textContent=`
+            @keyframes pulse {
+                0%, 100% { opacity: 1; }
+                50% { opacity: 0.7; }
+            }
+            @keyframes blink {
+                0%, 100% { opacity: 1; }
+                50% { opacity: 0.3; }
+            }
+        `;
+        document.head.appendChild(style);
+        document.getElementById('createModal').addEventListener('click',function(e){if(e.target===this){closeCreateModal();}});
+        
+        // PDF Viewer Functions
+        function viewPDF(docId, filename) {
+            // Open PDF in new tab
+            window.open(`/api/document/${docId}/pdf`, '_blank');
+        }
+
+    </script>
+</body>
+</html>

@@ -213,10 +213,13 @@ __marimo__/
 *.pdf
 *.PDF
 
-#Text files
-*.txt
-*.TEXT
+# Text files (exclude OCR results but keep requirements)
+ocr_results/
+temp_processing/
+!requirement.txt
+!requirements.txt
 
-#JSON files
-*.json
-*.JSON
+# JSON files (exclude data files but keep config)
+processed_documents.json
+document_index.json
+*.db
