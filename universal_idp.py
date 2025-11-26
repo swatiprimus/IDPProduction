@@ -178,10 +178,16 @@ EXTRACTION RULES:
 - Use "N/A" ONLY if the field is truly not mentioned anywhere in the document
 - For AccountHolderNames: Return as array even if single name, e.g., ["John Doe"]
 - For Signers: Extract ALL available information for each signer, create separate objects for each person
-- For SupportingDocuments: List every document mentioned (Driver's License, Death Certificate, etc.)
+- For SupportingDocuments: List EVERY document mentioned including:
+  * Driver's License / State ID (with ID numbers)
+  * Death Certificates
+  * OFAC Checks (Office of Foreign Assets Control screening)
+  * Background checks or compliance verifications
+  * Any other supporting documentation referenced
 - Preserve exact account numbers and SSNs as they appear
 - If you see multiple account types mentioned, use the most specific one
 - Look carefully at the entire document text for these fields
+- Pay special attention to compliance sections, checkboxes, and verification stamps for OFAC or other checks
 
 EXAMPLES:
 Example 1: Document says "Premier Checking Account for Business Operations, Consumer Banking"
@@ -203,6 +209,20 @@ Example 3: Document says "Personal Checking Account, Consumer"
   "AccountType": "Personal",
   "WSFSAccountType": "Personal Checking",
   "AccountPurpose": "Consumer"
+}
+
+Example 4: SupportingDocuments with OFAC check
+{
+  "SupportingDocuments": [
+    {
+      "DocumentType": "Driver's License",
+      "Details": "DE #1234567"
+    },
+    {
+      "DocumentType": "OFAC Check",
+      "Details": "Completed on 3/18/2016 - No match found"
+    }
+  ]
 }
 """
 
@@ -945,7 +965,7 @@ IMPORTANT:
 - For dates, preserve the original format
 - For names, include full names as they appear
 - Include all numbers, IDs, and reference codes
-- ALWAYS include a "SupportingDocuments" field listing any related documents, attachments, or references mentioned
+- Include a "SupportingDocuments" field ONLY if there are actual supporting documents attached or referenced
 
 Return ONLY valid JSON in this exact format:
 {{
@@ -969,12 +989,21 @@ Return ONLY valid JSON in this exact format:
   ]
 }}
 
-For SupportingDocuments, include any:
-- Attached documents mentioned
-- Referenced certificates or IDs
-- Related forms or paperwork
-- Witness documents
-- Verification documents
+For SupportingDocuments, ONLY include:
+- Driver's License or State ID (with ID numbers)
+- Death Certificates, Birth Certificates, Marriage Certificates
+- OFAC checks or compliance verifications
+- Passport or other government-issued IDs
+- Attached copies of actual documents
+
+DO NOT include as SupportingDocuments:
+- Standard terms and conditions (e.g., "Deposit Account Agreement")
+- Generic disclosures (e.g., "Regulation E Disclosure", "Privacy Policy")
+- Legal disclaimers or authorization text
+- Standard bank forms or agreements mentioned in fine print
+- Any document that is just referenced in legal text but not actually attached
+
+If there are NO actual supporting documents attached or specifically referenced with details, OMIT the SupportingDocuments field entirely.
 
 Do NOT use "N/A" - only include fields that have actual values in the document.
 """
