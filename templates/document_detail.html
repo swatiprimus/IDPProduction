@@ -580,6 +580,98 @@
             border-bottom: 3px solid var(--primary);
         }
 
+        /* Editable field styles */
+        .field-value.editable {
+            cursor: pointer;
+            position: relative;
+            padding-right: 30px;
+            transition: all 0.3s ease;
+        }
+
+        .field-value.editable:hover {
+            background: #e0e7ff;
+            border-radius: 5px;
+            padding: 5px;
+            padding-right: 30px;
+        }
+
+        .field-value.editable::after {
+            content: '✏️';
+            position: absolute;
+            right: 5px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 0.9em;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .field-value.editable:hover::after {
+            opacity: 1;
+        }
+
+        .field-value input,
+        .field-value textarea {
+            width: 100%;
+            padding: 8px;
+            border: 2px solid var(--primary);
+            border-radius: 5px;
+            font-family: 'Inter', sans-serif;
+            font-size: 1em;
+            background: white;
+        }
+
+        .field-value textarea {
+            min-height: 60px;
+            resize: vertical;
+        }
+
+        .edit-actions {
+            margin-top: 8px;
+            display: flex;
+            gap: 8px;
+        }
+
+        .edit-actions button {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .save-btn {
+            background: var(--success);
+            color: white;
+        }
+
+        .save-btn:hover {
+            background: #059669;
+            transform: translateY(-1px);
+        }
+
+        .cancel-btn {
+            background: #6b7280;
+            color: white;
+        }
+
+        .cancel-btn:hover {
+            background: #4b5563;
+        }
+
+        .edited-indicator {
+            display: inline-block;
+            background: var(--success);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.75em;
+            margin-left: 8px;
+            font-weight: 600;
+        }
+
         @media print {
             body {
                 background: white;
@@ -608,11 +700,13 @@
             alert(`${feature} feature coming soon! This will be implemented in a future update.`);
         }
 
-        // Raw JSON functionality
-        const documentData = {{ document | tojson | safe }};
+        // Raw JSON functionality - keep track of edits
+        let documentData = {{ document | tojson | safe }};
+        const editedFields = new Set();
 
         function showRawJSON() {
             document.getElementById('jsonModal').style.display = 'block';
+            // Show the current state with edits
             document.getElementById('jsonContent').textContent = JSON.stringify(documentData, null, 2);
         }
 
@@ -621,7 +715,8 @@
         }
 
         function copyJSON() {
-            const jsonText = document.getElementById('jsonContent').textContent;
+            // Copy the current state with edits
+            const jsonText = JSON.stringify(documentData, null, 2);
             navigator.clipboard.writeText(jsonText).then(() => {
                 const btn = event.target;
                 const originalText = btn.textContent;
@@ -637,6 +732,7 @@
         }
 
         function downloadJSON() {
+            // Download the current state with edits
             const jsonText = JSON.stringify(documentData, null, 2);
             const blob = new Blob([jsonText], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
@@ -648,6 +744,241 @@
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
         }
+
+        // Field editing functionality
+        function makeFieldEditable(element, accountIndex, fieldName) {
+            // Don't edit if already in edit mode
+            if (element.querySelector('input') || element.querySelector('textarea')) {
+                return;
+            }
+
+            // Store original HTML and get clean text value (without "Edited" badge)
+            const originalHTML = element.innerHTML;
+            let currentValue = element.textContent.trim();
+            
+            // Remove "Edited" text if present
+            if (currentValue.endsWith('Edited')) {
+                currentValue = currentValue.substring(0, currentValue.length - 6).trim();
+            }
+            
+            const isLongText = currentValue.length > 50;
+            
+            // Store original state for cancel
+            element.dataset.originalHTML = originalHTML;
+            element.dataset.originalValue = currentValue;
+            
+            // Create input element
+            const input = document.createElement(isLongText ? 'textarea' : 'input');
+            if (!isLongText) {
+                input.type = 'text';
+            }
+            input.value = currentValue;
+            
+            // Create action buttons
+            const actions = document.createElement('div');
+            actions.className = 'edit-actions';
+            
+            const saveBtn = document.createElement('button');
+            saveBtn.className = 'save-btn';
+            saveBtn.textContent = '✓ Save';
+            saveBtn.onclick = (e) => {
+                e.stopPropagation();
+                saveFieldEdit(element, accountIndex, fieldName, input.value, currentValue);
+            };
+            
+            const cancelBtn = document.createElement('button');
+            cancelBtn.className = 'cancel-btn';
+            cancelBtn.textContent = '✗ Cancel';
+            cancelBtn.onclick = (e) => {
+                e.stopPropagation();
+                cancelFieldEdit(element);
+            };
+            
+            actions.appendChild(saveBtn);
+            actions.appendChild(cancelBtn);
+            
+            // Replace content
+            element.innerHTML = '';
+            element.appendChild(input);
+            element.appendChild(actions);
+            element.classList.remove('editable');
+            
+            // Focus input
+            input.focus();
+            input.select();
+        }
+
+        function saveFieldEdit(element, accountIndex, fieldName, newValue, oldValue) {
+            // Clear the element
+            element.innerHTML = '';
+            
+            // Create text node for the value
+            const textNode = document.createTextNode(newValue);
+            element.appendChild(textNode);
+            
+            // Add edited indicator
+            const indicator = document.createElement('span');
+            indicator.className = 'edited-indicator';
+            indicator.textContent = 'Edited';
+            element.appendChild(indicator);
+            
+            // Restore editable class
+            element.classList.add('editable');
+            
+            // Update the documentData object
+            let updateSuccess = false;
+            
+            if (accountIndex !== null && accountIndex !== undefined && accountIndex >= 0) {
+                // Loan document with accounts
+                console.log('Updating account', accountIndex, 'field', fieldName, 'to', newValue);
+                
+                if (documentData.documents && documentData.documents[0] && documentData.documents[0].accounts) {
+                    const account = documentData.documents[0].accounts[accountIndex];
+                    if (account && account.result) {
+                        account.result[fieldName] = newValue;
+                        updateSuccess = true;
+                        
+                        console.log('Updated documentData:', documentData.documents[0].accounts[accountIndex].result[fieldName]);
+                        
+                        // Recalculate accuracy for this account
+                        const required_fields = ["AccountHolderNames", "AccountType", "OwnershipType", 
+                                                "WSFSAccountType", "AccountPurpose", "SSN", "Signers"];
+                        let filled = 0;
+                        required_fields.forEach(field => {
+                            const value = account.result[field];
+                            if (value && value !== "N/A" && value !== "" && 
+                                !(Array.isArray(value) && value.length === 0)) {
+                                filled++;
+                            }
+                        });
+                        account.accuracy_score = Math.round((filled / required_fields.length) * 100 * 10) / 10;
+                        account.filled_fields = filled;
+                        
+                        // Update accuracy badge
+                        const accountSection = element.closest('.account-section');
+                        if (accountSection) {
+                            const badge = accountSection.querySelector('.accuracy-badge');
+                            if (badge) {
+                                badge.textContent = `${account.accuracy_score}% Accuracy`;
+                                if (account.accuracy_score >= 80) {
+                                    badge.style.background = 'var(--success)';
+                                } else if (account.accuracy_score >= 60) {
+                                    badge.style.background = 'var(--warning)';
+                                } else {
+                                    badge.style.background = 'var(--danger)';
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Regular document
+                console.log('Updating regular document field', fieldName, 'to', newValue);
+                
+                if (documentData.documents && documentData.documents[0] && 
+                    documentData.documents[0].extracted_fields) {
+                    documentData.documents[0].extracted_fields[fieldName] = newValue;
+                    updateSuccess = true;
+                    
+                    console.log('Updated documentData:', documentData.documents[0].extracted_fields[fieldName]);
+                    
+                    // Recalculate accuracy
+                    const doc = documentData.documents[0];
+                    const fields = doc.extracted_fields;
+                    let filled = 0;
+                    let total = 0;
+                    for (const [key, value] of Object.entries(fields)) {
+                        total++;
+                        if (value && value !== "N/A" && value !== "" && 
+                            !(Array.isArray(value) && value.length === 0)) {
+                            filled++;
+                        }
+                    }
+                    doc.accuracy_score = Math.round((filled / total) * 100 * 10) / 10;
+                    doc.filled_fields = filled;
+                    doc.total_fields = total;
+                }
+            }
+            
+            // Track edited field
+            editedFields.add(`${accountIndex}_${fieldName}`);
+            
+            // Show success message
+            if (updateSuccess) {
+                showNotification('✓ Field updated! Changes saved to JSON.', 'success');
+            } else {
+                showNotification('⚠ Display updated but JSON update failed. Check console.', 'error');
+                console.error('Failed to update documentData structure');
+            }
+        }
+
+        function cancelFieldEdit(element) {
+            // Restore original HTML
+            if (element.dataset.originalHTML) {
+                element.innerHTML = element.dataset.originalHTML;
+            }
+            
+            // Restore editable class
+            element.classList.add('editable');
+            
+            // Clean up stored data
+            delete element.dataset.originalHTML;
+            delete element.dataset.originalValue;
+        }
+
+        function showNotification(message, type = 'success') {
+            const notification = document.createElement('div');
+            const bgColor = type === 'success' ? 'var(--success)' : 
+                           type === 'error' ? 'var(--danger)' : 
+                           'var(--warning)';
+            
+            notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: ${bgColor};
+                color: white;
+                padding: 15px 25px;
+                border-radius: 10px;
+                box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+                z-index: 10000;
+                font-weight: 600;
+                animation: slideIn 0.3s ease-out;
+            `;
+            notification.textContent = message;
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.style.animation = 'slideOut 0.3s ease-out';
+                setTimeout(() => notification.remove(), 300);
+            }, 3000);
+        }
+
+        // Add animation styles
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes slideIn {
+                from {
+                    transform: translateX(400px);
+                    opacity: 0;
+                }
+                to {
+                    transform: translateX(0);
+                    opacity: 1;
+                }
+            }
+            @keyframes slideOut {
+                from {
+                    transform: translateX(0);
+                    opacity: 1;
+                }
+                to {
+                    transform: translateX(400px);
+                    opacity: 0;
+                }
+            }
+        `;
+        document.head.appendChild(style);
 
         function viewPDF() {
             // Open PDF in new tab
@@ -824,6 +1155,36 @@
             {% endif %}
             {% endif %}
 
+            <!-- Editing Instructions Banner -->
+            {% set has_low_accuracy = false %}
+            {% if document.documents %}
+                {% for doc in document.documents %}
+                    {% if doc.accuracy_score < 100 %}
+                        {% set has_low_accuracy = true %}
+                    {% endif %}
+                    {% if doc.accounts %}
+                        {% for account in doc.accounts %}
+                            {% if account.accuracy_score < 100 %}
+                                {% set has_low_accuracy = true %}
+                            {% endif %}
+                        {% endfor %}
+                    {% endif %}
+                {% endfor %}
+            {% endif %}
+            
+            {% if has_low_accuracy %}
+            <div style="background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white; padding: 20px; border-radius: 10px; margin-bottom: 25px; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);">
+                <h3 style="margin: 0 0 10px 0; display: flex; align-items: center; gap: 10px;">
+                    <span style="font-size: 1.5em;">✏️</span>
+                    <span>Editable Fields Available</span>
+                </h3>
+                <p style="margin: 0; opacity: 0.95; line-height: 1.6;">
+                    This document has fields with accuracy less than 100%. You can <strong>click on any field value</strong> to edit it. 
+                    Your changes will be automatically included in the downloaded JSON file.
+                </p>
+            </div>
+            {% endif %}
+
 
 
             {% if document.documents %}
@@ -865,10 +1226,11 @@
                 </div>
 
                 {% for account in doc.accounts %}
+                {% set account_index = loop.index0 %}
                 <div class="account-section">
-                    <div class="account-header" onclick="toggleAccountDetails({{ loop.index0 }})">
+                    <div class="account-header" onclick="toggleAccountDetails({{ account_index }})">
                         <h3 class="account-title">
-                            <span class="expand-icon" id="expand-icon-{{ loop.index0 }}">▼</span>
+                            <span class="expand-icon" id="expand-icon-{{ account_index }}">▼</span>
                             Account: {{ account.accountNumber }}
                         </h3>
                         <span class="accuracy-badge" style="background: {% if account.accuracy_score >= 80 %}var(--success){% elif account.accuracy_score >= 60 %}var(--warning){% else %}var(--danger){% endif %};">
@@ -876,7 +1238,7 @@
                         </span>
                     </div>
 
-                    <div class="account-details-content" id="account-details-{{ loop.index0 }}">
+                    <div class="account-details-content" id="account-details-{{ account_index }}">
                     
                     {% if account.needs_human_review and account.fields_needing_review and account.fields_needing_review|length > 0 %}
                     <div style="background: #fef3c7; padding: 15px; border-radius: 10px; margin-bottom: 20px; border-left: 4px solid var(--warning);">
@@ -925,7 +1287,14 @@
                                 <!-- Regular field -->
                                 <div style="background: white; padding: 12px; border-radius: 5px; margin-bottom: 10px;">
                                     <strong style="color: #666;">{{ key }}:</strong>
-                                    <span style="color: #333;">
+                                    <span style="color: #333;" 
+                                          {% if account.accuracy_score < 100 %}
+                                          class="field-value editable" 
+                                          onclick="makeFieldEditable(this, {{ account_index }}, '{{ key }}')"
+                                          title="Click to edit this field"
+                                          {% else %}
+                                          class="field-value"
+                                          {% endif %}>
                                         {% if value is iterable and value is not string and value is not mapping %}
                                             {{ value|join(', ') }}
                                         {% elif value is mapping %}
@@ -1023,7 +1392,11 @@
                         {% else %}
                         <div class="field-box">
                             <div class="field-label">{{ key.replace('_', ' ') }}</div>
-                            <div class="field-value">
+                            <div class="field-value {% if doc.accuracy_score < 100 %}editable{% endif %}"
+                                 {% if doc.accuracy_score < 100 %}
+                                 onclick="makeFieldEditable(this, null, '{{ key }}')"
+                                 title="Click to edit this field"
+                                 {% endif %}>
                                 {% if value is iterable and value is not string and value is not mapping %}
                                     {{ value|join(', ') }}
                                 {% else %}
