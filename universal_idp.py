@@ -959,13 +959,29 @@ Extract all relevant fields you can identify from the document.
     prompt = f"""
 {field_instructions}
 
-IMPORTANT: 
-- Extract EVERY piece of information you can find
-- Use exact values from the document
-- For dates, preserve the original format
-- For names, include full names as they appear
-- Include all numbers, IDs, and reference codes
-- Include a "SupportingDocuments" field ONLY if there are actual supporting documents attached or referenced
+CRITICAL EXTRACTION RULES:
+- Extract EVERY SINGLE piece of information from the document
+- Include ALL text, numbers, dates, names, addresses, phone numbers, emails
+- Extract ALL fields, even if they seem minor or unimportant
+- Include headers, labels, and their corresponding values
+- Extract ALL dates in their original format
+- Include ALL names exactly as they appear
+- Extract ALL numbers, IDs, reference codes, account numbers
+- Include ALL addresses with complete details
+- Extract ALL contact information (phone, fax, email, website)
+- Include ALL amounts, percentages, quantities
+- Extract ALL checkboxes, selections, and their values
+- Include ALL signatures, initials, and authorization details
+- Extract ALL timestamps, processing dates, effective dates
+- Include ANY other text or data visible in the document
+
+COMPREHENSIVE EXTRACTION:
+- Do not skip any field, even if it seems redundant
+- Extract both the label and the value
+- Include empty fields with their labels (mark as "Not provided" or "Blank")
+- Extract data from headers, footers, watermarks
+- Include form numbers, version numbers, page numbers
+- Extract ALL metadata visible in the document
 
 Return ONLY valid JSON in this exact format:
 {{
@@ -1005,7 +1021,9 @@ DO NOT include as SupportingDocuments:
 
 If there are NO actual supporting documents attached or specifically referenced with details, OMIT the SupportingDocuments field entirely.
 
-Do NOT use "N/A" - only include fields that have actual values in the document.
+CRITICAL: Do NOT use "N/A" or empty strings - ONLY include fields that have ACTUAL VALUES in the document.
+If a field is not present or has no value, DO NOT include it in the JSON at all.
+Only extract fields where you can see a clear, definite value in the document.
 """
     
     try:
@@ -1375,6 +1393,123 @@ def view_document(doc_id):
     if doc:
         return render_template("document_detail.html", document=doc)
     return "Document not found", 404
+
+
+@app.route("/document/<doc_id>/pages")
+def view_document_pages(doc_id):
+    """View document with page-by-page viewer with bulk edit mode"""
+    doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+    if doc:
+        return render_template("document_viewer_bulk_edit.html", document=doc)
+    return "Document not found", 404
+
+
+@app.route("/api/document/<doc_id>/pages")
+def get_document_pages(doc_id):
+    """Get all pages of a document as images using PyMuPDF"""
+    import fitz  # PyMuPDF
+    
+    doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+    if not doc:
+        return jsonify({"success": False, "message": "Document not found"}), 404
+    
+    try:
+        pdf_path = doc.get("pdf_path")
+        if not pdf_path or not os.path.exists(pdf_path):
+            return jsonify({"success": False, "message": "PDF file not found"}), 404
+        
+        # Create pages directory if it doesn't exist
+        pages_dir = os.path.join(OUTPUT_DIR, "pages", doc_id)
+        os.makedirs(pages_dir, exist_ok=True)
+        
+        # Check if pages already exist
+        existing_pages = sorted([f for f in os.listdir(pages_dir) if f.endswith('.png')])
+        
+        if not existing_pages:
+            # Convert PDF to images using PyMuPDF
+            print(f"[INFO] Converting PDF to images for document {doc_id}")
+            pdf_document = fitz.open(pdf_path)
+            
+            # Convert each page to image
+            for page_num in range(len(pdf_document)):
+                page = pdf_document[page_num]
+                
+                # Render page to image (zoom=2 for 200 DPI equivalent)
+                mat = fitz.Matrix(2, 2)  # 2x zoom = ~200 DPI
+                pix = page.get_pixmap(matrix=mat)
+                
+                # Save as PNG
+                page_path = os.path.join(pages_dir, f"page_{page_num+1}.png")
+                pix.save(page_path)
+                existing_pages.append(f"page_{page_num+1}.png")
+            
+            pdf_document.close()
+            print(f"[INFO] Created {len(existing_pages)} page images")
+        
+        # Return page URLs
+        pages = [
+            {
+                "page_number": i + 1,
+                "url": f"/api/document/{doc_id}/page/{i}",
+                "thumbnail": f"/api/document/{doc_id}/page/{i}/thumbnail"
+            }
+            for i in range(len(existing_pages))
+        ]
+        
+        return jsonify({
+            "success": True,
+            "pages": pages,
+            "total_pages": len(pages)
+        })
+        
+    except Exception as e:
+        print(f"[ERROR] Failed to get pages for {doc_id}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "message": f"Failed to get pages: {str(e)}"}), 500
+
+
+@app.route("/api/document/<doc_id>/page/<int:page_num>")
+def get_document_page(doc_id, page_num):
+    """Get a specific page image"""
+    from flask import send_file
+    
+    pages_dir = os.path.join(OUTPUT_DIR, "pages", doc_id)
+    page_path = os.path.join(pages_dir, f"page_{page_num+1}.png")
+    
+    if os.path.exists(page_path):
+        return send_file(page_path, mimetype='image/png')
+    
+    return "Page not found", 404
+
+
+@app.route("/api/document/<doc_id>/page/<int:page_num>/thumbnail")
+def get_document_page_thumbnail(doc_id, page_num):
+    """Get a thumbnail of a specific page"""
+    from flask import send_file
+    from PIL import Image
+    import tempfile
+    
+    pages_dir = os.path.join(OUTPUT_DIR, "pages", doc_id)
+    page_path = os.path.join(pages_dir, f"page_{page_num+1}.png")
+    
+    if not os.path.exists(page_path):
+        return "Page not found", 404
+    
+    try:
+        # Create thumbnail
+        img = Image.open(page_path)
+        img.thumbnail((150, 200))
+        
+        # Save to temp file
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
+        img.save(temp_file.name, 'PNG')
+        temp_file.close()
+        
+        return send_file(temp_file.name, mimetype='image/png')
+    except Exception as e:
+        print(f"[ERROR] Failed to create thumbnail: {str(e)}")
+        return "Failed to create thumbnail", 500
 
 
 @app.route("/process", methods=["POST"])

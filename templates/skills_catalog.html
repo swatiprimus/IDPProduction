@@ -212,6 +212,7 @@
                 // Check if PDF is available
                 const hasPDF = skill.filename && skill.filename.toLowerCase().endsWith('.pdf');
                 const pdfButton = hasPDF ? `<button onclick="event.stopPropagation();viewPDF('${skill.id}','${skill.filename}')" style="padding:6px 10px;background:transparent;color:#667eea;border:none;cursor:pointer;transition:all 0.3s;display:inline-flex;align-items:center;justify-content:center;" title="View PDF"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><path d="M10 12h4"></path><path d="M10 16h4"></path></svg></button>` : '';
+                const pageViewerButton = hasPDF ? `<button onclick="event.stopPropagation();window.open('/document/${skill.id}/pages','_blank')" style="padding:6px 10px;background:#667eea;color:white;border:none;border-radius:6px;cursor:pointer;transition:all 0.3s;display:inline-flex;align-items:center;gap:6px;font-size:0.85em;font-weight:600;" title="Page-by-Page Viewer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>Pages</button>` : '';
                 
                 row.innerHTML=`
                     <td><span style="font-size:1.5em;">${icon}</span></td>
@@ -223,6 +224,7 @@
                                 Ready
                             </span>
                             ${pdfButton}
+                            ${pageViewerButton}
                         </div>
                     </td>
                     <td><span class="version-badge">${processedDate}</span></td>
