@@ -471,7 +471,7 @@ SUPPORTED_DOCUMENT_TYPES = {
         "name": "Death Certificate",
         "icon": "📜",
         "description": "Official death registration document",
-        "expected_fields": ["deceased_name", "date_of_death", "place_of_death", "cause_of_death", "certificate_number", "age", "date_of_birth", "social_security_number", "state_file_number", "registrar"],
+        "expected_fields": ["deceased_name", "date_of_death", "place_of_death", "cause_of_death", "certificate_number", "account_number", "age", "date_of_birth", "social_security_number", "state_file_number", "registrar", "date_pronounced_dead", "time_of_death", "manner_of_death", "license_number_for"],
         "keywords": ["death", "deceased", "decedent", "demise", "passed away", "mortality", "certification of vital record", "certificate of death", "local registrar"]
     },
     "business_card": {
@@ -565,8 +565,8 @@ def save_documents_db(documents):
 processed_documents = load_documents_db()
 
 
-def call_bedrock(prompt: str, text: str, max_tokens: int = 4000):
-    """Call AWS Bedrock with Claude"""
+def call_bedrock(prompt: str, text: str, max_tokens: int = 8192):
+    """Call AWS Bedrock with Claude - using maximum token limit"""
     payload = {
         "anthropic_version": "bedrock-2023-05-31",
         "max_tokens": max_tokens,
@@ -733,47 +733,111 @@ def extract_text_with_textract(file_bytes: bytes, filename: str):
         raise Exception(f"Textract OCR failed: {str(e)}")
 
 
-def extract_basic_fields(text: str, num_fields: int = 50):
-    """Extract ALL important fields from any document (up to 50 fields)"""
+def extract_basic_fields(text: str, num_fields: int = 100):
+    """Extract ALL fields from any document (up to 100 fields) - BE THOROUGH"""
     prompt = f"""
-Extract ALL important fields from this document. Extract as many fields as you can find (up to {num_fields}).
+YOU ARE A METICULOUS DATA EXTRACTION EXPERT. Extract EVERY SINGLE field from this document.
 
-PRIORITY ORDER:
-1. Identifying information (names, IDs, license numbers, certificate numbers, document numbers)
-2. Dates (issue date, expiration, birth date, marriage date, death date, etc.)
-3. Amounts or values (if applicable)
-4. Contact information (address, phone, email)
-5. Location information (city, state, county, country)
-6. Document-specific fields (registrar, witness names, file numbers, etc.)
-7. ALL other visible fields with values
+YOUR MISSION: Find and extract up to {num_fields} fields. Do NOT stop until you've extracted EVERYTHING.
+
+EXTRACTION PRIORITY (Extract ALL of these):
+1. ALL IDENTIFYING NUMBERS:
+   - Certificate numbers, file numbers, case numbers (K1-0000608, K1-0011267, etc.)
+   - License numbers, registration numbers, document numbers
+   - Social security numbers, tax IDs, reference numbers
+   - ANY number with a label
+
+2. ALL DATES AND TIMES:
+   - Issue dates, filing dates, death dates, birth dates, marriage dates
+   - Timestamps (22:29, 14:30, etc.)
+   - Date stamps (01/09/2016, January 9, 2016, etc.)
+   - Extract in ORIGINAL format
+
+3. ALL NAMES:
+   - Deceased names, witness names, registrar names, physician names
+   - Father names, mother names, spouse names, informant names
+   - Funeral director names, certifier names, pronouncer names
+   - ANY person's name ANYWHERE
+
+4. ALL LOCATIONS:
+   - Cities, counties, states, countries
+   - Place of death, place of birth, place of residence
+   - Addresses with street numbers, zip codes
+   - Hospital names, facility names
+
+5. ALL FORM FIELDS:
+   - Look for "FIELD_LABEL: value" patterns
+   - Checkbox fields (Yes/No, checked/unchecked)
+   - Signature fields and dates
+   - License fields, certification fields
+   - Cause of death, manner of death
+   - Occupation, industry, education
+   - Race, ethnicity, marital status
+
+6. ALL ADMINISTRATIVE DATA:
+   - Form numbers, version numbers, page numbers
+   - Barcode numbers, stamp text
+   - "LICENSE NUMBER FOR" values
+   - "DATE PRONOUNCED DEAD" values
+   - "ACTUAL OR PRESUMED DATE OF DEATH" values
+   - ANY labeled field
 
 CRITICAL RULES:
-- Extract EVERY field you can see in the document
-- Include ALL identifying numbers (license numbers, certificate numbers, file numbers, etc.)
-- Extract ALL names (full names, witness names, registrar names, etc.)
+- Extract EVERY field you can see - do NOT skip anything
+- Include ALL numbers with labels (even if they seem minor)
 - Extract ALL dates in their original format
-- Extract ALL addresses and locations
-- Use descriptive field names (e.g., "drivers_license_number", "marriage_certificate_number")
-- Only include fields that have actual values
-- If a field is not available, omit it rather than using "N/A"
+- Extract ALL names in any context
+- Use descriptive field names (e.g., "case_number", "file_number", "license_number_for")
+- Only include fields that have actual values (omit empty fields)
 
-Return ONLY valid JSON with descriptive field names. Example format:
+FIELD NAMING EXAMPLES:
+- "LICENSE NUMBER FOR" → "license_number_for"
+- "DATE PRONOUNCED DEAD" → "date_pronounced_dead"
+- "K1-0011267" → "case_number" or "file_number"
+- "CAUSE OF DEATH" → "cause_of_death"
+
+CRITICAL NAMING FOR DEATH CERTIFICATES:
+- The main certificate number (often handwritten, like "468431466" or "K1-0011267") MUST be extracted as "account_number"
+- DO NOT use "certificate_number" - use "account_number" instead
+- Example: If you see "468431466" or "K1-0011267" as the primary certificate identifier:
+  * Extract it as "account_number": "468431466"
+  * NOT as "certificate_number"
+
+EXTRACT EVERY SINGLE FIELD - DO NOT MISS ANYTHING:
+- Look at EVERY line of text
+- Extract EVERY number you see with a label
+- Extract EVERY date in any format
+- Extract EVERY name mentioned
+- Extract EVERY location mentioned
+- Extract EVERY checkbox value
+- Extract EVERY signature field
+- Extract EVERY time stamp
+- If you see a field label but can't read the value, still include it as "illegible" or "unclear"
+
+Return ONLY valid JSON. Extract up to {num_fields} fields - BE THOROUGH AND COMPLETE!
+
+Example format for Death Certificate:
 {{
-  "document_type": "value",
-  "full_name": "value",
-  "document_number": "value",
-  "license_number": "value",
-  "issue_date": "value",
-  "expiration_date": "value",
-  "address": "value",
+  "account_number": "468431466",
+  "state_file_number": "K1-0000608",
+  "date_pronounced_dead": "01/09/2016",
+  "time_pronounced_dead": "22:29",
+  "actual_date_of_death": "January 9, 2016",
+  "time_of_death": "22:29",
+  "deceased_name": "John Doe",
+  "place_of_death": "New Castle, DE",
+  "license_number_for": "funeral_director_name",
+  "signature_of_person_pronouncing_death": "signature_present",
+  "date_signed": "01/09/2016",
+  "cause_of_death": "description",
+  "manner_of_death": "Natural",
+  "was_medical_examiner_contacted": "Yes",
   ...
 }}
-
-Extract up to {num_fields} fields. Focus on completeness - extract EVERYTHING you can see.
 """
     
     try:
-        response = call_bedrock(prompt, text[:8000], max_tokens=6000)  # Use more text and tokens for better extraction
+        response = call_bedrock(prompt, text[:10000], max_tokens=8192)  # Use maximum tokens for comprehensive extraction
         
         # Find JSON content
         json_start = response.find('{')
@@ -1179,29 +1243,105 @@ Extract all relevant fields you can identify from the document.
     prompt = f"""
 {field_instructions}
 
-CRITICAL EXTRACTION RULES:
-- Extract EVERY SINGLE piece of information from the document
-- Include ALL text, numbers, dates, names, addresses, phone numbers, emails
-- Extract ALL fields, even if they seem minor or unimportant
-- Include headers, labels, and their corresponding values
-- Extract ALL dates in their original format
-- Include ALL names exactly as they appear
-- Extract ALL numbers, IDs, reference codes, account numbers
-- Include ALL addresses with complete details
-- Extract ALL contact information (phone, fax, email, website)
-- Include ALL amounts, percentages, quantities
-- Extract ALL checkboxes, selections, and their values
-- Include ALL signatures, initials, and authorization details
-- Extract ALL timestamps, processing dates, effective dates
-- Include ANY other text or data visible in the document
+YOU ARE A METICULOUS DATA EXTRACTION EXPERT. YOUR GOAL IS TO EXTRACT ABSOLUTELY EVERYTHING FROM THIS DOCUMENT.
 
-COMPREHENSIVE EXTRACTION:
-- Do not skip any field, even if it seems redundant
-- Extract both the label and the value
-- Include empty fields with their labels (mark as "Not provided" or "Blank")
-- Extract data from headers, footers, watermarks
-- Include form numbers, version numbers, page numbers
-- Extract ALL metadata visible in the document
+CRITICAL EXTRACTION RULES - EXTRACT EVERYTHING:
+1. ALL IDENTIFYING NUMBERS:
+   - Certificate numbers, file numbers, case numbers, reference numbers
+   - License numbers, registration numbers, document numbers
+   - Social security numbers, tax IDs, account numbers
+   - ANY number with a label or identifier (K1-0000608, K1-0011267, etc.)
+
+2. ALL DATES AND TIMES:
+   - Issue dates, filing dates, registration dates, effective dates
+   - Birth dates, death dates, marriage dates, expiration dates
+   - Timestamps (22:29, 14:30, etc.)
+   - Date stamps (01/09/2016, January 9, 2016, etc.)
+   - Extract in ORIGINAL format as shown
+
+3. ALL NAMES:
+   - Full names, first names, middle names, last names, maiden names
+   - Witness names, registrar names, physician names, funeral director names
+   - Father's name, mother's name, spouse's name
+   - Informant names, certifier names, pronouncer names
+   - ANY person's name mentioned ANYWHERE in the document
+
+4. ALL LOCATIONS:
+   - Cities, towns, townships, counties, states, countries
+   - Place of birth, place of death, place of marriage, place of residence
+   - Street addresses with house numbers, apartment numbers
+   - Zip codes, postal codes
+   - Hospital names, facility names, institution names
+
+5. ALL FORM FIELDS WITH LABELS:
+   - Look for patterns like "FIELD_NAME: value" or "FIELD_NAME value"
+   - Extract checkbox fields (checked/unchecked, Yes/No)
+   - Extract dropdown selections
+   - Extract text fields, even if partially filled
+   - Extract signature fields and who signed
+
+6. ALL CODES AND CLASSIFICATIONS:
+   - Cause of death codes, ICD codes, classification codes
+   - Occupation codes, industry codes
+   - Race codes, ethnicity codes, marital status codes
+   - ANY coded information
+
+7. ALL CONTACT INFORMATION:
+   - Phone numbers, fax numbers, mobile numbers
+   - Email addresses, websites
+   - Mailing addresses, physical addresses
+
+8. ALL ADMINISTRATIVE DATA:
+   - Form numbers, version numbers, revision dates
+   - Page numbers, section numbers
+   - Barcode numbers, QR code data
+   - Watermark text, stamp text
+   - "LICENSE NUMBER FOR" fields
+   - "SIGNATURE OF" fields
+   - "DATE PRONOUNCED DEAD" fields
+   - "ACTUAL OR PRESUMED DATE OF DEATH" fields
+   - "CAUSE OF DEATH" fields
+   - ANY field with a label, even if it seems minor
+
+EXTRACTION STRATEGY:
+- Read the document line by line, field by field
+- Extract EVERY labeled field you see
+- Extract EVERY number that has a label or context
+- Extract EVERY date in any format
+- Extract EVERY name in any context
+- Do NOT skip fields because they seem unimportant
+- Do NOT skip fields because they are partially visible
+- Do NOT skip fields because they are handwritten
+- Include fields even if the value is unclear (mark as "Illegible" or "Unclear")
+
+FIELD NAMING:
+- Use descriptive names based on the exact label in the document
+- Replace spaces with underscores
+- Examples:
+  * "LICENSE NUMBER FOR" → "License_Number_For"
+  * "DATE PRONOUNCED DEAD" → "Date_Pronounced_Dead"
+  * "ACTUAL OR PRESUMED DATE OF DEATH" → "Actual_Or_Presumed_Date_Of_Death"
+  * "CAUSE OF DEATH" → "Cause_Of_Death"
+  * "K1-0011267" → "Case_Number" or "File_Number"
+
+CRITICAL NAMING FOR DEATH CERTIFICATES:
+- The main certificate number (often handwritten, like "468431466" or "K1-0011267") MUST be extracted as "Account_Number"
+- DO NOT use "Certificate_Number" - use "Account_Number" instead
+- Example: If you see "468431466" or "K1-0011267" as the primary certificate identifier:
+  * Extract it as "Account_Number": "468431466"
+  * NOT as "Certificate_Number"
+
+EXTRACT ABSOLUTELY EVERYTHING - MISS NOTHING:
+- Read EVERY line of the document
+- Extract EVERY field with a label
+- Extract EVERY number (even if handwritten or unclear)
+- Extract EVERY date and time
+- Extract EVERY name (deceased, witnesses, physicians, funeral directors, registrars)
+- Extract EVERY location (place of death, residence, city, county, state)
+- Extract EVERY checkbox value (Yes/No, checked/unchecked)
+- Extract EVERY signature field and date
+- Extract license numbers, file numbers, reference numbers
+- If a field is partially visible or unclear, still extract it and mark as "unclear" or "illegible"
 
 Return ONLY valid JSON in this exact format:
 {{
@@ -1247,7 +1387,7 @@ Only extract fields where you can see a clear, definite value in the document.
 """
     
     try:
-        response = call_bedrock(prompt, text)
+        response = call_bedrock(prompt, text, max_tokens=8192)
         
         # Clean up response - remove markdown code blocks if present
         response = response.strip()
@@ -1453,7 +1593,7 @@ def pre_cache_all_pages(job_id: str, pdf_path: str, accounts: list):
                         os.remove(temp_image_path)
                 
                 # Extract data using AI
-                response = call_bedrock(page_extraction_prompt, page_text, max_tokens=6000)
+                response = call_bedrock(page_extraction_prompt, page_text, max_tokens=8192)
                 
                 # Parse JSON
                 json_start = response.find('{')
@@ -2064,7 +2204,7 @@ def get_account_page_data(doc_id, account_index, page_num):
         page_extraction_prompt = get_comprehensive_extraction_prompt()
         
         print(f"[DEBUG] Got page extraction prompt, calling Bedrock...")
-        response = call_bedrock(page_extraction_prompt, page_text, max_tokens=6000)
+        response = call_bedrock(page_extraction_prompt, page_text, max_tokens=8192)
         print(f"[DEBUG] Got response from Bedrock, length: {len(response)}")
         
         # Parse JSON response
@@ -2253,7 +2393,7 @@ def extract_page_data(doc_id, page_num):
         print(f"[DEBUG] Calling AI to extract data from page {page_num}")
         
         page_extraction_prompt = get_comprehensive_extraction_prompt()
-        response = call_bedrock(page_extraction_prompt, page_text, max_tokens=6000)
+        response = call_bedrock(page_extraction_prompt, page_text, max_tokens=8192)
         print(f"[DEBUG] Got response from Bedrock, length: {len(response)}")
         
         # Parse JSON response
