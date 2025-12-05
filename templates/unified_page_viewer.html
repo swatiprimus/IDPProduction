@@ -49,28 +49,73 @@
             display: flex;
             flex: 1;
             overflow: hidden;
+            position: relative;
         }
         
-        /* Left Sidebar - Page List */
+        /* Left Sidebar - Page List (Collapsible) */
         .page-list-sidebar {
             width: 250px;
             background: white;
             border-right: 1px solid #e5e7eb;
             display: flex;
             flex-direction: column;
-            overflow: hidden;
+            overflow: visible;
+            transition: width 0.3s ease;
+            position: relative;
+            z-index: 100;
+        }
+
+        .page-list-sidebar.collapsed {
+            width: 0;
+            min-width: 0;
+            border-right: none;
         }
         
         .sidebar-header {
             padding: 20px;
             background: #f9fafb;
             border-bottom: 1px solid #e5e7eb;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: relative;
+            overflow: visible;
         }
         
         .sidebar-header h2 {
             font-size: 1.2em;
             color: #374151;
             margin-bottom: 5px;
+        }
+
+        .toggle-sidebar-btn {
+            position: absolute;
+            right: -40px;
+            top: 20px;
+            width: 40px;
+            height: 50px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 0 8px 8px 0;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2em;
+            transition: all 0.3s;
+            z-index: 101;
+            box-shadow: 2px 0 8px rgba(0,0,0,0.1);
+        }
+
+        .toggle-sidebar-btn:hover {
+            background: var(--secondary);
+            width: 45px;
+        }
+
+        .page-list-sidebar.collapsed .toggle-sidebar-btn {
+            right: auto;
+            left: 0;
         }
         
         .page-count {
@@ -81,6 +126,7 @@
         .pages-list {
             flex: 1;
             overflow-y: auto;
+            overflow-x: visible;
             padding: 10px;
         }
         
@@ -111,18 +157,20 @@
         
         /* Right Content - Split View */
         .content-area {
-            flex: 1;
+            flex: 1 1 auto;
             display: flex;
             overflow: hidden;
+            min-width: 0;
         }
         
-        /* Document Viewer - 50% */
+        /* Document Viewer - 70% */
         .document-viewer-panel {
-            flex: 1;
+            flex: 0 0 70%;
             display: flex;
             flex-direction: column;
             background: white;
             border-right: 1px solid #e5e7eb;
+            min-width: 0;
         }
         
         .viewer-header {
@@ -163,25 +211,25 @@
         }
         
         .viewer-content {
-            flex: 1;
-            display: flex;
-            align-items: center;
-            justify-content: center;
             overflow: auto;
             padding: 20px;
             background: #525659;
+            height: 100%;
+            text-align: center;
         }
         
         .viewer-content img {
-            max-width: 100%;
+            width: 100%;
+            height: auto;
             max-height: 100%;
+            object-fit: contain;
             border-radius: 8px;
             box-shadow: 0 4px 20px rgba(0,0,0,0.3);
         }
         
-        /* Data Panel - 50% */
+        /* Data Panel - 30% */
         .data-panel {
-            flex: 1;
+            flex: 0 0 30%;
             display: flex;
             flex-direction: column;
             background: white;
@@ -342,10 +390,12 @@
 
     <div class="main-container">
         <!-- Left Sidebar: Page List -->
-        <div class="page-list-sidebar">
+        <div class="page-list-sidebar" id="pageSidebar">
             <div class="sidebar-header">
-                <h2>Pages</h2>
-                <div class="page-count" id="pageCount">Loading...</div>
+                <div>
+                    <h2>Pages</h2>
+                    <div class="page-count" id="pageCount">Loading...</div>
+                </div>
             </div>
             <div class="pages-list" id="pagesList">
                 <div class="loading">
@@ -353,6 +403,9 @@
                     <div>Loading pages...</div>
                 </div>
             </div>
+            <button class="toggle-sidebar-btn" id="toggleSidebarBtn" onclick="toggleSidebar()">
+                <span id="toggleIcon">◀</span>
+            </button>
         </div>
 
         <!-- Right Content: Split View -->
@@ -395,8 +448,8 @@
                         <button class="control-btn btn-download" id="downloadAllBtn" onclick="downloadAllJSON()" style="display:none;">
                             💾 Complete JSON
                         </button>
-                        <button class="control-btn btn-cancel" id="reextractBtn" onclick="reextractPage()" style="display:none;">
-                            🔄 Re-extract
+                        <button class="control-btn" id="clearCacheBtn" onclick="clearDocumentCache()" style="display:none;background:#f59e0b;color:white;">
+                            🔄 Clear Cache
                         </button>
                     </div>
                 </div>
@@ -423,6 +476,26 @@
         let accounts = [];
         let hasAccounts = false;
         let currentAccountIndex = -1;
+        let sidebarCollapsed = false;
+
+        // Toggle sidebar visibility
+        function toggleSidebar() {
+            const sidebar = document.getElementById('pageSidebar');
+            const contentArea = document.querySelector('.content-area');
+            const toggleIcon = document.getElementById('toggleIcon');
+            
+            sidebarCollapsed = !sidebarCollapsed;
+            
+            if (sidebarCollapsed) {
+                sidebar.classList.add('collapsed');
+                contentArea.classList.add('sidebar-collapsed');
+                toggleIcon.textContent = '▶';
+            } else {
+                sidebar.classList.remove('collapsed');
+                contentArea.classList.remove('sidebar-collapsed');
+                toggleIcon.textContent = '◀';
+            }
+        }
 
         // Load pages on page load
         async function loadPages() {
@@ -459,7 +532,7 @@
                     document.getElementById('editBtn').style.display = 'flex';
                     document.getElementById('downloadPageBtn').style.display = 'flex';
                     document.getElementById('downloadAllBtn').style.display = 'flex';
-                    document.getElementById('reextractBtn').style.display = 'flex';
+                    document.getElementById('clearCacheBtn').style.display = 'flex';
                 }
             } catch (error) {
                 console.error('Error loading pages:', error);
@@ -598,7 +671,28 @@
                     let html = '';
                     let seenFields = new Set(); // Track fields to avoid duplicates
                     
-                    document.getElementById('dataMeta').textContent = `Page ${currentPageIndex + 1}${result.cached ? ' (Cached)' : ''}${result.edited ? ' (Edited)' : ''}`;
+                    // Calculate accuracy
+                    let totalFields = 0;
+                    let filledFields = 0;
+                    
+                    for (const [key, value] of Object.entries(fields)) {
+                        if (typeof value === 'object' && !Array.isArray(value)) continue;
+                        totalFields++;
+                        const displayValue = Array.isArray(value) ? value.join(', ') : value;
+                        if (displayValue && displayValue !== 'N/A' && displayValue.toString().trim() !== '') {
+                            filledFields++;
+                        }
+                    }
+                    
+                    const accuracy = totalFields > 0 ? Math.round((filledFields / totalFields) * 100) : 0;
+                    const accuracyColor = accuracy >= 80 ? '#10b981' : accuracy >= 60 ? '#f59e0b' : '#ef4444';
+                    
+                    document.getElementById('dataMeta').innerHTML = `
+                        Page ${currentPageIndex + 1}
+                        <span style="display:inline-block;margin-left:10px;padding:4px 8px;background:${accuracyColor};color:white;border-radius:4px;font-size:0.85em;font-weight:600;">
+                            ${accuracy}% Complete (${filledFields}/${totalFields} fields)
+                        </span>
+                    `;
                     
                     for (const [key, value] of Object.entries(fields)) {
                         if (typeof value === 'object' && !Array.isArray(value)) continue;
@@ -613,10 +707,15 @@
                         
                         const displayValue = Array.isArray(value) ? value.join(', ') : value;
                         
+                        // Skip N/A fields
+                        if (!displayValue || displayValue === 'N/A' || displayValue.toString().trim() === '') {
+                            continue;
+                        }
+                        
                         html += `
                             <div class="field-item">
                                 <div class="field-label">${key.replace(/_/g, ' ')}</div>
-                                <div class="field-value" data-field="${key}">${displayValue || 'N/A'}</div>
+                                <div class="field-value" data-field="${key}">${displayValue}</div>
                             </div>
                         `;
                     }
@@ -697,7 +796,7 @@
             const input = document.createElement('input');
             input.type = 'text';
             input.className = 'field-input';
-            input.value = currentValue === 'N/A' ? '' : currentValue;
+            input.value = currentValue;
             
             element.innerHTML = '';
             element.appendChild(input);
@@ -708,7 +807,8 @@
             };
             
             input.onblur = () => {
-                element.innerHTML = input.value.trim() || 'N/A';
+                const newValue = input.value.trim();
+                element.innerHTML = newValue || currentValue;
             };
         }
 
@@ -816,24 +916,32 @@
             showNotification('Complete JSON downloaded!', 'success');
         }
 
-        async function reextractPage() {
-            if (!confirm('Re-extract data from this page? This will replace any edits.')) {
+        async function clearDocumentCache() {
+            if (!confirm('Clear cache and re-extract all pages with updated prompts?\n\nThis will:\n- Delete all cached page data\n- Force fresh extraction on next page click\n- Extract stamp dates and other new fields')) {
                 return;
             }
             
             try {
-                // Clear cache by calling with force parameter
-                const response = await fetch(`/api/document/${documentId}/page/${currentPageIndex}/extract?force=true`);
+                showNotification('Clearing cache...', 'success');
+                
+                const response = await fetch(`/api/document/${documentId}/clear-cache`, {
+                    method: 'POST'
+                });
+                
                 const result = await response.json();
                 
                 if (result.success) {
-                    showNotification('Page re-extracted successfully!', 'success');
-                    renderPageData();
+                    showNotification(`✅ ${result.message}`, 'success');
+                    
+                    // Reload current page to get fresh data
+                    setTimeout(() => {
+                        showPage(currentPageIndex);
+                    }, 2000);
                 } else {
-                    showNotification('Failed to re-extract: ' + result.message, 'error');
+                    showNotification(`❌ ${result.message}`, 'error');
                 }
             } catch (error) {
-                showNotification('Failed to re-extract: ' + error.message, 'error');
+                showNotification(`❌ Failed to clear cache: ${error.message}`, 'error');
             }
         }
 

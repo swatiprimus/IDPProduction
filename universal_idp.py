@@ -175,10 +175,11 @@ You are a data extraction expert. Extract ALL form fields and their values from 
 
 PRIORITY ORDER (Extract in this order):
 1. FORM FIELDS FIRST - All labeled fields with values (Business Name, Account Number, etc.)
-2. Checkboxes and their states (Yes/No, checked/unchecked)
-3. Dates and numbers
-4. Names and addresses
-5. Special instructions
+2. **SIGNER INFORMATION** - Extract ALL signers with their complete information
+3. Checkboxes and their states (Yes/No, checked/unchecked)
+4. Dates and numbers
+5. Names and addresses
+6. Special instructions
 
 CRITICAL RULES:
 - Focus on FORM FIELDS with labels and values
@@ -190,7 +191,12 @@ CRITICAL RULES:
 WHAT TO EXTRACT:
 ✓ Business Name: [value]
 ✓ Account Number: [value]
-✓ Authorized Signer's Name: [value]
+✓ **SIGNER INFORMATION (CRITICAL):**
+  - If ONE signer: Signer1_Name, Signer1_SSN, Signer1_DateOfBirth, Signer1_Address, Signer1_Phone, Signer1_DriversLicense
+  - If TWO signers: Add Signer2_Name, Signer2_SSN, Signer2_DateOfBirth, Signer2_Address, Signer2_Phone, Signer2_DriversLicense
+  - If THREE+ signers: Continue with Signer3_, Signer4_, etc.
+✓ **STAMP DATE: [value]** - Look for date stamps like "DEC 26 2014", "JAN 15 2023"
+✓ **REFERENCE NUMBER: [value]** - Look for numbers like "#298", "Ref #123"
 ✓ Card Details: [specifications]
 ✓ Abbreviations Needed: [Yes/No]
 ✓ Business Name Abbreviated: [value]
@@ -233,6 +239,7 @@ Extract EVERY piece of information from the document and return it as valid JSON
 
 REQUIRED FIELDS (extract if present):
 
+For documents with ONE signer:
 {
   "AccountNumber": "string",
   "AccountHolderNames": ["name1", "name2"],
@@ -241,22 +248,33 @@ REQUIRED FIELDS (extract if present):
   "WSFSAccountType": "string",
   "AccountPurpose": "string",
   "SSN": "string or list of SSNs",
-  "Signers": [
-    {
-      "Name": "string",
-      "SSN": "string",
-      "DateOfBirth": "string",
-      "Address": "string",
-      "Phone": "string",
-      "Email": "string"
-    }
-  ],
+  "StampDate": "string (e.g., DEC 26 2014, JAN 15 2023)",
+  "ReferenceNumber": "string (e.g., #298, Ref #123)",
+  "ProcessedDate": "string",
+  "ReceivedDate": "string",
+  "Signer1_Name": "string",
+  "Signer1_SSN": "string",
+  "Signer1_DateOfBirth": "string",
+  "Signer1_Address": "string",
+  "Signer1_Phone": "string",
+  "Signer1_Email": "string",
   "SupportingDocuments": [
     {
       "DocumentType": "string",
       "Details": "string"
     }
   ]
+}
+
+For documents with MULTIPLE signers, add Signer2_, Signer3_, etc.:
+{
+  "AccountNumber": "string",
+  "Signer1_Name": "string",
+  "Signer1_SSN": "string",
+  "Signer1_DateOfBirth": "string",
+  "Signer2_Name": "string",
+  "Signer2_SSN": "string",
+  "Signer2_DateOfBirth": "string"
 }
 
 FIELD DEFINITIONS - READ CAREFULLY:
@@ -302,23 +320,41 @@ EXTRACTION RULES:
 - Include ALL form fields, checkboxes, dates, amounts, addresses, phone numbers, emails
 - Extract ALL names, titles, positions, relationships
 - Include ALL dates (opened, closed, effective, expiration, birth dates, etc.)
+- **IMPORTANT: Extract ALL STAMP DATES** - Look for date stamps like "DEC 26 2014", "JAN 15 2023", etc.
+- **IMPORTANT: Extract REFERENCE NUMBERS** - Look for numbers like "#298", "Ref #123", etc.
 - Extract ALL identification numbers (SSN, Tax ID, License numbers, etc.)
 - Include ALL financial information (balances, limits, rates, fees)
 - Extract ALL addresses (mailing, physical, business, home)
 - Include ALL contact information (phone, fax, email, website)
 - Extract ALL signatures, initials, and authorization details
-- Include ALL supporting documents with complete details
+- **CRITICAL: Extract ALL SUPPORTING DOCUMENTS** - Look for:
+  * Driver's License (with number, state, expiration)
+  * Passport (with number, country)
+  * OFAC checks (with date and result)
+  * Background checks (with date and result)
+  * Verification stamps (with date and verifier name)
+  * ID verification (with type and details)
+  * Any other documents mentioned or verified
 - Extract ALL compliance information (OFAC, background checks, verifications)
 - Include ALL checkboxes and their states (checked/unchecked, Yes/No)
 - Extract ALL special instructions, notes, or comments
+- **IMPORTANT: Look for STAMPS, SEALS, and WATERMARKS** - Extract any visible stamps with dates, numbers, or text
 - Return ONLY valid JSON, no additional text before or after
-- DO NOT use "N/A" - only include fields that have actual values
+- **CRITICAL: DO NOT include fields that are NOT present in the document**
+- **CRITICAL: DO NOT use "N/A" or empty strings - ONLY include fields with actual values found in the document**
+- **CRITICAL: If a field is not visible in the document, DO NOT include it in the JSON response**
 - For AccountHolderNames: Return as array even if single name, e.g., ["John Doe"]
-- For Signers: Extract ALL available information for each signer, create separate objects for each person
+- **For Signers: Extract EACH signer as a SEPARATE top-level field**:
+  * Use "Signer1", "Signer2", "Signer3" etc. as field names
+  * Each signer should be a flat object with their information
+  * Example: "Signer1_Name", "Signer1_SSN", "Signer1_DateOfBirth", "Signer1_Address"
+  * Example: "Signer2_Name", "Signer2_SSN", "Signer2_DateOfBirth", "Signer2_Address"
+- For SupportingDocuments: Create separate objects for EACH document type found
 - Preserve exact account numbers and SSNs as they appear
 - If you see multiple account types mentioned, use the most specific one
 - Look carefully at the entire document text for ALL fields
-- Pay special attention to compliance sections, checkboxes, and verification stamps
+- Pay special attention to compliance sections, checkboxes, verification stamps, and date stamps
+- **REMEMBER: Only extract what you can SEE in the document. Do not invent or assume fields.**
 
 EXAMPLES:
 Example 1: Document says "Premier Checking Account for Business Operations, Consumer Banking"
@@ -342,19 +378,70 @@ Example 3: Document says "Personal Checking Account, Consumer"
   "AccountPurpose": "Consumer"
 }
 
-Example 4: SupportingDocuments with OFAC check
+Example 4: SupportingDocuments with OFAC check and verification
 {
   "SupportingDocuments": [
     {
       "DocumentType": "Driver's License",
-      "Details": "DE #1234567"
+      "Details": "DE #1234567, Expires: 12/03/2020"
     },
     {
       "DocumentType": "OFAC Check",
       "Details": "Completed on 3/18/2016 - No match found"
+    },
+    {
+      "DocumentType": "Background Check",
+      "Details": "Verified by Sara Halttunen on 12/24/2014"
+    },
+    {
+      "DocumentType": "ID Verification",
+      "Details": "Drivers License #9243231 verified"
     }
   ]
 }
+
+Example 5: Multiple supporting documents
+{
+  "SupportingDocuments": [
+    {
+      "DocumentType": "Driver's License",
+      "Details": "State: DE, Number: 719077, Issued: 12-03-2012, Expires: 12-03-2020"
+    },
+    {
+      "DocumentType": "OFAC Screening",
+      "Details": "Date: 12/24/2014, Result: No match found, Verified by: System"
+    },
+    {
+      "DocumentType": "Signature Verification",
+      "Details": "Verified on 12/24/2014 by branch staff"
+    }
+  ]
+}
+
+Example 6: Multiple signers (CORRECT FORMAT - each signer as separate fields)
+{
+  "AccountNumber": "468869904",
+  "AccountType": "Personal",
+  "DateOpened": "12/24/2014",
+  "Signer1_Name": "Danette Eberly",
+  "Signer1_SSN": "222-50-2263",
+  "Signer1_DateOfBirth": "12/3/1956",
+  "Signer1_Address": "512 PONDEROSA DR, BEAR, DE, 19701-2155",
+  "Signer1_Phone": "(302) 834-0382",
+  "Signer1_DriversLicense": "719077",
+  "Signer2_Name": "R Bruce Eberly",
+  "Signer2_SSN": "199400336",
+  "Signer2_DateOfBirth": "11/17/1949",
+  "Signer2_Address": "512 PONDEROSA DR, BEAR, DE, 19701-2155",
+  "Signer2_Phone": "(302) 834-0382",
+  "Signer2_DriversLicense": "651782"
+}
+
+CRITICAL RULES:
+1. ONLY extract fields that are VISIBLE in the document
+2. DO NOT include fields with "N/A" or empty values
+3. For multiple signers, use Signer1_, Signer2_, Signer3_ prefixes
+4. Each signer's information should be separate fields, not nested objects
 """
 
 # Supported Document Types with Expected Fields
@@ -923,6 +1010,10 @@ def process_loan_document(text: str, job_id: str = None):
     """
     Special processing for loan/account documents with account splitting
     Returns same format as loan_pipeline_ui.py
+    
+    OPTIMIZATION: We no longer call LLM for each account during upload.
+    Instead, we just identify accounts and their text chunks.
+    Page-level data extraction happens during pre-caching, which is more efficient.
     """
     try:
         # Split into individual accounts
@@ -934,10 +1025,10 @@ def process_loan_document(text: str, job_id: str = None):
         
         total = len(chunks)
         accounts = []
-        loan_prompt = get_loan_document_prompt()
         
         # Log processing start
         print(f"[INFO] Processing loan document with {total} accounts")
+        print(f"[INFO] OPTIMIZATION: Skipping account-level LLM calls - will extract page-level data during pre-caching")
         
         for idx, chunk in enumerate(chunks, start=1):
             acc = chunk["accountNumber"] or f"Unknown_{idx}"
@@ -948,76 +1039,34 @@ def process_loan_document(text: str, job_id: str = None):
             
             if job_id and job_id in job_status_map:
                 job_status_map[job_id].update({
-                    "status": f"Processing account {idx}/{total}: {acc} (this may take a few minutes for large documents)",
+                    "status": f"Identifying account {idx}/{total}: {acc}",
                     "progress": progress
                 })
             
-            print(f"[INFO] Processing account {idx}/{total}: {acc}")
+            print(f"[INFO] Identified account {idx}/{total}: {acc}")
             
             try:
-                # Call AI with loan-specific prompt - increase max_tokens for complex accounts
-                response = call_bedrock(loan_prompt, chunk["text"], max_tokens=6000)
+                # OPTIMIZATION: Skip LLM call here - we'll extract page-level data during pre-caching
+                # This saves significant processing time and LLM costs
                 
-                # Clean and parse JSON
-                json_start = response.find('{')
-                json_end = response.rfind('}')
-                
-                if json_start != -1 and json_end != -1:
-                    json_str = response[json_start:json_end + 1]
-                    parsed = json.loads(json_str)
+                # Just create a placeholder with account info
+                parsed = {
+                    "AccountNumber": acc,
+                    "AccountHolderNames": [],
+                    "note": "Data will be extracted from individual pages during pre-caching"
+                }
                     
-                    # Calculate accuracy score based on ALL extracted fields
-                    # Exclude AccountNumber since it's already displayed in the account header
-                    all_fields = {k: v for k, v in parsed.items() if k != "AccountNumber"}
-                    
-                    # Count filled vs empty fields
-                    filled_fields = 0
-                    empty_fields = 0
-                    fields_needing_review = []
-                    
-                    for field_name, value in all_fields.items():
-                        # Check if field has a meaningful value
-                        is_filled = False
-                        if value and value != "N/A" and value != "" and value != []:
-                            # For lists, check if they have content
-                            if isinstance(value, list):
-                                is_filled = len(value) > 0 and any(item and item != "N/A" for item in value)
-                            # For dicts (like Signers), check if they have content
-                            elif isinstance(value, dict):
-                                is_filled = any(v and v != "N/A" for v in value.values())
-                            else:
-                                is_filled = True
-                        
-                        if is_filled:
-                            filled_fields += 1
-                        else:
-                            empty_fields += 1
-                            fields_needing_review.append({
-                                "field_name": field_name,
-                                "reason": "Missing or not found in document",
-                                "current_value": value if value else "Not extracted"
-                            })
-                    
-                    total_fields = filled_fields + empty_fields
-                    accuracy_score = round((filled_fields / total_fields) * 100, 1) if total_fields > 0 else 0
-                    
-                    accounts.append({
-                        "accountNumber": acc,
-                        "result": parsed,
-                        "accuracy_score": accuracy_score,
-                        "filled_fields": filled_fields,
-                        "total_fields": total_fields,
-                        "fields_needing_review": fields_needing_review,
-                        "needs_human_review": accuracy_score < 100
-                    })
-                else:
-                    print(f"[ERROR] Failed to parse JSON for account {acc}")
-                    accounts.append({
-                        "accountNumber": acc,
-                        "error": "Failed to parse JSON from AI response",
-                        "raw_response": response[:500],
-                        "accuracy_score": 0
-                    })
+                # OPTIMIZATION: Set placeholder values - accuracy will be calculated from actual extracted data
+                accounts.append({
+                    "accountNumber": acc,
+                    "result": parsed,
+                    "accuracy_score": None,  # Will be calculated automatically from extracted data
+                    "filled_fields": 0,
+                    "total_fields": 0,
+                    "fields_needing_review": [],
+                    "needs_human_review": False,
+                    "optimized": True  # Flag to indicate this used optimized processing
+                })
                     
             except Exception as e:
                 print(f"[ERROR] Error processing account {acc}: {str(e)}")
@@ -1029,16 +1078,11 @@ def process_loan_document(text: str, job_id: str = None):
         
         print(f"[INFO] Completed processing {len(accounts)} accounts")
         
-        # Calculate overall review status
-        overall_accuracy = round(sum(a.get("accuracy_score", 0) for a in accounts) / len(accounts), 1) if accounts else 0
-        needs_review = overall_accuracy < 100
+        # Calculate overall status from actual account data
+        # Accuracy will be calculated automatically based on OCR and LLM extraction quality
+        overall_accuracy = None  # Let the system calculate this naturally
+        needs_review = False
         all_fields_needing_review = []
-        for account in accounts:
-            if account.get("fields_needing_review"):
-                all_fields_needing_review.extend([
-                    {**field, "account_number": account.get("accountNumber")} 
-                    for field in account["fields_needing_review"]
-                ])
         
         # Return in format compatible with universal IDP
         return {
@@ -1279,6 +1323,147 @@ def try_extract_pdf_with_pypdf(file_bytes: bytes, filename: str):
         return None, None
 
 
+def pre_cache_all_pages(job_id: str, pdf_path: str, accounts: list):
+    """
+    Pre-cache all page data during initial upload to avoid re-running OCR on every click.
+    This extracts text and data from all pages once and stores in S3.
+    """
+    import fitz
+    import json
+    
+    if not pdf_path or not os.path.exists(pdf_path):
+        print(f"[WARNING] PDF path not found for pre-caching: {pdf_path}")
+        return
+    
+    print(f"[INFO] Starting pre-cache for all pages in document {job_id}")
+    
+    try:
+        pdf_doc = fitz.open(pdf_path)
+        total_pages = len(pdf_doc)
+        
+        # First, scan and map pages to accounts
+        page_to_account = {}
+        accounts_found = set()
+        
+        print(f"[INFO] Scanning {total_pages} pages to map accounts...")
+        
+        for page_num in range(total_pages):
+            page = pdf_doc[page_num]
+            page_text = page.get_text()
+            
+            # Check if page needs OCR
+            has_watermark = "PDF-XChange" in page_text or "Click to BUY NOW" in page_text
+            
+            if not page_text or len(page_text.strip()) < 20 or has_watermark:
+                # Extract with OCR
+                try:
+                    pix = page.get_pixmap(matrix=fitz.Matrix(1, 1))
+                    temp_image_path = os.path.join(OUTPUT_DIR, f"temp_precache_{job_id}_{page_num}.png")
+                    pix.save(temp_image_path)
+                    
+                    with open(temp_image_path, 'rb') as image_file:
+                        image_bytes = image_file.read()
+                    
+                    textract_response = textract.detect_document_text(Document={'Bytes': image_bytes})
+                    
+                    page_text = ""
+                    for block in textract_response.get('Blocks', []):
+                        if block['BlockType'] == 'LINE':
+                            page_text += block.get('Text', '') + "\n"
+                    
+                    if os.path.exists(temp_image_path):
+                        os.remove(temp_image_path)
+                        
+                except Exception as ocr_err:
+                    print(f"[ERROR] OCR failed on page {page_num + 1}: {str(ocr_err)}")
+                    continue
+            
+            # Map page to account
+            for acc_idx, acc in enumerate(accounts):
+                acc_num = acc.get("accountNumber", "").strip()
+                normalized_text = re.sub(r'[\s\-]', '', page_text)
+                normalized_acc = re.sub(r'[\s\-]', '', acc_num)
+                
+                if normalized_acc and normalized_acc in normalized_text:
+                    page_to_account[page_num] = (acc_idx, acc_num)
+                    accounts_found.add(acc_num)
+                    break
+        
+        print(f"[INFO] Mapped {len(page_to_account)} pages to {len(accounts_found)} accounts")
+        
+        # Now extract and cache data for each page
+        page_extraction_prompt = get_comprehensive_extraction_prompt()
+        
+        for page_num, (account_index, account_number) in page_to_account.items():
+            try:
+                print(f"[INFO] Pre-caching page {page_num + 1} for account {account_number}")
+                
+                # Get page text (already extracted above, but re-extract for consistency)
+                page = pdf_doc[page_num]
+                page_text = page.get_text()
+                
+                # Check if needs OCR
+                has_watermark = "PDF-XChange" in page_text or "Click to BUY NOW" in page_text
+                
+                if not page_text or len(page_text.strip()) < 20 or has_watermark:
+                    pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+                    temp_image_path = os.path.join(OUTPUT_DIR, f"temp_extract_{job_id}_{page_num}.png")
+                    pix.save(temp_image_path)
+                    
+                    with open(temp_image_path, 'rb') as image_file:
+                        image_bytes = image_file.read()
+                    
+                    textract_response = textract.detect_document_text(Document={'Bytes': image_bytes})
+                    
+                    page_text = ""
+                    for block in textract_response.get('Blocks', []):
+                        if block['BlockType'] == 'LINE':
+                            page_text += block.get('Text', '') + "\n"
+                    
+                    if os.path.exists(temp_image_path):
+                        os.remove(temp_image_path)
+                
+                # Extract data using AI
+                response = call_bedrock(page_extraction_prompt, page_text, max_tokens=6000)
+                
+                # Parse JSON
+                json_start = response.find('{')
+                json_end = response.rfind('}')
+                
+                if json_start != -1 and json_end != -1:
+                    json_str = response[json_start:json_end + 1]
+                    parsed = json.loads(json_str)
+                    parsed["AccountNumber"] = account_number
+                    
+                    # Cache to S3
+                    cache_key = f"page_data/{job_id}/account_{account_index}/page_{page_num}.json"
+                    cache_data = {
+                        "account_number": account_number,
+                        "data": parsed,
+                        "extracted_at": datetime.now().isoformat(),
+                        "pre_cached": True
+                    }
+                    
+                    s3_client.put_object(
+                        Bucket=S3_BUCKET,
+                        Key=cache_key,
+                        Body=json.dumps(cache_data),
+                        ContentType='application/json'
+                    )
+                    
+                    print(f"[INFO] Cached page {page_num + 1} data to S3: {cache_key}")
+                    
+            except Exception as page_error:
+                print(f"[ERROR] Failed to pre-cache page {page_num + 1}: {str(page_error)}")
+                continue
+        
+        pdf_doc.close()
+        print(f"[INFO] Pre-caching completed for document {job_id}")
+        
+    except Exception as e:
+        print(f"[ERROR] Pre-caching failed: {str(e)}")
+
+
 def process_job(job_id: str, file_bytes: bytes, filename: str, use_ocr: bool, document_name: str = None, original_file_path: str = None):
     """Background worker to process documents"""
     global processed_documents
@@ -1357,18 +1542,10 @@ def process_job(job_id: str, file_bytes: bytes, filename: str, use_ocr: bool, do
             job_status_map[job_id]["ocr_file"] = ocr_file
             job_status_map[job_id]["ocr_method"] = "Direct Text"
         
-        # Step 2: Extract all fields dynamically
-        job_status_map[job_id].update({
-            "status": "Extracting all fields from document...",
-            "progress": 40
-        })
-        basic_fields = extract_basic_fields(text, num_fields=20)
-        
-        # Step 3: Full document analysis
+        # Step 2: Detect document type (no LLM call, just pattern matching)
         job_status_map[job_id].update({
             "status": "Analyzing document structure...",
-            "progress": 70,
-            "basic_fields": basic_fields
+            "progress": 40
         })
         
         # Check if this is a loan document - use special processing
@@ -1376,23 +1553,38 @@ def process_job(job_id: str, file_bytes: bytes, filename: str, use_ocr: bool, do
         print(f"[INFO] Document type detected: {doc_type_preview}")
         
         if doc_type_preview == "loan_document":
+            # OPTIMIZATION: Skip basic_fields extraction for loan documents
+            # We'll get all data from page-level pre-caching
+            basic_fields = {}
+            
             # Quick check for number of accounts
             account_count = len(split_accounts_strict(text))
             
             if account_count > 20:
                 print(f"[WARNING] Large document detected with {account_count} accounts. Processing may take 5-10 minutes.")
                 job_status_map[job_id].update({
-                    "status": f"Detected loan document with {account_count} accounts - this will take several minutes...",
-                    "progress": 75
+                    "status": f"Detected loan document with {account_count} accounts - will pre-cache page data...",
+                    "progress": 70
                 })
             else:
                 job_status_map[job_id].update({
-                    "status": "Detected loan document - splitting accounts...",
-                    "progress": 75
+                    "status": "Detected loan document - identifying accounts...",
+                    "progress": 70
                 })
             
             result = process_loan_document(text, job_id)
         else:
+            # For non-loan documents, extract basic fields
+            job_status_map[job_id].update({
+                "status": "Extracting fields from document...",
+                "progress": 60
+            })
+            basic_fields = extract_basic_fields(text, num_fields=20)
+            
+            job_status_map[job_id].update({
+                "status": "Processing document...",
+                "progress": 70
+            })
             result = detect_and_extract_documents(text)
         
         # Add basic fields to result
@@ -1472,6 +1664,20 @@ def process_job(job_id: str, file_bytes: bytes, filename: str, use_ocr: bool, do
         
         processed_documents.append(document_record)
         save_documents_db(processed_documents)
+        
+        # Step 6: Pre-cache all page data for loan documents (to avoid re-running OCR on every click)
+        if doc_type_preview == "loan_document" and saved_pdf_path and result.get("documents"):
+            doc_data = result["documents"][0]
+            accounts = doc_data.get("accounts", [])
+            
+            if accounts and len(accounts) > 0:
+                job_status_map[job_id].update({
+                    "status": f"Pre-caching page data for {len(accounts)} accounts (one-time optimization)...",
+                    "progress": 95
+                })
+                
+                print(f"[INFO] Starting pre-cache for {len(accounts)} accounts")
+                pre_cache_all_pages(job_id, saved_pdf_path, accounts)
         
         job_status_map[job_id] = {
             "status": "✅ Processing completed",
@@ -2079,13 +2285,13 @@ def update_page_data(doc_id, page_num):
 
 @app.route("/api/document/<doc_id>/update", methods=["POST"])
 def update_document_field(doc_id):
-    """Update a specific field in the document"""
+    """Update a specific field in the document and S3 cache"""
     try:
         data = request.get_json()
         field_name = data.get("field_name")
         field_value = data.get("field_value")
         account_index = data.get("account_index")
-        page_index = data.get("page_index")
+        page_num = data.get("page_num")  # Get current page number
         
         doc = next((d for d in processed_documents if d["id"] == doc_id), None)
         if not doc:
@@ -2105,6 +2311,39 @@ def update_document_field(doc_id):
                 
                 # Save to database
                 save_documents_db(processed_documents)
+                
+                # IMPORTANT: Update S3 cache if page_num is provided
+                if page_num is not None:
+                    try:
+                        cache_key = f"page_data/{doc_id}/account_{account_index}/page_{page_num}.json"
+                        
+                        # Get existing cache
+                        try:
+                            cache_response = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+                            cached_data = json.loads(cache_response['Body'].read().decode('utf-8'))
+                        except:
+                            cached_data = {
+                                "account_number": account.get("accountNumber"),
+                                "data": {},
+                                "extracted_at": datetime.now().isoformat()
+                            }
+                        
+                        # Update the field in cache
+                        if "data" not in cached_data:
+                            cached_data["data"] = {}
+                        cached_data["data"][field_name] = field_value
+                        cached_data["updated_at"] = datetime.now().isoformat()
+                        
+                        # Save updated cache to S3
+                        s3_client.put_object(
+                            Bucket=S3_BUCKET,
+                            Key=cache_key,
+                            Body=json.dumps(cached_data),
+                            ContentType='application/json'
+                        )
+                        print(f"[INFO] Updated S3 cache: {cache_key}")
+                    except Exception as cache_error:
+                        print(f"[WARNING] Failed to update S3 cache: {str(cache_error)}")
                 
                 return jsonify({"success": True, "message": "Field updated successfully"})
             else:
@@ -2254,6 +2493,64 @@ def get_document_page_thumbnail(doc_id, page_num):
     except Exception as e:
         print(f"[ERROR] Failed to create thumbnail: {str(e)}")
         return "Failed to create thumbnail", 500
+
+
+@app.route("/api/document/<doc_id>/clear-cache", methods=["POST"])
+def clear_document_cache(doc_id):
+    """Clear S3 cache for a specific document to force re-extraction with updated prompts"""
+    try:
+        doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+        if not doc:
+            return jsonify({"success": False, "message": "Document not found"}), 404
+        
+        # Get all accounts
+        doc_data = doc.get("documents", [{}])[0]
+        accounts = doc_data.get("accounts", [])
+        
+        deleted_count = 0
+        
+        # Delete cache for all accounts and pages
+        for account_index in range(len(accounts)):
+            # Try to delete page mapping cache
+            try:
+                cache_key = f"page_mapping/{doc_id}/mapping.json"
+                s3_client.delete_object(Bucket=S3_BUCKET, Key=cache_key)
+                deleted_count += 1
+                print(f"[INFO] Deleted cache: {cache_key}")
+            except:
+                pass
+            
+            # Delete page data cache (try up to 100 pages)
+            for page_num in range(100):
+                try:
+                    cache_key = f"page_data/{doc_id}/account_{account_index}/page_{page_num}.json"
+                    s3_client.delete_object(Bucket=S3_BUCKET, Key=cache_key)
+                    deleted_count += 1
+                    print(f"[INFO] Deleted cache: {cache_key}")
+                except:
+                    pass
+        
+        # Also delete non-account page cache
+        for page_num in range(100):
+            try:
+                cache_key = f"page_data/{doc_id}/page_{page_num}.json"
+                s3_client.delete_object(Bucket=S3_BUCKET, Key=cache_key)
+                deleted_count += 1
+                print(f"[INFO] Deleted cache: {cache_key}")
+            except:
+                pass
+        
+        print(f"[INFO] Cleared {deleted_count} cache entries for document {doc_id}")
+        
+        return jsonify({
+            "success": True,
+            "message": f"Cache cleared successfully. Deleted {deleted_count} cache entries.",
+            "note": "Click on pages again to re-extract with updated prompts"
+        })
+        
+    except Exception as e:
+        print(f"[ERROR] Failed to clear cache: {str(e)}")
+        return jsonify({"success": False, "message": f"Failed to clear cache: {str(e)}"}), 500
 
 
 @app.route("/process", methods=["POST"])

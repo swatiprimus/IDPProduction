@@ -124,12 +124,13 @@
             </div>
             <div class="toolbar">
                 <button class="btn btn-primary" onclick="openCreateModal()"><span>+</span><span>Create</span></button>
+                <button class="btn" onclick="deleteAllDocuments()" style="background:#ef4444;color:white;" title="Delete All Documents"><span>🗑️</span></button>
                 <div class="search-box"><span class="search-icon">🔍</span><input type="text" placeholder="Search..." id="searchInput" onkeyup="filterSkills()"></div>
             </div>
         </div>
         <div class="skills-table">
             <table>
-                <thead><tr><th style="width:50px;"></th><th>Skill Name</th><th style="width:150px;">Created Date</th><th>Document Type</th><th style="width:120px;">Accuracy</th></tr></thead>
+                <thead><tr><th style="width:50px;"></th><th>Skill Name</th><th style="width:150px;">Created Date</th><th>Document Type</th><th style="width:120px;">Actions</th></tr></thead>
                 <tbody id="skillsTableBody"></tbody>
             </table>
         </div>
@@ -203,8 +204,6 @@
                     accuracy=doc.accuracy_score||0;
                 }
                 
-                const accuracyColor=accuracy>=80?'#10b981':accuracy>=60?'#f59e0b':'#ef4444';
-                
                 const row=document.createElement('tr');
                 row.style.cursor='pointer';
                 
@@ -227,9 +226,8 @@
                     row.onclick = null;
                 }
                 
+                // PDF view button
                 const pdfButton = hasPDF ? `<button onclick="event.stopPropagation();viewPDF('${skill.id}','${skill.filename}')" style="padding:6px 10px;background:transparent;color:#667eea;border:none;cursor:pointer;transition:all 0.3s;display:inline-flex;align-items:center;justify-content:center;" title="View PDF"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><path d="M10 12h4"></path><path d="M10 16h4"></path></svg></button>` : '';
-                const pageViewerButton = hasPDF ? `<button onclick="event.stopPropagation();window.open('/document/${skill.id}/pages','_blank')" style="padding:6px 10px;background:#667eea;color:white;border:none;border-radius:6px;cursor:pointer;transition:all 0.3s;display:inline-flex;align-items:center;gap:6px;font-size:0.85em;font-weight:600;" title="Unified Page Viewer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>Pages</button>` : '';
-                const accountsButton = (hasPDF && hasAccounts) ? `<button onclick="event.stopPropagation();window.open('/document/${skill.id}/accounts','_blank')" style="padding:6px 10px;background:#10b981;color:white;border:none;border-radius:6px;cursor:pointer;transition:all 0.3s;display:inline-flex;align-items:center;gap:6px;font-size:0.85em;font-weight:600;" title="Account-Based Viewer">🏦 Accounts</button>` : '';
                 
                 row.innerHTML=`
                     <td><span style="font-size:1.5em;">${icon}</span></td>
@@ -241,19 +239,14 @@
                                 Ready
                             </span>
                             ${pdfButton}
-                            ${pageViewerButton}
-                            ${accountsButton}
                         </div>
                     </td>
                     <td><span class="version-badge">${processedDate}</span></td>
                     <td><span class="description">${docType}</span></td>
-                    <td>
-                        <div style="display:flex;align-items:center;gap:8px;">
-                            <div style="flex:1;height:8px;background:#e5e7eb;border-radius:10px;overflow:hidden;">
-                                <div style="height:100%;width:${accuracy}%;background:${accuracyColor};transition:width 0.3s;"></div>
-                            </div>
-                            <span style="font-weight:600;color:${accuracyColor};min-width:45px;">${accuracy}%</span>
-                        </div>
+                    <td style="text-align:center;">
+                        <button onclick="event.stopPropagation();deleteDocument('${skill.id}','${skill.document_name || skill.filename}')" style="padding:8px 12px;background:transparent;color:#ef4444;border:none;cursor:pointer;transition:all 0.3s;font-size:1.2em;" title="Delete Document">
+                            🗑️
+                        </button>
                     </td>
                 `;
                 tbody.appendChild(row);
@@ -455,6 +448,68 @@
         function viewPDF(docId, filename) {
             // Open PDF in new tab
             window.open(`/api/document/${docId}/pdf`, '_blank');
+        }
+
+        // Delete Document Function
+        async function deleteDocument(docId, docName) {
+            if (!confirm(`Are you sure you want to delete "${docName}"?\n\nThis will:\n- Delete the document from database\n- Delete all cached data\n- Delete OCR files\n- Delete PDF file\n\nThis action cannot be undone!`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/document/${docId}/delete`, {
+                    method: 'POST'
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    alert(`✅ Document "${docName}" deleted successfully!`);
+                    // Reload the page to refresh the list
+                    window.location.reload();
+                } else {
+                    alert(`❌ Failed to delete: ${result.message}`);
+                }
+            } catch (error) {
+                alert(`❌ Error deleting document: ${error.message}`);
+            }
+        }
+
+        // Delete All Documents Function
+        async function deleteAllDocuments() {
+            const totalDocs = allSkills.length;
+            
+            if (totalDocs === 0) {
+                alert('No documents to delete!');
+                return;
+            }
+
+            if (!confirm(`⚠️ WARNING: Delete ALL ${totalDocs} documents?\n\nThis will:\n- Delete ALL documents from database\n- Delete ALL cached data\n- Delete ALL OCR files\n- Delete ALL PDF files\n\nThis action cannot be undone!\n\nAre you absolutely sure?`)) {
+                return;
+            }
+
+            // Double confirmation for safety
+            if (!confirm(`This is your last chance!\n\nDelete ALL ${totalDocs} documents permanently?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/documents/cleanup', {
+                    method: 'POST'
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    alert(`✅ Successfully deleted:\n- ${result.documents_cleared} documents\n- ${result.files_deleted} files`);
+                    // Reload the page to refresh the list
+                    window.location.reload();
+                } else {
+                    alert(`❌ Failed to delete all: ${result.message}`);
+                }
+            } catch (error) {
+                alert(`❌ Error deleting all documents: ${error.message}`);
+            }
         }
 
     </script>

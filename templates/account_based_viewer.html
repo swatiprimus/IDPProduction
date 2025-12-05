@@ -59,28 +59,73 @@
             display: flex;
             flex: 1;
             overflow: hidden;
+            position: relative;
         }
 
-        /* Left Sidebar - Account List */
+        /* Left Sidebar - Account List (Collapsible) */
         .account-list-sidebar {
-            width: 300px;
+            width: 280px;
             background: white;
             border-right: 1px solid #e5e7eb;
             display: flex;
             flex-direction: column;
-            overflow: hidden;
+            overflow: visible;
+            transition: width 0.3s ease;
+            position: relative;
+            z-index: 100;
+        }
+
+        .account-list-sidebar.collapsed {
+            width: 0;
+            min-width: 0;
+            border-right: none;
         }
 
         .sidebar-header {
             padding: 20px;
             background: #f9fafb;
             border-bottom: 1px solid #e5e7eb;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: relative;
+            overflow: visible;
         }
 
         .sidebar-header h2 {
             font-size: 1.2em;
             color: #374151;
             margin-bottom: 5px;
+        }
+
+        .toggle-sidebar-btn {
+            position: absolute;
+            right: -40px;
+            top: 20px;
+            width: 40px;
+            height: 50px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 0 8px 8px 0;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2em;
+            transition: all 0.3s;
+            z-index: 101;
+            box-shadow: 2px 0 8px rgba(0,0,0,0.1);
+        }
+
+        .toggle-sidebar-btn:hover {
+            background: var(--secondary);
+            width: 45px;
+        }
+
+        .account-list-sidebar.collapsed .toggle-sidebar-btn {
+            right: auto;
+            left: 0;
         }
 
         .account-count {
@@ -91,6 +136,7 @@
         .accounts-list {
             flex: 1;
             overflow-y: auto;
+            overflow-x: visible;
             padding: 10px;
         }
 
@@ -127,18 +173,20 @@
 
         /* Right Content - Split View */
         .content-area {
-            flex: 1;
+            flex: 1 1 auto;
             display: flex;
             overflow: hidden;
+            min-width: 0;
         }
 
-        /* Document Viewer - 50% */
+        /* Document Viewer - 70% */
         .document-viewer-panel {
-            flex: 1;
+            flex: 0 0 70%;
             display: flex;
             flex-direction: column;
             background: white;
             border-right: 1px solid #e5e7eb;
+            min-width: 0;
         }
 
         .viewer-header {
@@ -182,28 +230,29 @@
         }
 
         .viewer-content {
-            flex: 1;
-            display: flex;
-            align-items: center;
-            justify-content: center;
             overflow: auto;
             padding: 20px;
             background: #525659;
+            height: 100%;
+            text-align: center;
         }
 
         .viewer-content img {
-            max-width: 100%;
+            width: 100%;
+            height: auto;
             max-height: 100%;
+            object-fit: contain;
             border-radius: 8px;
             box-shadow: 0 4px 20px rgba(0,0,0,0.3);
         }
 
-        /* Data Panel - 50% */
+        /* Data Panel - 30% */
         .data-panel {
-            flex: 1;
+            flex: 0 0 30%;
             display: flex;
             flex-direction: column;
             background: white;
+            overflow: hidden;
         }
 
         .data-header {
@@ -381,10 +430,12 @@
 
     <div class="main-container">
         <!-- Left Sidebar: Account List -->
-        <div class="account-list-sidebar">
+        <div class="account-list-sidebar" id="accountSidebar">
             <div class="sidebar-header">
-                <h2>Accounts</h2>
-                <div class="account-count" id="accountCount">Loading...</div>
+                <div>
+                    <h2>Accounts</h2>
+                    <div class="account-count" id="accountCount">Loading...</div>
+                </div>
             </div>
             <div class="accounts-list" id="accountsList">
                 <div class="loading">
@@ -392,6 +443,9 @@
                     <div>Loading accounts...</div>
                 </div>
             </div>
+            <button class="toggle-sidebar-btn" id="toggleSidebarBtn" onclick="toggleSidebar()">
+                <span id="toggleIcon">◀</span>
+            </button>
         </div>
 
         <!-- Right Content: Split View -->
@@ -434,6 +488,9 @@
                         <button class="control-btn btn-download" id="downloadAccountBtn" onclick="downloadAccountJSON()" style="display:none;">
                             💾 Account JSON
                         </button>
+                        <button class="control-btn" id="clearCacheBtn" onclick="clearDocumentCache()" style="display:none;background:#f59e0b;color:white;">
+                            🔄 Clear Cache
+                        </button>
                     </div>
                 </div>
                 <div class="data-content" id="dataContent">
@@ -457,6 +514,26 @@
         let editMode = false;
         let originalData = {};
         let editedFields = {};
+        let sidebarCollapsed = false;
+
+        // Toggle sidebar visibility
+        function toggleSidebar() {
+            const sidebar = document.getElementById('accountSidebar');
+            const contentArea = document.querySelector('.content-area');
+            const toggleIcon = document.getElementById('toggleIcon');
+            
+            sidebarCollapsed = !sidebarCollapsed;
+            
+            if (sidebarCollapsed) {
+                sidebar.classList.add('collapsed');
+                contentArea.classList.add('sidebar-collapsed');
+                toggleIcon.textContent = '▶';
+            } else {
+                sidebar.classList.remove('collapsed');
+                contentArea.classList.remove('sidebar-collapsed');
+                toggleIcon.textContent = '◀';
+            }
+        }
 
         // Load accounts on page load
         async function loadAccounts() {
@@ -497,15 +574,18 @@
             const container = document.getElementById('accountsList');
             document.getElementById('accountCount').textContent = `${accounts.length} account(s) found`;
             
-            container.innerHTML = accounts.map((account, index) => `
-                <div class="account-item ${index === 0 ? 'active' : ''}" onclick="selectAccount(${index})" id="account-${index}">
-                    <div class="account-number">Account: ${account.accountNumber}</div>
-                    <div class="account-meta">
-                        Accuracy: ${account.accuracy_score}% | 
-                        ${account.filled_fields}/${account.total_fields} fields
+            container.innerHTML = accounts.map((account, index) => {
+                // Show field count if available
+                const fieldsDisplay = (account.total_fields > 0)
+                    ? `${account.filled_fields}/${account.total_fields} fields`
+                    : 'Ready';
+                return `
+                    <div class="account-item ${index === 0 ? 'active' : ''}" onclick="selectAccount(${index})" id="account-${index}">
+                        <div class="account-number">${account.accountNumber}</div>
+                        <div class="account-meta">${fieldsDisplay}</div>
                     </div>
-                </div>
-            `).join('');
+                `;
+            }).join('');
         }
 
         async function selectAccount(index) {
@@ -529,6 +609,7 @@
             document.getElementById('editBtn').style.display = 'flex';
             document.getElementById('downloadPageBtn').style.display = 'flex';
             document.getElementById('downloadAccountBtn').style.display = 'flex';
+            document.getElementById('clearCacheBtn').style.display = 'flex';
         }
 
         let accountPageNumbers = []; // Store actual page numbers for this account
@@ -605,21 +686,137 @@
                     currentPageData = fields; // Store for download
                     let html = '';
                     
-                    document.getElementById('dataMeta').textContent = `Account ${account.accountNumber} - Page ${currentPageIndex + 1}`;
+                    // Debug: Log the fields to see what we're getting
+                    console.log('Page data fields:', fields);
+                    console.log('Has Signers?', 'Signers' in fields);
+                    console.log('All field keys:', Object.keys(fields));
+                    
+                    // Check for Signer fields
+                    const signerFields = Object.keys(fields).filter(k => k.startsWith('Signer'));
+                    console.log('Signer fields found:', signerFields);
+                    
+                    // Calculate accuracy: fields with values / total fields
+                    let totalFields = 0;
+                    let filledFields = 0;
+                    
+                    // Group signer fields by number
+                    const signerGroups = {};
+                    const regularFields = {};
                     
                     for (const [key, value] of Object.entries(fields)) {
-                        if (typeof value === 'object' && !Array.isArray(value)) continue;
                         if (key === 'AccountNumber') continue;
                         
+                        // Handle nested Signers array (convert to flat format)
+                        if (key === 'Signers' && Array.isArray(value)) {
+                            console.log('Found Signers array with', value.length, 'signers');
+                            value.forEach((signer, index) => {
+                                const signerNum = index + 1;
+                                signerGroups[signerNum] = signer;
+                            });
+                            continue;
+                        }
+                        
+                        // Check if this is a signer field (Signer_1, Signer_2, etc.)
+                        const signerMatch = key.match(/^Signer_?(\d+)$/);
+                        if (signerMatch && signerMatch[1]) {
+                            const signerNum = parseInt(signerMatch[1]);
+                            // If value is an object, it contains all signer info
+                            if (typeof value === 'object' && !Array.isArray(value)) {
+                                signerGroups[signerNum] = value;
+                            }
+                            continue;
+                        }
+                        
+                        // Also check for Signer1_Name, Signer2_SSN format
+                        const signerFieldMatch = key.match(/^Signer_?(\d+)_(.+)$/);
+                        if (signerFieldMatch && signerFieldMatch[1]) {
+                            const signerNum = parseInt(signerFieldMatch[1]);
+                            const fieldName = signerFieldMatch[2];
+                            if (!signerGroups[signerNum]) {
+                                signerGroups[signerNum] = {};
+                            }
+                            signerGroups[signerNum][fieldName] = value;
+                            continue;
+                        }
+                        
+                        // Handle nested objects (like SupportingDocuments)
+                        if (typeof value === 'object' && !Array.isArray(value)) continue;
+                        
+                        regularFields[key] = value;
+                    }
+                    
+                    // Display regular fields first (only fields with values)
+                    for (const [key, value] of Object.entries(regularFields)) {
                         const displayValue = Array.isArray(value) ? value.join(', ') : value;
+                        
+                        // Skip fields with no value
+                        if (!displayValue || displayValue === 'N/A' || displayValue === '') {
+                            continue;
+                        }
+                        
+                        totalFields++;
+                        filledFields++;
                         
                         html += `
                             <div class="field-item">
                                 <div class="field-label">${key.replace(/_/g, ' ')}</div>
-                                <div class="field-value" data-field="${key}">${displayValue || 'N/A'}</div>
+                                <div class="field-value" data-field="${key}">${displayValue}</div>
                             </div>
                         `;
                     }
+                    
+                    // Display signer groups
+                    const signerNumbers = Object.keys(signerGroups).sort((a, b) => a - b);
+                    if (signerNumbers.length > 0) {
+                        console.log('Displaying', signerNumbers.length, 'signer groups');
+                    }
+                    
+                    signerNumbers.forEach(signerNum => {
+                        const signer = signerGroups[signerNum];
+                        
+                        // First, collect all valid fields for this signer
+                        let signerFieldsHtml = '';
+                        let signerFieldCount = 0;
+                        
+                        for (const [signerKey, signerValue] of Object.entries(signer)) {
+                            const displayValue = Array.isArray(signerValue) ? signerValue.join(', ') : signerValue;
+                            
+                            // Skip fields with no value
+                            if (!displayValue || displayValue === 'N/A' || displayValue === '') {
+                                continue;
+                            }
+                            
+                            signerFieldCount++;
+                            totalFields++;
+                            filledFields++;
+                            
+                            signerFieldsHtml += `
+                                <div class="field-item">
+                                    <div class="field-label">${signerKey.replace(/_/g, ' ')}</div>
+                                    <div class="field-value" data-field="Signer${signerNum}_${signerKey}">${displayValue}</div>
+                                </div>
+                            `;
+                        }
+                        
+                        // Only show signer header if there are fields to display
+                        if (signerFieldCount > 0) {
+                            html += `<div class="field-item" style="background:#f0f9ff;border-left-color:#3b82f6;margin-top:15px;margin-bottom:5px;">
+                                <div class="field-label" style="color:#1e40af;font-weight:700;font-size:1.1em;">Signer ${signerNum}</div>
+                            </div>`;
+                            html += signerFieldsHtml;
+                        }
+                    });
+                    
+                    // Calculate accuracy percentage
+                    const accuracy = totalFields > 0 ? Math.round((filledFields / totalFields) * 100) : 0;
+                    const accuracyColor = accuracy >= 80 ? '#10b981' : accuracy >= 60 ? '#f59e0b' : '#ef4444';
+                    
+                    document.getElementById('dataMeta').innerHTML = `
+                        Account ${account.accountNumber} - Page ${currentPageIndex + 1}
+                        <span style="display:inline-block;margin-left:10px;padding:4px 8px;background:${accuracyColor};color:white;border-radius:4px;font-size:0.85em;font-weight:600;">
+                            ${accuracy}% Complete (${filledFields}/${totalFields} fields)
+                        </span>
+                    `;
                     
                     container.innerHTML = html || '<div class="loading">No data extracted from this page</div>';
                 } else {
@@ -720,36 +917,36 @@
             }
             
             try {
+                // Update currentPageData with edited fields
                 for (const [fieldName, fieldValue] of Object.entries(editedFields)) {
-                    const response = await fetch(`/api/document/${documentId}/update`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            field_name: fieldName,
-                            field_value: fieldValue,
-                            account_index: currentAccountIndex
-                        })
-                    });
-                    
-                    const result = await response.json();
-                    if (!result.success) {
-                        throw new Error(result.message);
-                    }
+                    currentPageData[fieldName] = fieldValue;
                 }
                 
-                showNotification('Page saved successfully!', 'success');
+                // Get the actual PDF page number for this account page
+                const actualPageNum = accountPageNumbers[currentPageIndex] || currentPageIndex;
+                
+                // Save to backend and update S3 cache
+                const response = await fetch(`/api/document/${documentId}/page/${actualPageNum}/update`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        page_data: currentPageData,
+                        account_index: currentAccountIndex
+                    })
+                });
+                
+                const result = await response.json();
+                if (!result.success) {
+                    throw new Error(result.message);
+                }
+                
+                showNotification('✅ Saved successfully! Changes will persist after refresh.', 'success');
                 exitEditMode();
                 
-                // Reload account data
-                const response = await fetch(`/api/document/${documentId}`);
-                const data = await response.json();
-                if (data.success) {
-                    accounts = data.document.documents[0].accounts;
-                    renderAccountsList();
-                    renderPageData();
-                }
+                // Reload page data to show updated values
+                renderPageData();
             } catch (error) {
-                showNotification('Failed to save: ' + error.message, 'error');
+                showNotification('❌ Failed to save: ' + error.message, 'error');
             }
         }
 
@@ -831,6 +1028,35 @@
             URL.revokeObjectURL(url);
             
             showNotification('Complete account JSON downloaded!', 'success');
+        }
+
+        async function clearDocumentCache() {
+            if (!confirm('Clear cache and re-extract all pages with updated prompts?\n\nThis will:\n- Delete all cached page data\n- Force fresh extraction on next page click\n- Extract stamp dates and other new fields')) {
+                return;
+            }
+            
+            try {
+                showNotification('Clearing cache...', 'success');
+                
+                const response = await fetch(`/api/document/${documentId}/clear-cache`, {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showNotification(`✅ ${result.message}`, 'success');
+                    
+                    // Reload current page to get fresh data
+                    setTimeout(() => {
+                        showPage(currentPageIndex);
+                    }, 2000);
+                } else {
+                    showNotification(`❌ ${result.message}`, 'error');
+                }
+            } catch (error) {
+                showNotification(`❌ Failed to clear cache: ${error.message}`, 'error');
+            }
         }
 
         function showNotification(message, type = 'success') {

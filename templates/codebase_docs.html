@@ -595,27 +595,50 @@
             <ul style="line-height: 1.8; margin-left: 20px; color: #666;">
                 <li><strong>Splits into multiple accounts</strong> using smart regex patterns</li>
                 <li><strong>Processes each account separately</strong> with specialized prompts</li>
-                <li><strong>Extracts 8 key fields per account:</strong> AccountNumber, AccountHolderNames, AccountType, OwnershipType, WSFSAccountType, AccountPurpose, SSN, Signers</li>
-                <li><strong>Displays accounts in collapsible format</strong> - Click the ▼ arrow to expand/collapse account details</li>
-                <li><strong>Shows accuracy score with visual progress bar</strong> - Color-coded (green/orange/red) for quick assessment</li>
-                <li><strong>Human Intervention Alerts:</strong> When accuracy < 100%, displays a red alert box showing exactly which fields are missing</li>
-                <li><strong>Missing Fields Highlighted:</strong> Each missing field shown with ✗ icon and red styling for easy identification</li>
-                <li><strong>Displays Signers in a table</strong> with Name, SSN, DOB, Address, Phone, Email</li>
-                <li><strong>Shows SupportingDocuments</strong> in a table with DocumentType and Details</li>
-                <li><strong>Calculates accuracy per account</strong> and shows average accuracy</li>
+                <li><strong>Extracts key fields per account:</strong> AccountNumber, AccountHolderNames, AccountType, OwnershipType, WSFSAccountType, AccountPurpose, SSN, Signers, SupportingDocuments</li>
+                <li><strong>Page-by-page viewer</strong> with document image on left, extracted data on right</li>
+                <li><strong>Smart field display:</strong> Only shows fields with actual data (hides N/A and empty fields)</li>
+                <li><strong>Color-coded accuracy badges:</strong> 🟢 Green (≥80%), 🟡 Orange (60-79%), 🔴 Red (<60%)</li>
+                <li><strong>Real-time accuracy calculation:</strong> Shows "71% Complete (10/14 fields)" with dynamic color coding</li>
+                <li><strong>Multiple signer support:</strong> Displays Signer 1, Signer 2, etc. with all details (Name, SSN, DOB, Address, Phone, Email)</li>
+                <li><strong>Smart signer grouping:</strong> Only shows signer headers when they have actual data</li>
+                <li><strong>Edit mode:</strong> Click fields to edit, save changes that persist across sessions</li>
+                <li><strong>S3 cache integration:</strong> Saves edited data to S3 for persistence</li>
+                <li><strong>Clear cache button:</strong> Re-extract all pages with updated prompts</li>
+                <li><strong>Supporting documents table:</strong> Shows DocumentType and Details for each supporting doc</li>
             </ul>
             
-            <div style="background: #fef2f2; padding: 20px; border-radius: 10px; border-left: 4px solid #ef4444; margin-top: 20px;">
-                <h4 style="color: #dc2626; margin-bottom: 10px;">⚠️ Data Quality & Human Intervention</h4>
+            <div style="background: #f0f9ff; padding: 20px; border-radius: 10px; border-left: 4px solid #3b82f6; margin-top: 20px;">
+                <h4 style="color: #1e40af; margin-bottom: 10px;">✨ New Features: Page-by-Page Viewer</h4>
                 <p style="line-height: 1.8; color: #666;">
-                    The system automatically identifies incomplete data extraction. When an account's accuracy score is below 100%, 
-                    a prominent red alert box appears in the expanded account details showing:
+                    The enhanced document viewer provides a powerful interface for reviewing and editing extracted data:
                 </p>
                 <ul style="line-height: 1.8; margin-left: 20px; color: #666; margin-top: 10px;">
-                    <li><strong>Missing Fields List:</strong> Each missing field displayed with ✗ icon</li>
-                    <li><strong>Accuracy Percentage:</strong> Shows exact completion rate (e.g., "75% Complete")</li>
-                    <li><strong>Action Required Message:</strong> Clear instructions for manual review</li>
-                    <li><strong>Visual Indicators:</strong> Red borders, warning icons, and color-coded styling</li>
+                    <li><strong>Split-screen layout:</strong> Document image (70%) + extracted data panel (30%)</li>
+                    <li><strong>Account navigation:</strong> Switch between accounts in left sidebar</li>
+                    <li><strong>Page navigation:</strong> Previous/Next buttons with keyboard shortcuts (← →)</li>
+                    <li><strong>Collapsible sidebar:</strong> Toggle page list for more viewing space</li>
+                    <li><strong>Edit mode:</strong> Click "📝 Edit Page" to enable field editing</li>
+                    <li><strong>Inline editing:</strong> Click any field value to edit in place</li>
+                    <li><strong>Persistent saves:</strong> Changes saved to S3 cache and survive page refreshes</li>
+                    <li><strong>Clear cache:</strong> "🔄 Clear Cache" button re-extracts all pages with updated prompts</li>
+                    <li><strong>Download options:</strong> Export single page or complete document as JSON</li>
+                    <li><strong>Smart field filtering:</strong> Automatically hides empty/N/A fields for cleaner display</li>
+                </ul>
+            </div>
+            
+            <div style="background: #fef2f2; padding: 20px; border-radius: 10px; border-left: 4px solid #ef4444; margin-top: 20px;">
+                <h4 style="color: #dc2626; margin-bottom: 10px;">⚠️ Data Quality & Accuracy Tracking</h4>
+                <p style="line-height: 1.8; color: #666;">
+                    The system provides real-time accuracy tracking and visual indicators for data quality:
+                </p>
+                <ul style="line-height: 1.8; margin-left: 20px; color: #666; margin-top: 10px;">
+                    <li><strong>Dynamic accuracy calculation:</strong> (Filled Fields / Total Fields) × 100%</li>
+                    <li><strong>Color-coded badges:</strong> Green (≥80%), Orange (60-79%), Red (<60%)</li>
+                    <li><strong>Field count display:</strong> Shows "10/14 fields" for quick assessment</li>
+                    <li><strong>Per-page accuracy:</strong> Each page shows its own completion percentage</li>
+                    <li><strong>Account-level accuracy:</strong> Overall accuracy across all pages for each account</li>
+                    <li><strong>Visual progress indicators:</strong> Styled badges with background colors matching accuracy level</li>
                 </ul>
                 <p style="line-height: 1.8; color: #666; margin-top: 10px;">
                     This ensures data quality issues are immediately visible and actionable, enabling efficient human review and correction.
@@ -806,9 +829,13 @@ ocr_results/              <span class="comment"># Extracted text files</span>
                 <li><strong>Real-Time Display:</strong> Progress bars and color-coded badges</li>
             </ul>
 
-            <h3 style="color: var(--primary); margin: 20px 0 15px 0;">💾 Persistent Storage & Dashboard</h3>
+            <h3 style="color: var(--primary); margin: 20px 0 15px 0;">💾 Persistent Storage & Caching</h3>
             <ul style="line-height: 1.8; margin-left: 20px;">
                 <li><strong>JSON Database:</strong> All processed documents saved to processed_documents.json</li>
+                <li><strong>S3 Page Cache:</strong> Individual page extractions cached in S3 for fast retrieval</li>
+                <li><strong>Cache Key Format:</strong> {document_id}/page_{page_index}_data.json</li>
+                <li><strong>Edit Persistence:</strong> User edits saved to S3 cache and survive page refreshes</li>
+                <li><strong>Cache Management:</strong> Clear cache button to force re-extraction with updated prompts</li>
                 <li><strong>Comprehensive Dashboard:</strong> View all documents with filtering (All/Today/OCR)</li>
                 <li><strong>Document Cards:</strong> Preview with filename, type, date, and key fields</li>
                 <li><strong>Detailed View:</strong> Click any document to see full extraction results</li>
@@ -890,6 +917,91 @@ ocr_results/              <span class="comment"># Extracted text files</span>
                     <strong>Get specific document details</strong><br>
                     <strong>Returns:</strong> { "success": true, "document": {...} }<br>
                     <strong>Includes:</strong> All extracted fields, OCR info, document type, accuracy scores
+                </div>
+            </div>
+
+            <h3 style="color: var(--primary); margin: 30px 0 20px 0;">📄 New Page-Based API Endpoints</h3>
+
+            <div class="api-endpoint">
+                <span class="method get">GET</span>
+                <span class="path">/api/document/:doc_id/pages</span>
+                <div class="description">
+                    <strong>Get all pages for a document</strong><br>
+                    <strong>Returns:</strong> { "success": true, "pages": [...], "total_pages": 5, "has_accounts": true }<br>
+                    <strong>Use case:</strong> Load page thumbnails and navigation
+                </div>
+            </div>
+
+            <div class="api-endpoint">
+                <span class="method get">GET</span>
+                <span class="path">/api/document/:doc_id/page/:page_index</span>
+                <div class="description">
+                    <strong>Get page image</strong><br>
+                    <strong>Returns:</strong> Image file (PNG/JPG)<br>
+                    <strong>Use case:</strong> Display document page in viewer
+                </div>
+            </div>
+
+            <div class="api-endpoint">
+                <span class="method get">GET</span>
+                <span class="path">/api/document/:doc_id/page/:page_index/extract</span>
+                <div class="description">
+                    <strong>Extract data from specific page</strong><br>
+                    <strong>Returns:</strong> { "success": true, "data": {...}, "cached": true, "edited": false }<br>
+                    <strong>Features:</strong> S3 caching, force re-extraction with ?force=true<br>
+                    <strong>Use case:</strong> Get extracted fields for a single page
+                </div>
+            </div>
+
+            <div class="api-endpoint">
+                <span class="method post">POST</span>
+                <span class="path">/api/document/:doc_id/page/:page_index/update</span>
+                <div class="description">
+                    <strong>Update page data (save edits)</strong><br>
+                    <strong>Body:</strong> { "page_data": {...}, "account_index": 0 }<br>
+                    <strong>Returns:</strong> { "success": true, "message": "Page data updated" }<br>
+                    <strong>Features:</strong> Saves to S3 cache, persists across sessions<br>
+                    <strong>Use case:</strong> Save user edits to extracted data
+                </div>
+            </div>
+
+            <div class="api-endpoint">
+                <span class="method post">POST</span>
+                <span class="path">/api/document/:doc_id/clear-cache</span>
+                <div class="description">
+                    <strong>Clear all cached page data</strong><br>
+                    <strong>Returns:</strong> { "success": true, "message": "Cleared 5 cached pages" }<br>
+                    <strong>Use case:</strong> Force re-extraction with updated prompts
+                </div>
+            </div>
+
+            <div class="api-endpoint">
+                <span class="method get">GET</span>
+                <span class="path">/api/document/:doc_id/account/:account_index/pages</span>
+                <div class="description">
+                    <strong>Get pages for specific account (loan docs)</strong><br>
+                    <strong>Returns:</strong> { "success": true, "pages": [...], "total_pages": 3 }<br>
+                    <strong>Use case:</strong> Navigate pages within a specific account
+                </div>
+            </div>
+
+            <div class="api-endpoint">
+                <span class="method get">GET</span>
+                <span class="path">/api/document/:doc_id/account/:account_index/page/:page_index</span>
+                <div class="description">
+                    <strong>Get page image for specific account</strong><br>
+                    <strong>Returns:</strong> Image file (PNG/JPG)<br>
+                    <strong>Use case:</strong> Display account-specific page in viewer
+                </div>
+            </div>
+
+            <div class="api-endpoint">
+                <span class="method get">GET</span>
+                <span class="path">/api/document/:doc_id/account/:account_index/page/:page_index/data</span>
+                <div class="description">
+                    <strong>Get extracted data for account page</strong><br>
+                    <strong>Returns:</strong> { "success": true, "data": {...}, "cached": true }<br>
+                    <strong>Use case:</strong> Display extracted fields for account page
                 </div>
             </div>
 
