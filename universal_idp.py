@@ -1415,6 +1415,18 @@ Only extract fields where you can see a clear, definite value in the document.
                 doc["extracted_fields"] = {}
             
             fields = doc.get("extracted_fields", {})
+            
+            # POST-PROCESSING: For death certificates, rename certificate_number to account_number
+            doc_type = doc.get("document_type", "")
+            if doc_type == "death_certificate":
+                # If certificate_number exists but account_number doesn't, rename it
+                if "certificate_number" in fields and "account_number" not in fields:
+                    fields["account_number"] = fields["certificate_number"]
+                    del fields["certificate_number"]
+                # Also check for variations
+                if "Certificate_Number" in fields and "Account_Number" not in fields:
+                    fields["Account_Number"] = fields["Certificate_Number"]
+                    del fields["Certificate_Number"]
             filled_fields = sum(1 for v in fields.values() if v and v != "N/A" and v != "")
             total_fields = len(fields) if fields else 1
             doc["accuracy_score"] = round((filled_fields / total_fields) * 100, 1)
@@ -2284,12 +2296,27 @@ def extract_page_data(doc_id, page_num):
     try:
         # For single-page documents or first page, use the document's extracted_fields if available
         # This ensures all data from initial processing is shown
-        if page_num == 0 and not force:
+        # BUT: If cache was cleared, force re-extraction
+        cache_was_cleared = doc.get("cache_cleared", False)
+        
+        if page_num == 0 and not force and not cache_was_cleared:
             doc_data = doc.get("documents", [{}])[0] if doc.get("documents") else doc
             extracted_fields = doc_data.get("extracted_fields", {})
             
             if extracted_fields and len(extracted_fields) > 0:
                 print(f"[DEBUG] Using document's extracted_fields for page 0 ({len(extracted_fields)} fields)")
+                
+                # POST-PROCESSING: For death certificates, rename certificate_number to account_number
+                doc_type = doc_data.get("document_type", "")
+                if doc_type == "death_certificate" or "death" in doc.get("document_name", "").lower():
+                    if "certificate_number" in extracted_fields and "account_number" not in extracted_fields:
+                        extracted_fields["account_number"] = extracted_fields["certificate_number"]
+                        del extracted_fields["certificate_number"]
+                        print(f"[DEBUG] Renamed certificate_number to account_number: {extracted_fields['account_number']}")
+                    if "Certificate_Number" in extracted_fields and "Account_Number" not in extracted_fields:
+                        extracted_fields["Account_Number"] = extracted_fields["Certificate_Number"]
+                        del extracted_fields["Certificate_Number"]
+                        print(f"[DEBUG] Renamed Certificate_Number to Account_Number: {extracted_fields['Account_Number']}")
                 
                 # Cache this data to S3 for consistency
                 cache_key = f"page_data/{doc_id}/page_{page_num}.json"
@@ -2403,6 +2430,15 @@ def extract_page_data(doc_id, page_num):
         if json_start != -1 and json_end != -1:
             json_str = response[json_start:json_end + 1]
             parsed = json.loads(json_str)
+            
+            # POST-PROCESSING: For death certificates, rename certificate_number to account_number
+            if doc.get("document_type") == "death_certificate" or "death" in doc.get("document_name", "").lower():
+                if "certificate_number" in parsed and "account_number" not in parsed:
+                    parsed["account_number"] = parsed["certificate_number"]
+                    del parsed["certificate_number"]
+                if "Certificate_Number" in parsed and "Account_Number" not in parsed:
+                    parsed["Account_Number"] = parsed["Certificate_Number"]
+                    del parsed["Certificate_Number"]
             
             # Cache the result in S3
             cache_data = {
@@ -2746,6 +2782,14 @@ def clear_document_cache(doc_id):
                 pass
         
         print(f"[INFO] Cleared {deleted_count} cache entries for document {doc_id}")
+        
+        # Also mark the document to force re-extraction on next page load
+        # This ensures page 0 will re-extract instead of using cached extracted_fields
+        doc["cache_cleared"] = True
+        doc["cache_cleared_at"] = datetime.now().isoformat()
+        
+        # Save to database
+        save_documents_db()
         
         return jsonify({
             "success": True,
