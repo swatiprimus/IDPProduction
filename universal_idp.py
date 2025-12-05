@@ -171,43 +171,55 @@ def scan_and_map_pages(doc_id, pdf_path, accounts):
 def get_comprehensive_extraction_prompt():
     """Get comprehensive prompt for extracting ALL fields from any page"""
     return """
-You are a data extraction expert. Extract ALL form fields and their values from this document.
+You are a data extraction expert. Extract ALL fields and their values from this document.
 
 PRIORITY ORDER (Extract in this order):
-1. FORM FIELDS FIRST - All labeled fields with values (Business Name, Account Number, etc.)
-2. **SIGNER INFORMATION** - Extract ALL signers with their complete information
-3. Checkboxes and their states (Yes/No, checked/unchecked)
-4. Dates and numbers
-5. Names and addresses
-6. Special instructions
+1. **IDENTIFYING NUMBERS** - Certificate numbers, license numbers, file numbers, document numbers, reference numbers
+2. **NAMES** - All person names (full names, witness names, registrar names, etc.)
+3. **DATES** - All dates (issue dates, birth dates, marriage dates, death dates, expiration dates, stamp dates)
+4. **LOCATIONS** - Cities, states, counties, countries, addresses
+5. **FORM FIELDS** - All labeled fields with values (Business Name, Account Number, etc.)
+6. **SIGNER INFORMATION** - Extract ALL signers with their complete information
+7. **CONTACT INFO** - Phone numbers, emails, addresses
+8. **CHECKBOXES** - Checkbox states (Yes/No, checked/unchecked)
+9. **SPECIAL FIELDS** - Any other visible data
 
 CRITICAL RULES:
-- Focus on FORM FIELDS with labels and values
-- Extract field label + its value
+- Extract EVERY field you can see in the document
+- Include ALL identifying numbers (license #, certificate #, file #, reference #, etc.)
+- Extract ALL names, even if they appear multiple times in different contexts
+- Extract ALL dates in their original format
 - Do NOT extract long legal text, disclaimers, or authorization paragraphs
 - Do NOT extract instructions about how to fill the form
 - Extract actual DATA, not explanatory text
 
 WHAT TO EXTRACT:
-✓ Business Name: [value]
-✓ Account Number: [value]
-✓ **SIGNER INFORMATION (CRITICAL):**
+✓ **ALL IDENTIFYING NUMBERS:**
+  - Certificate_Number, License_Number, File_Number, Document_Number
+  - Reference_Number, Registration_Number, Case_Number
+  - Any number with a label or identifier
+✓ **ALL NAMES:**
+  - Full_Name, Spouse_Name, Witness_Names, Registrar_Name
+  - Father_Name, Mother_Name, Maiden_Name
+  - Any person's name mentioned in the document
+✓ **ALL DATES:**
+  - Issue_Date, Birth_Date, Marriage_Date, Death_Date
+  - Expiration_Date, Filing_Date, Registration_Date
+  - Stamp_Date (look for stamps like "DEC 26 2014", "JAN 15 2023")
+✓ **ALL LOCATIONS:**
+  - City, State, County, Country
+  - Place_of_Birth, Place_of_Marriage, Place_of_Death
+  - Address, Residence
+✓ **FORM FIELDS:**
+  - Business_Name, Account_Number
+  - Card_Details, Abbreviations_Needed
+  - Branch_Name, Associate_Name
+  - ALL other form fields with labels
+✓ **SIGNER INFORMATION (if applicable):**
   - If ONE signer: Signer1_Name, Signer1_SSN, Signer1_DateOfBirth, Signer1_Address, Signer1_Phone, Signer1_DriversLicense
   - If TWO signers: Add Signer2_Name, Signer2_SSN, Signer2_DateOfBirth, Signer2_Address, Signer2_Phone, Signer2_DriversLicense
   - If THREE+ signers: Continue with Signer3_, Signer4_, etc.
-✓ **STAMP DATE: [value]** - Look for date stamps like "DEC 26 2014", "JAN 15 2023"
-✓ **REFERENCE NUMBER: [value]** - Look for numbers like "#298", "Ref #123"
-✓ Card Details: [specifications]
-✓ Abbreviations Needed: [Yes/No]
-✓ Business Name Abbreviated: [value]
-✓ Signer Name Abbreviated: [value]
-✓ Mail to Branch: [Yes/No]
-✓ Branch Name: [value]
-✓ Mail to Authorized Signer: [Yes/No]
-✓ Mail to Business: [Yes/No]
-✓ Associate Name: [value]
-✓ Date of Request: [value]
-✓ ALL other form fields with labels
+✓ **ALL OTHER VISIBLE FIELDS**
 
 WHAT NOT TO EXTRACT:
 ✗ Long authorization paragraphs
@@ -216,18 +228,20 @@ WHAT NOT TO EXTRACT:
 ✗ "AUTHORIZATION:" sections with legal text
 ✗ Form filling instructions
 ✗ Page numbers
+✗ Headers and footers (unless they contain data)
 
 FIELD NAMING:
-- Use the exact label from the form
+- Use descriptive names based on the field label
 - Replace spaces with underscores
-- Example: "Business Name" → "Business_Name"
+- Example: "License Number" → "License_Number"
+- Example: "Date of Birth" → "Date_of_Birth"
 
 RETURN FORMAT:
 - Valid JSON only
 - One field per label-value pair
-- Empty fields as "N/A"
+- Only include fields with actual values (omit empty fields)
 
-FOCUS ON FORM FIELDS, NOT LEGAL TEXT!
+EXTRACT EVERYTHING - BE THOROUGH AND COMPLETE!
 """
 
 def get_loan_document_prompt():
@@ -719,32 +733,47 @@ def extract_text_with_textract(file_bytes: bytes, filename: str):
         raise Exception(f"Textract OCR failed: {str(e)}")
 
 
-def extract_basic_fields(text: str, num_fields: int = 20):
-    """Extract up to 20 most important basic fields from any document"""
+def extract_basic_fields(text: str, num_fields: int = 50):
+    """Extract ALL important fields from any document (up to 50 fields)"""
     prompt = f"""
-Extract the {num_fields} MOST IMPORTANT fields from this document. Prioritize:
-1. Identifying information (names, IDs, numbers)
-2. Dates (issue date, expiration, birth date, etc.)
+Extract ALL important fields from this document. Extract as many fields as you can find (up to {num_fields}).
+
+PRIORITY ORDER:
+1. Identifying information (names, IDs, license numbers, certificate numbers, document numbers)
+2. Dates (issue date, expiration, birth date, marriage date, death date, etc.)
 3. Amounts or values (if applicable)
 4. Contact information (address, phone, email)
-5. Document-specific critical fields
+5. Location information (city, state, county, country)
+6. Document-specific fields (registrar, witness names, file numbers, etc.)
+7. ALL other visible fields with values
+
+CRITICAL RULES:
+- Extract EVERY field you can see in the document
+- Include ALL identifying numbers (license numbers, certificate numbers, file numbers, etc.)
+- Extract ALL names (full names, witness names, registrar names, etc.)
+- Extract ALL dates in their original format
+- Extract ALL addresses and locations
+- Use descriptive field names (e.g., "drivers_license_number", "marriage_certificate_number")
+- Only include fields that have actual values
+- If a field is not available, omit it rather than using "N/A"
 
 Return ONLY valid JSON with descriptive field names. Example format:
 {{
   "document_type": "value",
   "full_name": "value",
   "document_number": "value",
+  "license_number": "value",
   "issue_date": "value",
+  "expiration_date": "value",
+  "address": "value",
   ...
 }}
 
-Use clear, descriptive field names (e.g., "full_name" not "field_1").
-Extract up to {num_fields} fields, but only include fields that have actual values.
-If a field is not available, omit it rather than using "N/A".
+Extract up to {num_fields} fields. Focus on completeness - extract EVERYTHING you can see.
 """
     
     try:
-        response = call_bedrock(prompt, text[:3000])  # Use more text for better extraction
+        response = call_bedrock(prompt, text[:8000], max_tokens=6000)  # Use more text and tokens for better extraction
         
         # Find JSON content
         json_start = response.find('{')
@@ -2113,6 +2142,42 @@ def extract_page_data(doc_id, page_num):
         return jsonify({"success": False, "message": "Document not found"}), 404
     
     try:
+        # For single-page documents or first page, use the document's extracted_fields if available
+        # This ensures all data from initial processing is shown
+        if page_num == 0 and not force:
+            doc_data = doc.get("documents", [{}])[0] if doc.get("documents") else doc
+            extracted_fields = doc_data.get("extracted_fields", {})
+            
+            if extracted_fields and len(extracted_fields) > 0:
+                print(f"[DEBUG] Using document's extracted_fields for page 0 ({len(extracted_fields)} fields)")
+                
+                # Cache this data to S3 for consistency
+                cache_key = f"page_data/{doc_id}/page_{page_num}.json"
+                cache_data = {
+                    "data": extracted_fields,
+                    "extracted_at": datetime.now().isoformat(),
+                    "source": "document_fields"
+                }
+                
+                try:
+                    s3_client.put_object(
+                        Bucket=S3_BUCKET,
+                        Key=cache_key,
+                        Body=json.dumps(cache_data),
+                        ContentType='application/json'
+                    )
+                    print(f"[DEBUG] Cached document fields to S3: {cache_key}")
+                except Exception as s3_error:
+                    print(f"[WARNING] Failed to cache to S3: {str(s3_error)}")
+                
+                return jsonify({
+                    "success": True,
+                    "page_number": page_num + 1,
+                    "data": extracted_fields,
+                    "cached": False,
+                    "source": "document_fields"
+                })
+        
         # Check S3 cache first (unless force=true)
         cache_key = f"page_data/{doc_id}/page_{page_num}.json"
         
