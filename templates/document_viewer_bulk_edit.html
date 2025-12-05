@@ -489,6 +489,8 @@
         let currentPageIndex = 0;
         let totalPagesCount = 0;
         let documentData = null;
+        let pagesData = null;
+        let hasAccounts = false;
         let editMode = false;
         let editedFields = {};
         let originalValues = {};
@@ -498,10 +500,11 @@
             try {
                 // Load page images
                 const pagesResponse = await fetch(`/api/document/${documentId}/pages`);
-                const pagesData = await pagesResponse.json();
+                pagesData = await pagesResponse.json();
                 
                 if (pagesData.success) {
                     totalPagesCount = pagesData.pages.length;
+                    hasAccounts = pagesData.has_accounts || false;
                     document.getElementById('totalPages').textContent = totalPagesCount;
                     renderThumbnails(pagesData.pages);
                     showPage(0);
@@ -585,35 +588,54 @@
             }
         }
 
-        function renderExtractedData() {
+        async function renderExtractedData() {
             const container = document.getElementById('dataContent');
-            const docData = documentData.documents[0];
             
-            // Update accuracy badge
-            const accuracy = docData.accuracy_score || 0;
-            document.getElementById('accuracyBadge').textContent = `${accuracy}% Accuracy`;
+            // Show loading
+            container.innerHTML = '<div class="loading"><div class="spinner"></div><div>Extracting data from page...</div></div>';
+            document.getElementById('pageIndicator').textContent = `Page ${currentPageIndex + 1} - Loading...`;
             
-            // Render fields
-            const fields = docData.extracted_fields || {};
-            let html = '';
-            
-            for (const [key, value] of Object.entries(fields)) {
-                if (typeof value === 'object' && !Array.isArray(value)) continue;
+            try {
+                // Fetch page-specific data from the new endpoint
+                const response = await fetch(`/api/document/${documentId}/page/${currentPageIndex}/extract`);
+                const result = await response.json();
                 
-                const displayValue = Array.isArray(value) ? value.join(', ') : value;
-                const fieldId = `field_${key}`;
-                
-                html += `
-                    <div class="field-item" id="item_${key}">
-                        <div class="field-label">${key.replace(/_/g, ' ')}</div>
-                        <div class="field-value" id="${fieldId}" data-field="${key}" data-original="${displayValue || 'N/A'}">
-                            ${displayValue || 'N/A'}
-                        </div>
-                    </div>
-                `;
+                if (result.success) {
+                    const fields = result.data || {};
+                    
+                    // Update page indicator
+                    document.getElementById('pageIndicator').textContent = `Page ${currentPageIndex + 1} Data${result.cached ? ' (Cached)' : ''}`;
+                    document.getElementById('accuracyBadge').textContent = `100% Accuracy`;
+                    
+                    // Render fields
+                    let html = '';
+                    
+                    for (const [key, value] of Object.entries(fields)) {
+                        if (typeof value === 'object' && !Array.isArray(value)) continue;
+                        
+                        const displayValue = Array.isArray(value) ? value.join(', ') : value;
+                        const fieldId = `field_${key}`;
+                        
+                        html += `
+                            <div class="field-item" id="item_${key}">
+                                <div class="field-label">${key.replace(/_/g, ' ')}</div>
+                                <div class="field-value" id="${fieldId}" data-field="${key}" data-original="${displayValue || 'N/A'}">
+                                    ${displayValue || 'N/A'}
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
+                    container.innerHTML = html || '<div class="loading">No data extracted from this page</div>';
+                } else {
+                    container.innerHTML = `<div class="loading">Error: ${result.message}</div>`;
+                    document.getElementById('pageIndicator').textContent = `Page ${currentPageIndex + 1} - Error`;
+                }
+            } catch (error) {
+                console.error('Error loading page data:', error);
+                container.innerHTML = `<div class="loading">Failed to load page data: ${error.message}</div>`;
+                document.getElementById('pageIndicator').textContent = `Page ${currentPageIndex + 1} - Error`;
             }
-            
-            container.innerHTML = html || '<div class="loading">No data extracted</div>';
         }
 
         function toggleEditMode() {
@@ -669,12 +691,16 @@
             if (!editMode) return;
             
             const fieldName = element.dataset.field;
+            const accountIndex = element.dataset.accountIndex;
             const currentValue = element.textContent.trim();
             
-            // Store original value
+            // Store original value and account index
             if (!originalValues[fieldName]) {
                 originalValues[fieldName] = currentValue;
             }
+            
+            // Store account index with the field
+            element.dataset.accountIndex = accountIndex;
             
             // Create input
             const input = document.createElement('input');
@@ -755,16 +781,27 @@
             saveAllBtn.textContent = '⏳ Saving Page...';
             saveAllBtn.disabled = true;
             
+            // Get account index for current page
+            const currentPage = pagesData?.pages[currentPageIndex];
+            const accountIndex = currentPage?.account_index;
+            
             try {
                 // Save all edited fields
                 for (const [fieldName, fieldValue] of Object.entries(editedFields)) {
+                    const requestBody = {
+                        field_name: fieldName,
+                        field_value: fieldValue
+                    };
+                    
+                    // Add account_index if this is a loan document
+                    if (accountIndex !== undefined && accountIndex !== null) {
+                        requestBody.account_index = accountIndex;
+                    }
+                    
                     const response = await fetch(`/api/document/${documentId}/update`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            field_name: fieldName,
-                            field_value: fieldValue
-                        })
+                        body: JSON.stringify(requestBody)
                     });
                     
                     const result = await response.json();

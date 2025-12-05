@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Account Viewer - {{ document.document_name or document.filename }}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #667eea;
+            --secondary: #764ba2;
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #f5f7fa;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            color: white;
+            padding: 20px 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            font-size: 1.5em;
+            margin-bottom: 5px;
+        }
+
+        .back-btn {
+            display: inline-block;
+            padding: 8px 16px;
+            background: rgba(255,255,255,0.2);
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            transition: all 0.3s;
+        }
+
+        .back-btn:hover {
+            background: rgba(255,255,255,0.3);
+        }
+
+        .main-container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* Left Sidebar - Account List */
+        .account-list-sidebar {
+            width: 300px;
+            background: white;
+            border-right: 1px solid #e5e7eb;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            background: #f9fafb;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .sidebar-header h2 {
+            font-size: 1.2em;
+            color: #374151;
+            margin-bottom: 5px;
+        }
+
+        .account-count {
+            font-size: 0.9em;
+            color: #6b7280;
+        }
+
+        .accounts-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+        }
+
+        .account-item {
+            padding: 15px;
+            margin-bottom: 10px;
+            background: #f9fafb;
+            border-radius: 8px;
+            border-left: 4px solid var(--primary);
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .account-item:hover {
+            background: #f3f4f6;
+            transform: translateX(5px);
+        }
+
+        .account-item.active {
+            background: #e0e7ff;
+            border-left-color: var(--secondary);
+        }
+
+        .account-number {
+            font-weight: 600;
+            color: #374151;
+            margin-bottom: 5px;
+        }
+
+        .account-meta {
+            font-size: 0.85em;
+            color: #6b7280;
+        }
+
+        /* Right Content - Split View */
+        .content-area {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        /* Document Viewer - 50% */
+        .document-viewer-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: white;
+            border-right: 1px solid #e5e7eb;
+        }
+
+        .viewer-header {
+            padding: 15px 20px;
+            background: #f9fafb;
+            border-bottom: 1px solid #e5e7eb;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .page-nav {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .nav-btn {
+            padding: 8px 16px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        .nav-btn:hover:not(:disabled) {
+            background: var(--secondary);
+        }
+
+        .nav-btn:disabled {
+            background: #d1d5db;
+            cursor: not-allowed;
+        }
+
+        .page-info {
+            font-weight: 600;
+            color: #374151;
+        }
+
+        .viewer-content {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: auto;
+            padding: 20px;
+            background: #525659;
+        }
+
+        .viewer-content img {
+            max-width: 100%;
+            max-height: 100%;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+
+        /* Data Panel - 50% */
+        .data-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: white;
+        }
+
+        .data-header {
+            padding: 20px;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            color: white;
+        }
+
+        .data-header h2 {
+            font-size: 1.2em;
+            margin-bottom: 5px;
+        }
+
+        .data-meta {
+            font-size: 0.9em;
+            opacity: 0.9;
+            margin-bottom: 15px;
+        }
+
+        .data-controls {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .control-btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.9em;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-edit {
+            background: rgba(255,255,255,0.2);
+            color: white;
+        }
+
+        .btn-edit:hover {
+            background: rgba(255,255,255,0.3);
+        }
+
+        .btn-edit.active {
+            background: var(--warning);
+        }
+
+        .btn-save {
+            background: var(--success);
+            color: white;
+        }
+
+        .btn-cancel {
+            background: #6b7280;
+            color: white;
+        }
+
+        .btn-download {
+            background: #3b82f6;
+            color: white;
+        }
+
+        .data-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+        }
+
+        .field-item {
+            margin-bottom: 15px;
+            padding: 12px;
+            background: #f9fafb;
+            border-radius: 8px;
+            border-left: 3px solid var(--primary);
+        }
+
+        .field-label {
+            font-size: 0.85em;
+            color: #6b7280;
+            font-weight: 600;
+            margin-bottom: 5px;
+            text-transform: capitalize;
+        }
+
+        .field-value {
+            font-size: 1em;
+            color: #111827;
+            font-weight: 500;
+        }
+
+        .field-value.editable {
+            cursor: pointer;
+            padding: 6px;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+
+        .field-value.editable:hover {
+            background: #e5e7eb;
+        }
+
+        .field-input {
+            width: 100%;
+            padding: 8px;
+            border: 2px solid var(--primary);
+            border-radius: 4px;
+            font-size: 1em;
+            font-family: inherit;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #6b7280;
+        }
+
+        .spinner {
+            border: 3px solid #f3f4f6;
+            border-top: 3px solid var(--primary);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 25px;
+            background: var(--success);
+            color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            z-index: 1000;
+            display: none;
+        }
+
+        .notification.show {
+            display: block;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        .notification.error {
+            background: var(--danger);
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <a href="/dashboard" class="back-btn">← Back to Dashboard</a>
+        <h1>{{ document.document_name or document.filename }}</h1>
+    </div>
+
+    <div class="main-container">
+        <!-- Left Sidebar: Account List -->
+        <div class="account-list-sidebar">
+            <div class="sidebar-header">
+                <h2>Accounts</h2>
+                <div class="account-count" id="accountCount">Loading...</div>
+            </div>
+            <div class="accounts-list" id="accountsList">
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <div>Loading accounts...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Content: Split View -->
+        <div class="content-area">
+            <!-- Document Viewer (50%) -->
+            <div class="document-viewer-panel">
+                <div class="viewer-header">
+                    <div class="page-nav">
+                        <button class="nav-btn" id="prevBtn" onclick="previousPage()">← Previous</button>
+                        <span class="page-info">Page <span id="currentPage">1</span> of <span id="totalPages">1</span></span>
+                        <button class="nav-btn" id="nextBtn" onclick="nextPage()">Next →</button>
+                    </div>
+                </div>
+                <div class="viewer-content" id="viewerContent">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        <div>Loading document...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Data Panel (50%) -->
+            <div class="data-panel">
+                <div class="data-header">
+                    <h2>Extracted Data</h2>
+                    <div class="data-meta" id="dataMeta">Select an account to view data</div>
+                    <div class="data-controls">
+                        <button class="control-btn btn-edit" id="editBtn" onclick="toggleEditMode()" style="display:none;">
+                            📝 Edit Page
+                        </button>
+                        <button class="control-btn btn-save" id="saveBtn" onclick="savePage()" style="display:none;">
+                            ✓ Save Page
+                        </button>
+                        <button class="control-btn btn-cancel" id="cancelBtn" onclick="cancelEdit()" style="display:none;">
+                            ✕ Cancel
+                        </button>
+                        <button class="control-btn btn-download" id="downloadPageBtn" onclick="downloadPageJSON()" style="display:none;">
+                            📄 Page JSON
+                        </button>
+                        <button class="control-btn btn-download" id="downloadAccountBtn" onclick="downloadAccountJSON()" style="display:none;">
+                            💾 Account JSON
+                        </button>
+                    </div>
+                </div>
+                <div class="data-content" id="dataContent">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        <div>Select an account to view data</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="notification" id="notification"></div>
+
+    <script>
+        const documentId = '{{ document.id }}';
+        let accounts = [];
+        let currentAccountIndex = -1;
+        let currentPageIndex = 0;
+        let totalPages = 0;
+        let editMode = false;
+        let originalData = {};
+        let editedFields = {};
+
+        // Load accounts on page load
+        async function loadAccounts() {
+            try {
+                const response = await fetch(`/api/document/${documentId}`);
+                const data = await response.json();
+                
+                console.log('API Response:', data);
+                
+                if (data.success) {
+                    console.log('Document structure:', data.document);
+                    const docData = data.document.documents[0];
+                    console.log('Document data:', docData);
+                    console.log('Accounts:', docData.accounts);
+                    
+                    if (docData.accounts && docData.accounts.length > 0) {
+                        accounts = docData.accounts;
+                        renderAccountsList();
+                        // Auto-select first account
+                        selectAccount(0);
+                    } else {
+                        document.getElementById('accountsList').innerHTML = '<div class="loading">No accounts found in this document</div>';
+                        document.getElementById('viewerContent').innerHTML = '<div class="loading">No accounts to display</div>';
+                        document.getElementById('dataContent').innerHTML = '<div class="loading">Upload a loan document with account numbers to see account-based view</div>';
+                    }
+                } else {
+                    document.getElementById('accountsList').innerHTML = '<div class="loading">Error loading document</div>';
+                }
+            } catch (error) {
+                console.error('Error loading accounts:', error);
+                document.getElementById('accountsList').innerHTML = '<div class="loading">Error: ' + error.message + '</div>';
+                document.getElementById('viewerContent').innerHTML = '<div class="loading">Failed to load document</div>';
+                showNotification('Failed to load accounts: ' + error.message, 'error');
+            }
+        }
+
+        function renderAccountsList() {
+            const container = document.getElementById('accountsList');
+            document.getElementById('accountCount').textContent = `${accounts.length} account(s) found`;
+            
+            container.innerHTML = accounts.map((account, index) => `
+                <div class="account-item ${index === 0 ? 'active' : ''}" onclick="selectAccount(${index})" id="account-${index}">
+                    <div class="account-number">Account: ${account.accountNumber}</div>
+                    <div class="account-meta">
+                        Accuracy: ${account.accuracy_score}% | 
+                        ${account.filled_fields}/${account.total_fields} fields
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function selectAccount(index) {
+            // Exit edit mode if active
+            if (editMode) {
+                exitEditMode();
+            }
+            
+            currentAccountIndex = index;
+            currentPageIndex = 0;
+            
+            // Update active state
+            document.querySelectorAll('.account-item').forEach((item, i) => {
+                item.classList.toggle('active', i === index);
+            });
+            
+            // Load account pages
+            await loadAccountPages();
+            
+            // Show controls
+            document.getElementById('editBtn').style.display = 'flex';
+            document.getElementById('downloadPageBtn').style.display = 'flex';
+            document.getElementById('downloadAccountBtn').style.display = 'flex';
+        }
+
+        let accountPageNumbers = []; // Store actual page numbers for this account
+        
+        async function loadAccountPages() {
+            try {
+                // Show loading message
+                document.getElementById('viewerContent').innerHTML = '<div class="loading"><div class="spinner"></div><div>Scanning pages for this account...</div></div>';
+                document.getElementById('dataContent').innerHTML = '<div class="loading"><div class="spinner"></div><div>Please wait...</div></div>';
+                
+                const response = await fetch(`/api/document/${documentId}/account/${currentAccountIndex}/pages`);
+                const data = await response.json();
+                
+                console.log('Account pages response:', data);
+                
+                if (data.success) {
+                    accountPageNumbers = data.pages || [];
+                    totalPages = data.total_pages;
+                    document.getElementById('totalPages').textContent = totalPages;
+                    console.log(`Account ${data.account_number} has ${totalPages} pages:`, accountPageNumbers);
+                    showPage(0);
+                } else {
+                    showNotification('Failed to load pages: ' + data.message, 'error');
+                }
+            } catch (error) {
+                console.error('Error loading pages:', error);
+                showNotification('Failed to load pages: ' + error.message, 'error');
+            }
+        }
+
+        function showPage(pageIndex) {
+            if (pageIndex < 0 || pageIndex >= totalPages) return;
+            
+            // Exit edit mode if active
+            if (editMode) {
+                exitEditMode();
+            }
+            
+            currentPageIndex = pageIndex;
+            document.getElementById('currentPage').textContent = pageIndex + 1;
+            
+            // Update navigation buttons
+            document.getElementById('prevBtn').disabled = pageIndex === 0;
+            document.getElementById('nextBtn').disabled = pageIndex === totalPages - 1;
+            
+            // Get the actual PDF page number for this account page
+            const actualPageNum = accountPageNumbers[pageIndex] || pageIndex;
+            
+            // Load page image using actual page number
+            const viewer = document.getElementById('viewerContent');
+            viewer.innerHTML = `<img src="/api/document/${documentId}/account/${currentAccountIndex}/page/${actualPageNum}" alt="Page ${pageIndex + 1}">`;
+            
+            // Load page data
+            renderPageData();
+        }
+
+        async function renderPageData() {
+            const account = accounts[currentAccountIndex];
+            const container = document.getElementById('dataContent');
+            
+            document.getElementById('dataMeta').textContent = `Account ${account.accountNumber} - Page ${currentPageIndex + 1} - Loading...`;
+            container.innerHTML = '<div class="loading"><div class="spinner"></div><div>Extracting data from page...</div></div>';
+            
+            try {
+                // Get the actual PDF page number for this account page
+                const actualPageNum = accountPageNumbers[currentPageIndex] || currentPageIndex;
+                
+                // Fetch page-specific data from the API using actual page number
+                const response = await fetch(`/api/document/${documentId}/account/${currentAccountIndex}/page/${actualPageNum}/data`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    const fields = result.data || {};
+                    currentPageData = fields; // Store for download
+                    let html = '';
+                    
+                    document.getElementById('dataMeta').textContent = `Account ${account.accountNumber} - Page ${currentPageIndex + 1}`;
+                    
+                    for (const [key, value] of Object.entries(fields)) {
+                        if (typeof value === 'object' && !Array.isArray(value)) continue;
+                        if (key === 'AccountNumber') continue;
+                        
+                        const displayValue = Array.isArray(value) ? value.join(', ') : value;
+                        
+                        html += `
+                            <div class="field-item">
+                                <div class="field-label">${key.replace(/_/g, ' ')}</div>
+                                <div class="field-value" data-field="${key}">${displayValue || 'N/A'}</div>
+                            </div>
+                        `;
+                    }
+                    
+                    container.innerHTML = html || '<div class="loading">No data extracted from this page</div>';
+                } else {
+                    currentPageData = null;
+                    container.innerHTML = `<div class="loading">Error: ${result.message}</div>`;
+                }
+            } catch (error) {
+                console.error('Error loading page data:', error);
+                container.innerHTML = `<div class="loading">Failed to load page data: ${error.message}</div>`;
+            }
+        }
+
+        function previousPage() {
+            if (currentPageIndex > 0) {
+                showPage(currentPageIndex - 1);
+            }
+        }
+
+        function nextPage() {
+            if (currentPageIndex < totalPages - 1) {
+                showPage(currentPageIndex + 1);
+            }
+        }
+
+        function toggleEditMode() {
+            editMode = !editMode;
+            const editBtn = document.getElementById('editBtn');
+            const saveBtn = document.getElementById('saveBtn');
+            const cancelBtn = document.getElementById('cancelBtn');
+            
+            if (editMode) {
+                editBtn.classList.add('active');
+                editBtn.textContent = '📝 Editing...';
+                saveBtn.style.display = 'flex';
+                cancelBtn.style.display = 'flex';
+                
+                // Make fields editable
+                document.querySelectorAll('.field-value').forEach(field => {
+                    field.classList.add('editable');
+                    field.onclick = () => makeFieldEditable(field);
+                    originalData[field.dataset.field] = field.textContent;
+                });
+                
+                showNotification('Edit mode activated', 'success');
+            } else {
+                exitEditMode();
+            }
+        }
+
+        function exitEditMode() {
+            editMode = false;
+            const editBtn = document.getElementById('editBtn');
+            const saveBtn = document.getElementById('saveBtn');
+            const cancelBtn = document.getElementById('cancelBtn');
+            
+            editBtn.classList.remove('active');
+            editBtn.textContent = '📝 Edit Page';
+            saveBtn.style.display = 'none';
+            cancelBtn.style.display = 'none';
+            
+            document.querySelectorAll('.field-value').forEach(field => {
+                field.classList.remove('editable');
+                field.onclick = null;
+            });
+            
+            editedFields = {};
+            originalData = {};
+        }
+
+        function makeFieldEditable(element) {
+            if (!editMode) return;
+            
+            const fieldName = element.dataset.field;
+            const currentValue = element.textContent.trim();
+            
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'field-input';
+            input.value = currentValue === 'N/A' ? '' : currentValue;
+            
+            element.innerHTML = '';
+            element.appendChild(input);
+            input.focus();
+            
+            input.oninput = () => {
+                editedFields[fieldName] = input.value.trim();
+            };
+            
+            input.onblur = () => {
+                element.innerHTML = input.value.trim() || 'N/A';
+            };
+        }
+
+        async function savePage() {
+            if (Object.keys(editedFields).length === 0) {
+                showNotification('No changes to save', 'error');
+                return;
+            }
+            
+            try {
+                for (const [fieldName, fieldValue] of Object.entries(editedFields)) {
+                    const response = await fetch(`/api/document/${documentId}/update`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            field_name: fieldName,
+                            field_value: fieldValue,
+                            account_index: currentAccountIndex
+                        })
+                    });
+                    
+                    const result = await response.json();
+                    if (!result.success) {
+                        throw new Error(result.message);
+                    }
+                }
+                
+                showNotification('Page saved successfully!', 'success');
+                exitEditMode();
+                
+                // Reload account data
+                const response = await fetch(`/api/document/${documentId}`);
+                const data = await response.json();
+                if (data.success) {
+                    accounts = data.document.documents[0].accounts;
+                    renderAccountsList();
+                    renderPageData();
+                }
+            } catch (error) {
+                showNotification('Failed to save: ' + error.message, 'error');
+            }
+        }
+
+        function cancelEdit() {
+            if (Object.keys(editedFields).length > 0) {
+                if (confirm('Discard changes?')) {
+                    renderPageData();
+                    exitEditMode();
+                }
+            } else {
+                exitEditMode();
+            }
+        }
+
+        let currentPageData = null; // Store current page data
+        
+        function downloadPageJSON() {
+            if (!currentPageData) {
+                showNotification('No page data available', 'error');
+                return;
+            }
+            
+            const account = accounts[currentAccountIndex];
+            const pageData = {
+                account_number: account.accountNumber,
+                page_number: currentPageIndex + 1,
+                data: currentPageData
+            };
+            
+            const blob = new Blob([JSON.stringify(pageData, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `account_${account.accountNumber}_page_${currentPageIndex + 1}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            
+            showNotification('Page JSON downloaded!', 'success');
+        }
+        
+        async function downloadAccountJSON() {
+            const account = accounts[currentAccountIndex];
+            
+            // Collect data from all pages of this account
+            showNotification('Collecting data from all pages...', 'success');
+            
+            const allPagesData = [];
+            for (let i = 0; i < totalPages; i++) {
+                try {
+                    // Use the actual PDF page number from accountPageNumbers array
+                    const actualPageNum = accountPageNumbers[i] || i;
+                    const response = await fetch(`/api/document/${documentId}/account/${currentAccountIndex}/page/${actualPageNum}/data`);
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        allPagesData.push({
+                            page_number: i + 1,
+                            actual_pdf_page: actualPageNum + 1,
+                            data: result.data
+                        });
+                    }
+                } catch (error) {
+                    console.error(`Failed to get data for page ${i + 1}:`, error);
+                }
+            }
+            
+            const accountData = {
+                account_number: account.accountNumber,
+                total_pages: totalPages,
+                pages: allPagesData
+            };
+            
+            const blob = new Blob([JSON.stringify(accountData, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `account_${account.accountNumber}_complete.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            
+            showNotification('Complete account JSON downloaded!', 'success');
+        }
+
+        function showNotification(message, type = 'success') {
+            const notification = document.getElementById('notification');
+            notification.textContent = message;
+            notification.className = `notification show ${type}`;
+            
+            setTimeout(() => {
+                notification.classList.remove('show');
+            }, 3000);
+        }
+
+        // Load accounts on page load
+        loadAccounts();
+    </script>
+</body>
+</html>

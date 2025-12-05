@@ -206,13 +206,30 @@
                 const accuracyColor=accuracy>=80?'#10b981':accuracy>=60?'#f59e0b':'#ef4444';
                 
                 const row=document.createElement('tr');
-                row.onclick=()=>window.open(`/document/${skill.id}`,'_blank');
                 row.style.cursor='pointer';
                 
                 // Check if PDF is available
                 const hasPDF = skill.filename && skill.filename.toLowerCase().endsWith('.pdf');
+                
+                // Check if document has accounts
+                const hasAccounts = skill.documents && skill.documents[0] && skill.documents[0].accounts && skill.documents[0].accounts.length > 0;
+                
+                // Set row click handler based on document type
+                if (hasPDF && hasAccounts) {
+                    // Loan documents with accounts - open account-based viewer
+                    row.onclick = () => window.open(`/document/${skill.id}/accounts`, '_blank');
+                } else if (hasPDF) {
+                    // Other documents with PDF - open page viewer
+                    row.onclick = () => window.open(`/document/${skill.id}/pages`, '_blank');
+                } else {
+                    // No PDF - disable click
+                    row.style.cursor = 'default';
+                    row.onclick = null;
+                }
+                
                 const pdfButton = hasPDF ? `<button onclick="event.stopPropagation();viewPDF('${skill.id}','${skill.filename}')" style="padding:6px 10px;background:transparent;color:#667eea;border:none;cursor:pointer;transition:all 0.3s;display:inline-flex;align-items:center;justify-content:center;" title="View PDF"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><path d="M10 12h4"></path><path d="M10 16h4"></path></svg></button>` : '';
-                const pageViewerButton = hasPDF ? `<button onclick="event.stopPropagation();window.open('/document/${skill.id}/pages','_blank')" style="padding:6px 10px;background:#667eea;color:white;border:none;border-radius:6px;cursor:pointer;transition:all 0.3s;display:inline-flex;align-items:center;gap:6px;font-size:0.85em;font-weight:600;" title="Page-by-Page Viewer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>Pages</button>` : '';
+                const pageViewerButton = hasPDF ? `<button onclick="event.stopPropagation();window.open('/document/${skill.id}/pages','_blank')" style="padding:6px 10px;background:#667eea;color:white;border:none;border-radius:6px;cursor:pointer;transition:all 0.3s;display:inline-flex;align-items:center;gap:6px;font-size:0.85em;font-weight:600;" title="Unified Page Viewer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>Pages</button>` : '';
+                const accountsButton = (hasPDF && hasAccounts) ? `<button onclick="event.stopPropagation();window.open('/document/${skill.id}/accounts','_blank')" style="padding:6px 10px;background:#10b981;color:white;border:none;border-radius:6px;cursor:pointer;transition:all 0.3s;display:inline-flex;align-items:center;gap:6px;font-size:0.85em;font-weight:600;" title="Account-Based Viewer">🏦 Accounts</button>` : '';
                 
                 row.innerHTML=`
                     <td><span style="font-size:1.5em;">${icon}</span></td>
@@ -225,6 +242,7 @@
                             </span>
                             ${pdfButton}
                             ${pageViewerButton}
+                            ${accountsButton}
                         </div>
                     </td>
                     <td><span class="version-badge">${processedDate}</span></td>

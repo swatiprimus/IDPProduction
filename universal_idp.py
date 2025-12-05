@@ -102,12 +102,136 @@ def split_accounts_strict(text: str):
     return chunks
 
 
+def scan_and_map_pages(doc_id, pdf_path, accounts):
+    """Scan pages and create a mapping of page_num -> account_number (optimized)"""
+    import fitz
+    import re
+    
+    pdf_doc = fitz.open(pdf_path)
+    total_pages = len(pdf_doc)
+    page_to_account = {}
+    accounts_found = set()
+    
+    print(f"[INFO] Fast scanning {total_pages} pages to find account boundaries")
+    
+    # Scan ALL pages to find every occurrence of account numbers
+    for page_num in range(total_pages):
+        page = pdf_doc[page_num]
+        page_text = page.get_text()
+        
+        # Check if page has watermark
+        has_watermark = "PDF-XChange" in page_text or "Click to BUY NOW" in page_text
+        
+        # If no text, has watermark, or very little text - do OCR
+        if not page_text or len(page_text.strip()) < 20 or has_watermark:
+            try:
+                pix = page.get_pixmap(matrix=fitz.Matrix(1, 1))  # Use 1x for better accuracy
+                temp_image_path = os.path.join(OUTPUT_DIR, f"temp_scan_{doc_id}_{page_num}.png")
+                pix.save(temp_image_path)
+                
+                with open(temp_image_path, 'rb') as image_file:
+                    image_bytes = image_file.read()
+                
+                textract_response = textract.detect_document_text(Document={'Bytes': image_bytes})
+                
+                page_text = ""
+                for block in textract_response.get('Blocks', []):
+                    if block['BlockType'] == 'LINE':
+                        page_text += block.get('Text', '') + "\n"
+                
+                print(f"[DEBUG] OCR on page {page_num + 1}: extracted {len(page_text)} chars")
+                
+                if os.path.exists(temp_image_path):
+                    os.remove(temp_image_path)
+            except Exception as ocr_err:
+                print(f"[ERROR] OCR failed on page {page_num + 1}: {str(ocr_err)}")
+                pass
+        
+        if not page_text or len(page_text.strip()) < 20:
+            continue
+        
+        # Check which account appears on this page
+        for acc in accounts:
+            acc_num = acc.get("accountNumber", "").strip()
+            
+            normalized_text = re.sub(r'[\s\-]', '', page_text)
+            normalized_acc = re.sub(r'[\s\-]', '', acc_num)
+            
+            if normalized_acc and normalized_acc in normalized_text:
+                page_to_account[page_num] = acc_num
+                accounts_found.add(acc_num)
+                print(f"[INFO] Page {page_num + 1} -> Account {acc_num}")
+                break  # Only one account per page
+    
+    pdf_doc.close()
+    print(f"[INFO] Scan complete: Found {len(accounts_found)} accounts on {len(page_to_account)} pages")
+    return page_to_account
+
+
+def get_comprehensive_extraction_prompt():
+    """Get comprehensive prompt for extracting ALL fields from any page"""
+    return """
+You are a data extraction expert. Extract ALL form fields and their values from this document.
+
+PRIORITY ORDER (Extract in this order):
+1. FORM FIELDS FIRST - All labeled fields with values (Business Name, Account Number, etc.)
+2. Checkboxes and their states (Yes/No, checked/unchecked)
+3. Dates and numbers
+4. Names and addresses
+5. Special instructions
+
+CRITICAL RULES:
+- Focus on FORM FIELDS with labels and values
+- Extract field label + its value
+- Do NOT extract long legal text, disclaimers, or authorization paragraphs
+- Do NOT extract instructions about how to fill the form
+- Extract actual DATA, not explanatory text
+
+WHAT TO EXTRACT:
+✓ Business Name: [value]
+✓ Account Number: [value]
+✓ Authorized Signer's Name: [value]
+✓ Card Details: [specifications]
+✓ Abbreviations Needed: [Yes/No]
+✓ Business Name Abbreviated: [value]
+✓ Signer Name Abbreviated: [value]
+✓ Mail to Branch: [Yes/No]
+✓ Branch Name: [value]
+✓ Mail to Authorized Signer: [Yes/No]
+✓ Mail to Business: [Yes/No]
+✓ Associate Name: [value]
+✓ Date of Request: [value]
+✓ ALL other form fields with labels
+
+WHAT NOT TO EXTRACT:
+✗ Long authorization paragraphs
+✗ Legal disclaimers
+✗ "NOTE:" sections with instructions
+✗ "AUTHORIZATION:" sections with legal text
+✗ Form filling instructions
+✗ Page numbers
+
+FIELD NAMING:
+- Use the exact label from the form
+- Replace spaces with underscores
+- Example: "Business Name" → "Business_Name"
+
+RETURN FORMAT:
+- Valid JSON only
+- One field per label-value pair
+- Empty fields as "N/A"
+
+FOCUS ON FORM FIELDS, NOT LEGAL TEXT!
+"""
+
 def get_loan_document_prompt():
     """Get the specialized prompt for loan/account documents"""
     return """
-You are an AI assistant that extracts structured data from loan account documents.
+You are an AI assistant that extracts ALL structured data from loan account documents.
 
-Extract the following information and return it as valid JSON:
+Extract EVERY piece of information from the document and return it as valid JSON.
+
+REQUIRED FIELDS (extract if present):
 
 {
   "AccountNumber": "string",
@@ -174,20 +298,27 @@ FIELD DEFINITIONS - READ CAREFULLY:
    - "Business" or "Corporate"
 
 EXTRACTION RULES:
+- Extract EVERY field visible in the document, not just the ones listed above
+- Include ALL form fields, checkboxes, dates, amounts, addresses, phone numbers, emails
+- Extract ALL names, titles, positions, relationships
+- Include ALL dates (opened, closed, effective, expiration, birth dates, etc.)
+- Extract ALL identification numbers (SSN, Tax ID, License numbers, etc.)
+- Include ALL financial information (balances, limits, rates, fees)
+- Extract ALL addresses (mailing, physical, business, home)
+- Include ALL contact information (phone, fax, email, website)
+- Extract ALL signatures, initials, and authorization details
+- Include ALL supporting documents with complete details
+- Extract ALL compliance information (OFAC, background checks, verifications)
+- Include ALL checkboxes and their states (checked/unchecked, Yes/No)
+- Extract ALL special instructions, notes, or comments
 - Return ONLY valid JSON, no additional text before or after
-- Use "N/A" ONLY if the field is truly not mentioned anywhere in the document
+- DO NOT use "N/A" - only include fields that have actual values
 - For AccountHolderNames: Return as array even if single name, e.g., ["John Doe"]
 - For Signers: Extract ALL available information for each signer, create separate objects for each person
-- For SupportingDocuments: List EVERY document mentioned including:
-  * Driver's License / State ID (with ID numbers)
-  * Death Certificates
-  * OFAC Checks (Office of Foreign Assets Control screening)
-  * Background checks or compliance verifications
-  * Any other supporting documentation referenced
 - Preserve exact account numbers and SSNs as they appear
 - If you see multiple account types mentioned, use the most specific one
-- Look carefully at the entire document text for these fields
-- Pay special attention to compliance sections, checkboxes, and verification stamps for OFAC or other checks
+- Look carefully at the entire document text for ALL fields
+- Pay special attention to compliance sections, checkboxes, and verification stamps
 
 EXAMPLES:
 Example 1: Document says "Premier Checking Account for Business Operations, Consumer Banking"
@@ -835,31 +966,47 @@ def process_loan_document(text: str, job_id: str = None):
                     json_str = response[json_start:json_end + 1]
                     parsed = json.loads(json_str)
                     
-                    # Calculate accuracy score and identify fields needing review
-                    # Note: AccountNumber is excluded because it's already displayed in the account header
-                    required_fields = ["AccountHolderNames", "AccountType", 
-                                     "OwnershipType", "WSFSAccountType", "AccountPurpose", "SSN", "Signers"]
-                    filled_fields = sum(1 for field in required_fields 
-                                      if parsed.get(field) and parsed.get(field) != "N/A" and parsed.get(field) != [])
-                    accuracy_score = round((filled_fields / len(required_fields)) * 100, 1)
+                    # Calculate accuracy score based on ALL extracted fields
+                    # Exclude AccountNumber since it's already displayed in the account header
+                    all_fields = {k: v for k, v in parsed.items() if k != "AccountNumber"}
                     
-                    # Identify fields that need manual review (excluding AccountNumber)
+                    # Count filled vs empty fields
+                    filled_fields = 0
+                    empty_fields = 0
                     fields_needing_review = []
-                    for field in required_fields:
-                        value = parsed.get(field)
-                        if not value or value == "N/A" or value == [] or value == "":
+                    
+                    for field_name, value in all_fields.items():
+                        # Check if field has a meaningful value
+                        is_filled = False
+                        if value and value != "N/A" and value != "" and value != []:
+                            # For lists, check if they have content
+                            if isinstance(value, list):
+                                is_filled = len(value) > 0 and any(item and item != "N/A" for item in value)
+                            # For dicts (like Signers), check if they have content
+                            elif isinstance(value, dict):
+                                is_filled = any(v and v != "N/A" for v in value.values())
+                            else:
+                                is_filled = True
+                        
+                        if is_filled:
+                            filled_fields += 1
+                        else:
+                            empty_fields += 1
                             fields_needing_review.append({
-                                "field_name": field,
+                                "field_name": field_name,
                                 "reason": "Missing or not found in document",
                                 "current_value": value if value else "Not extracted"
                             })
+                    
+                    total_fields = filled_fields + empty_fields
+                    accuracy_score = round((filled_fields / total_fields) * 100, 1) if total_fields > 0 else 0
                     
                     accounts.append({
                         "accountNumber": acc,
                         "result": parsed,
                         "accuracy_score": accuracy_score,
                         "filled_fields": filled_fields,
-                        "total_fields": len(required_fields),
+                        "total_fields": total_fields,
                         "fields_needing_review": fields_needing_review,
                         "needs_human_review": accuracy_score < 100
                     })
@@ -907,7 +1054,7 @@ def process_loan_document(text: str, job_id: str = None):
                 },
                 "accounts": accounts,  # Special field for loan documents
                 "accuracy_score": overall_accuracy,
-                "total_fields": len(accounts) * 7,  # 7 required fields per account (excluding AccountNumber)
+                "total_fields": sum(a.get("total_fields", 0) for a in accounts),  # Sum of all fields across all accounts
                 "filled_fields": sum(a.get("filled_fields", 0) for a in accounts),
                 "needs_human_review": needs_review,
                 "fields_needing_review": all_fields_needing_review
@@ -1210,9 +1357,9 @@ def process_job(job_id: str, file_bytes: bytes, filename: str, use_ocr: bool, do
             job_status_map[job_id]["ocr_file"] = ocr_file
             job_status_map[job_id]["ocr_method"] = "Direct Text"
         
-        # Step 2: Extract up to 20 basic fields
+        # Step 2: Extract all fields dynamically
         job_status_map[job_id].update({
-            "status": "Extracting key fields (up to 20 important fields)...",
+            "status": "Extracting all fields from document...",
             "progress": 40
         })
         basic_fields = extract_basic_fields(text, num_fields=20)
@@ -1386,27 +1533,601 @@ def get_document_detail(doc_id):
     return jsonify({"success": False, "message": "Document not found"}), 404
 
 
-@app.route("/document/<doc_id>")
-def view_document(doc_id):
-    """View document details in a new page"""
-    doc = next((d for d in processed_documents if d["id"] == doc_id), None)
-    if doc:
-        return render_template("document_detail.html", document=doc)
-    return "Document not found", 404
-
-
 @app.route("/document/<doc_id>/pages")
 def view_document_pages(doc_id):
-    """View document with page-by-page viewer with bulk edit mode"""
+    """View document with unified page-by-page viewer"""
     doc = next((d for d in processed_documents if d["id"] == doc_id), None)
     if doc:
-        return render_template("document_viewer_bulk_edit.html", document=doc)
+        return render_template("unified_page_viewer.html", document=doc)
     return "Document not found", 404
+
+
+@app.route("/document/<doc_id>/accounts")
+def view_account_based(doc_id):
+    """View document with account-based interface"""
+    doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+    if doc:
+        return render_template("account_based_viewer.html", document=doc)
+    return "Document not found", 404
+
+
+@app.route("/api/document/<doc_id>/account/<int:account_index>/pages")
+def get_account_pages(doc_id, account_index):
+    """Get pages for a specific account by detecting account numbers on pages"""
+    import fitz
+    import re
+    import json
+    
+    doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+    if not doc:
+        return jsonify({"success": False, "message": "Document not found"}), 404
+    
+    try:
+        # Get PDF info
+        pdf_path = doc.get("pdf_path")
+        if not pdf_path or not os.path.exists(pdf_path):
+            return jsonify({"success": False, "message": "PDF file not found"}), 404
+        
+        # Get account info
+        doc_data = doc.get("documents", [{}])[0]
+        accounts = doc_data.get("accounts", [])
+        
+        if not accounts or len(accounts) == 0:
+            return jsonify({"success": False, "message": "No accounts found"}), 404
+        
+        if account_index >= len(accounts):
+            return jsonify({"success": False, "message": "Account index out of range"}), 400
+        
+        target_account_number = accounts[account_index].get("accountNumber", "").strip()
+        
+        # Check cache first
+        cache_key = f"page_mapping/{doc_id}/mapping.json"
+        page_to_account = None
+        
+        try:
+            print(f"[INFO] Checking cache for page mapping: {cache_key}")
+            cache_response = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+            cached_mapping = json.loads(cache_response['Body'].read().decode('utf-8'))
+            page_to_account = {int(k): v for k, v in cached_mapping.items()}
+            print(f"[INFO] Loaded cached page mapping with {len(page_to_account)} pages")
+        except s3_client.exceptions.NoSuchKey:
+            print(f"[INFO] No cached mapping found, will scan pages")
+        except Exception as cache_error:
+            print(f"[WARNING] Cache load failed: {str(cache_error)}, will scan pages")
+        
+        # If no cache, scan pages and create mapping
+        if page_to_account is None:
+            page_to_account = scan_and_map_pages(doc_id, pdf_path, accounts)
+            
+            # Save to cache
+            try:
+                s3_client.put_object(
+                    Bucket=S3_BUCKET,
+                    Key=cache_key,
+                    Body=json.dumps(page_to_account),
+                    ContentType='application/json'
+                )
+                print(f"[INFO] Cached page mapping to S3: {cache_key}")
+            except Exception as s3_error:
+                print(f"[WARNING] Failed to cache mapping: {str(s3_error)}")
+        
+        # Now assign pages to the target account using the mapping
+        pdf_doc = fitz.open(pdf_path)
+        total_pages = len(pdf_doc)
+        pdf_doc.close()
+        
+        # Assign pages to the target account
+        # Strategy: Find where this account starts, then include pages until the next account starts
+        account_pages = []
+        marked_pages = [p for p in range(total_pages) if page_to_account.get(p) == target_account_number]
+        
+        if marked_pages:
+            # Start from the first page marked with this account
+            first_page = marked_pages[0]
+            
+            # Find where the next account starts (or end of document)
+            next_account_page = total_pages  # Default to end of document
+            for page_num in range(first_page + 1, total_pages):
+                if page_num in page_to_account and page_to_account[page_num] != target_account_number:
+                    next_account_page = page_num
+                    print(f"[DEBUG] Next account starts at page {page_num}")
+                    break
+            
+            # Include all pages from first_page to next_account_page (exclusive)
+            account_pages = list(range(first_page, next_account_page))
+            
+            print(f"[DEBUG] Account {target_account_number} marked on page: {first_page + 1}")
+            print(f"[DEBUG] Assigned pages {first_page + 1} to {next_account_page} (total: {len(account_pages)} pages)")
+        
+        # Display page numbers as 1-based for clarity
+        display_pages = [p + 1 for p in account_pages]
+        print(f"[INFO] Account {target_account_number} has {len(account_pages)} page(s): {display_pages}")
+        
+        # If no pages found, fall back to even distribution
+        if not account_pages:
+            print(f"[WARNING] No pages found for account {target_account_number}, using even distribution")
+            pages_per_account = max(1, total_pages // len(accounts))
+            start_page = account_index * pages_per_account
+            end_page = start_page + pages_per_account if account_index < len(accounts) - 1 else total_pages
+            account_pages = list(range(start_page, end_page))
+        
+        # Display page numbers as 1-based for clarity
+        display_pages = [p + 1 for p in account_pages]
+        print(f"[INFO] Account {target_account_number} has {len(account_pages)} page(s): {display_pages}")
+        
+        response_data = {
+            "success": True,
+            "total_pages": len(account_pages),
+            "pages": account_pages,
+            "account_number": target_account_number
+        }
+        print(f"[INFO] Returning response: {response_data}")
+        
+        return jsonify(response_data)
+        
+    except Exception as e:
+        print(f"[ERROR] Failed to get account pages: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/document/<doc_id>/account/<int:account_index>/page/<int:page_num>")
+def get_account_page_image(doc_id, account_index, page_num):
+    """Get specific page image for an account"""
+    import fitz
+    from flask import send_file
+    
+    doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+    if not doc:
+        return "Document not found", 404
+    
+    pages_dir = os.path.join(OUTPUT_DIR, "pages", doc_id)
+    page_path = os.path.join(pages_dir, f"page_{page_num+1}.png")
+    
+    # If page doesn't exist, generate it
+    if not os.path.exists(page_path):
+        try:
+            pdf_path = doc.get("pdf_path")
+            if not pdf_path or not os.path.exists(pdf_path):
+                return "PDF file not found", 404
+            
+            os.makedirs(pages_dir, exist_ok=True)
+            
+            # Open PDF and render the specific page
+            pdf_doc = fitz.open(pdf_path)
+            if page_num >= len(pdf_doc):
+                return "Page number out of range", 404
+            
+            page = pdf_doc[page_num]
+            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+            pix.save(page_path)
+            pdf_doc.close()
+            
+        except Exception as e:
+            print(f"[ERROR] Failed to generate page {page_num}: {str(e)}")
+            return f"Failed to generate page: {str(e)}", 500
+    
+    if os.path.exists(page_path):
+        return send_file(page_path, mimetype='image/png')
+    
+    return "Page not found", 404
+
+
+@app.route("/api/document/<doc_id>/account/<int:account_index>/page/<int:page_num>/data")
+def get_account_page_data(doc_id, account_index, page_num):
+    """Extract data for a specific page of an account - with S3 caching"""
+    import fitz
+    import json
+    
+    print(f"[DEBUG] get_account_page_data called: doc_id={doc_id}, account_index={account_index}, page_num={page_num}")
+    
+    doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+    if not doc:
+        print(f"[ERROR] Document not found: {doc_id}")
+        return jsonify({"success": False, "message": "Document not found"}), 404
+    
+    print(f"[DEBUG] Document found, pdf_path={doc.get('pdf_path')}")
+    
+    try:
+        # Check S3 cache first
+        cache_key = f"page_data/{doc_id}/account_{account_index}/page_{page_num}.json"
+        
+        try:
+            print(f"[DEBUG] Checking S3 cache: {cache_key}")
+            cache_response = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+            cached_data = json.loads(cache_response['Body'].read().decode('utf-8'))
+            print(f"[DEBUG] Found cached data in S3")
+            return jsonify({
+                "success": True,
+                "page_number": page_num + 1,
+                "account_number": cached_data.get("account_number"),
+                "data": cached_data.get("data"),
+                "cached": True
+            })
+        except s3_client.exceptions.NoSuchKey:
+            print(f"[DEBUG] No cache found, will extract data")
+        except Exception as cache_error:
+            print(f"[DEBUG] Cache check failed: {str(cache_error)}, will extract data")
+        
+        # Get PDF path
+        pdf_path = doc.get("pdf_path")
+        if not pdf_path or not os.path.exists(pdf_path):
+            return jsonify({"success": False, "message": "PDF file not found"}), 404
+        
+        # Extract text from the specific page
+        print(f"[DEBUG] Opening PDF: {pdf_path}")
+        pdf_doc = fitz.open(pdf_path)
+        print(f"[DEBUG] PDF has {len(pdf_doc)} pages")
+        
+        if page_num >= len(pdf_doc):
+            print(f"[ERROR] Page number {page_num} out of range (total pages: {len(pdf_doc)})")
+            return jsonify({"success": False, "message": "Page number out of range"}), 404
+        
+        page = pdf_doc[page_num]
+        page_text = page.get_text()
+        
+        print(f"[DEBUG] Extracted {len(page_text)} characters from page {page_num}")
+        print(f"[DEBUG] Page text preview: {page_text[:200]}")
+        
+        # Check if page has watermark or is mostly garbage text
+        has_watermark = "PDF-XChange" in page_text or "Click to BUY NOW" in page_text
+        is_mostly_single_chars = page_text.count('\n') > len(page_text) / 3  # Too many line breaks
+        
+        # If no text found, has watermark, or is likely an image - use OCR
+        if not page_text or len(page_text.strip()) < 50 or has_watermark or is_mostly_single_chars:
+            print(f"[DEBUG] Page {page_num} has no text layer, using OCR...")
+            
+            # Save page as image temporarily
+            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+            temp_image_path = os.path.join(OUTPUT_DIR, f"temp_page_{doc_id}_{page_num}.png")
+            pix.save(temp_image_path)
+            
+            # Use Textract to extract text from the image
+            try:
+                with open(temp_image_path, 'rb') as image_file:
+                    image_bytes = image_file.read()
+                
+                textract_response = textract.detect_document_text(
+                    Document={'Bytes': image_bytes}
+                )
+                
+                # Extract text from Textract response
+                page_text = ""
+                for block in textract_response.get('Blocks', []):
+                    if block['BlockType'] == 'LINE':
+                        page_text += block.get('Text', '') + "\n"
+                
+                print(f"[DEBUG] OCR extracted {len(page_text)} characters from page {page_num}")
+                
+                # Clean up temp file
+                if os.path.exists(temp_image_path):
+                    os.remove(temp_image_path)
+                    
+            except Exception as ocr_error:
+                print(f"[ERROR] OCR failed: {str(ocr_error)}")
+                pdf_doc.close()
+                return jsonify({"success": False, "message": f"OCR failed: {str(ocr_error)}"}), 500
+        else:
+            print(f"[DEBUG] Extracted {len(page_text)} characters from page {page_num}")
+        
+        pdf_doc.close()
+        
+        # Get account info to know what account number this page belongs to
+        doc_data = doc.get("documents", [{}])[0]
+        accounts = doc_data.get("accounts", [])
+        
+        if account_index >= len(accounts):
+            return jsonify({"success": False, "message": "Account index out of range"}), 400
+        
+        account = accounts[account_index]
+        account_number = account.get("accountNumber", "Unknown")
+        
+        # Extract data from this specific page using AI
+        print(f"[DEBUG] Calling AI to extract data from page {page_num}")
+        
+        page_extraction_prompt = get_comprehensive_extraction_prompt()
+        
+        print(f"[DEBUG] Got page extraction prompt, calling Bedrock...")
+        response = call_bedrock(page_extraction_prompt, page_text, max_tokens=6000)
+        print(f"[DEBUG] Got response from Bedrock, length: {len(response)}")
+        
+        # Parse JSON response
+        json_start = response.find('{')
+        json_end = response.rfind('}')
+        
+        if json_start != -1 and json_end != -1:
+            json_str = response[json_start:json_end + 1]
+            try:
+                parsed = json.loads(json_str)
+            except json.JSONDecodeError as e:
+                print(f"[ERROR] JSON parse error: {str(e)}")
+                print(f"[ERROR] AI Response: {response[:500]}")
+                return jsonify({
+                    "success": False,
+                    "message": f"Failed to parse AI response: {str(e)}",
+                    "raw_response": response[:500]
+                }), 500
+            
+            # Add account number to the result
+            parsed["AccountNumber"] = account_number
+            
+            # Cache the result in S3
+            cache_data = {
+                "account_number": account_number,
+                "data": parsed,
+                "extracted_at": datetime.now().isoformat()
+            }
+            
+            try:
+                s3_client.put_object(
+                    Bucket=S3_BUCKET,
+                    Key=cache_key,
+                    Body=json.dumps(cache_data),
+                    ContentType='application/json'
+                )
+                print(f"[DEBUG] Cached data to S3: {cache_key}")
+            except Exception as s3_error:
+                print(f"[WARNING] Failed to cache to S3: {str(s3_error)}")
+            
+            return jsonify({
+                "success": True,
+                "page_number": page_num + 1,
+                "account_number": account_number,
+                "data": parsed,
+                "cached": False
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "message": "Failed to parse AI response"
+            }), 500
+            
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"[ERROR] Failed to extract page data: {str(e)}")
+        print(f"[ERROR] Traceback: {error_trace}")
+        return jsonify({"success": False, "message": str(e), "traceback": error_trace}), 500
+
+
+@app.route("/api/document/<doc_id>/page/<int:page_num>/extract")
+def extract_page_data(doc_id, page_num):
+    """Extract data from a specific page - works for any document type"""
+    import fitz
+    import json
+    
+    print(f"[DEBUG] extract_page_data called: doc_id={doc_id}, page_num={page_num}")
+    
+    # Check if force re-extraction is requested
+    force = request.args.get('force', 'false').lower() == 'true'
+    
+    doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+    if not doc:
+        return jsonify({"success": False, "message": "Document not found"}), 404
+    
+    try:
+        # Check S3 cache first (unless force=true)
+        cache_key = f"page_data/{doc_id}/page_{page_num}.json"
+        
+        if not force:
+            try:
+                print(f"[DEBUG] Checking S3 cache: {cache_key}")
+                cache_response = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+                cached_data = json.loads(cache_response['Body'].read().decode('utf-8'))
+                print(f"[DEBUG] Found cached data in S3")
+                return jsonify({
+                    "success": True,
+                    "page_number": page_num + 1,
+                    "data": cached_data.get("data"),
+                    "cached": True,
+                    "edited": cached_data.get("edited", False)
+                })
+            except s3_client.exceptions.NoSuchKey:
+                print(f"[DEBUG] No cache found, will extract data")
+            except Exception as cache_error:
+                print(f"[DEBUG] Cache check failed: {str(cache_error)}, will extract data")
+        else:
+            print(f"[DEBUG] Force re-extraction requested, skipping cache")
+        
+        # Get PDF path
+        pdf_path = doc.get("pdf_path")
+        if not pdf_path or not os.path.exists(pdf_path):
+            return jsonify({"success": False, "message": "PDF file not found"}), 404
+        
+        # Extract text from the specific page
+        print(f"[DEBUG] Opening PDF: {pdf_path}")
+        pdf_doc = fitz.open(pdf_path)
+        
+        if page_num >= len(pdf_doc):
+            return jsonify({"success": False, "message": "Page number out of range"}), 404
+        
+        page = pdf_doc[page_num]
+        page_text = page.get_text()
+        
+        # If no text found, use OCR
+        if not page_text or len(page_text.strip()) < 50:
+            print(f"[DEBUG] Page {page_num} has no text layer, using OCR...")
+            
+            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+            temp_image_path = os.path.join(OUTPUT_DIR, f"temp_page_{doc_id}_{page_num}.png")
+            pix.save(temp_image_path)
+            
+            try:
+                with open(temp_image_path, 'rb') as image_file:
+                    image_bytes = image_file.read()
+                
+                textract_response = textract.detect_document_text(
+                    Document={'Bytes': image_bytes}
+                )
+                
+                page_text = ""
+                for block in textract_response.get('Blocks', []):
+                    if block['BlockType'] == 'LINE':
+                        page_text += block.get('Text', '') + "\n"
+                
+                print(f"[DEBUG] OCR extracted {len(page_text)} characters from page {page_num}")
+                
+                if os.path.exists(temp_image_path):
+                    os.remove(temp_image_path)
+                    
+            except Exception as ocr_error:
+                print(f"[ERROR] OCR failed: {str(ocr_error)}")
+                pdf_doc.close()
+                return jsonify({"success": False, "message": f"OCR failed: {str(ocr_error)}"}), 500
+        
+        pdf_doc.close()
+        
+        # Extract data using AI
+        print(f"[DEBUG] Calling AI to extract data from page {page_num}")
+        
+        page_extraction_prompt = get_comprehensive_extraction_prompt()
+        response = call_bedrock(page_extraction_prompt, page_text, max_tokens=6000)
+        print(f"[DEBUG] Got response from Bedrock, length: {len(response)}")
+        
+        # Parse JSON response
+        json_start = response.find('{')
+        json_end = response.rfind('}')
+        
+        if json_start != -1 and json_end != -1:
+            json_str = response[json_start:json_end + 1]
+            parsed = json.loads(json_str)
+            
+            # Cache the result in S3
+            cache_data = {
+                "data": parsed,
+                "extracted_at": datetime.now().isoformat()
+            }
+            
+            try:
+                s3_client.put_object(
+                    Bucket=S3_BUCKET,
+                    Key=cache_key,
+                    Body=json.dumps(cache_data),
+                    ContentType='application/json'
+                )
+                print(f"[DEBUG] Cached data to S3: {cache_key}")
+            except Exception as s3_error:
+                print(f"[WARNING] Failed to cache to S3: {str(s3_error)}")
+            
+            return jsonify({
+                "success": True,
+                "page_number": page_num + 1,
+                "data": parsed,
+                "cached": False
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "message": "Failed to parse AI response"
+            }), 500
+            
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"[ERROR] Failed to extract page data: {str(e)}")
+        print(f"[ERROR] Traceback: {error_trace}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/document/<doc_id>/page/<int:page_num>/update", methods=["POST"])
+def update_page_data(doc_id, page_num):
+    """Update page data and save to S3 cache"""
+    import json
+    
+    try:
+        data = request.get_json()
+        page_data = data.get("page_data")
+        
+        if not page_data:
+            return jsonify({"success": False, "message": "No page data provided"}), 400
+        
+        doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+        if not doc:
+            return jsonify({"success": False, "message": "Document not found"}), 404
+        
+        # Update S3 cache with edited data
+        cache_key = f"page_data/{doc_id}/page_{page_num}.json"
+        
+        cache_data = {
+            "data": page_data,
+            "extracted_at": datetime.now().isoformat(),
+            "edited": True
+        }
+        
+        try:
+            s3_client.put_object(
+                Bucket=S3_BUCKET,
+                Key=cache_key,
+                Body=json.dumps(cache_data),
+                ContentType='application/json'
+            )
+            print(f"[INFO] Updated S3 cache with edited data: {cache_key}")
+            
+            return jsonify({
+                "success": True,
+                "message": "Page data updated successfully"
+            })
+        except Exception as s3_error:
+            print(f"[ERROR] Failed to update S3 cache: {str(s3_error)}")
+            return jsonify({"success": False, "message": f"Failed to save: {str(s3_error)}"}), 500
+            
+    except Exception as e:
+        print(f"[ERROR] Failed to update page data: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/document/<doc_id>/update", methods=["POST"])
+def update_document_field(doc_id):
+    """Update a specific field in the document"""
+    try:
+        data = request.get_json()
+        field_name = data.get("field_name")
+        field_value = data.get("field_value")
+        account_index = data.get("account_index")
+        page_index = data.get("page_index")
+        
+        doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+        if not doc:
+            return jsonify({"success": False, "message": "Document not found"}), 404
+        
+        # Update the field in the document structure
+        doc_data = doc.get("documents", [{}])[0]
+        
+        if account_index is not None:
+            # Update account-level data
+            accounts = doc_data.get("accounts", [])
+            if account_index < len(accounts):
+                account = accounts[account_index]
+                if "result" not in account:
+                    account["result"] = {}
+                account["result"][field_name] = field_value
+                
+                # Save to database
+                save_documents_db(processed_documents)
+                
+                return jsonify({"success": True, "message": "Field updated successfully"})
+            else:
+                return jsonify({"success": False, "message": "Account index out of range"}), 400
+        else:
+            # Update document-level data
+            if "extracted_fields" not in doc_data:
+                doc_data["extracted_fields"] = {}
+            doc_data["extracted_fields"][field_name] = field_value
+            
+            # Save to database
+            save_documents_db(processed_documents)
+            
+            return jsonify({"success": True, "message": "Field updated successfully"})
+            
+    except Exception as e:
+        print(f"[ERROR] Failed to update field: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
 
 
 @app.route("/api/document/<doc_id>/pages")
 def get_document_pages(doc_id):
-    """Get all pages of a document as images using PyMuPDF"""
+    """Get all pages of a document as images using PyMuPDF with account mapping"""
     import fitz  # PyMuPDF
     
     doc = next((d for d in processed_documents if d["id"] == doc_id), None)
@@ -1446,12 +2167,33 @@ def get_document_pages(doc_id):
             pdf_document.close()
             print(f"[INFO] Created {len(existing_pages)} page images")
         
-        # Return page URLs
+        # Check if this is a loan document with accounts
+        doc_data = doc.get("documents", [{}])[0]
+        has_accounts = doc_data.get("accounts") is not None and len(doc_data.get("accounts", [])) > 0
+        
+        # Create page-to-account mapping for loan documents
+        page_account_mapping = {}
+        if has_accounts:
+            accounts = doc_data.get("accounts", [])
+            # Simple mapping: distribute pages evenly across accounts
+            # For better accuracy, you could analyze page content to detect account numbers
+            pages_per_account = max(1, len(existing_pages) // len(accounts))
+            
+            for i, page_file in enumerate(existing_pages):
+                account_index = min(i // pages_per_account, len(accounts) - 1)
+                page_account_mapping[i] = {
+                    "account_index": account_index,
+                    "account_number": accounts[account_index].get("accountNumber", "Unknown")
+                }
+        
+        # Return page URLs with account mapping
         pages = [
             {
                 "page_number": i + 1,
                 "url": f"/api/document/{doc_id}/page/{i}",
-                "thumbnail": f"/api/document/{doc_id}/page/{i}/thumbnail"
+                "thumbnail": f"/api/document/{doc_id}/page/{i}/thumbnail",
+                "account_index": page_account_mapping.get(i, {}).get("account_index"),
+                "account_number": page_account_mapping.get(i, {}).get("account_number")
             }
             for i in range(len(existing_pages))
         ]
@@ -1459,7 +2201,9 @@ def get_document_pages(doc_id):
         return jsonify({
             "success": True,
             "pages": pages,
-            "total_pages": len(pages)
+            "total_pages": len(pages),
+            "has_accounts": has_accounts,
+            "total_accounts": len(doc_data.get("accounts", [])) if has_accounts else 0
         })
         
     except Exception as e:
