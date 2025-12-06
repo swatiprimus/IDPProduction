@@ -432,7 +432,7 @@
                     <li>Upload documents (PDF, PNG, JPG, TXT) through a simple interface</li>
                     <li>Automatically runs OCR using Amazon Textract (3-tier processing)</li>
                     <li>Detects document type using hybrid keyword + AI classification</li>
-                    <li>Extracts up to 20 key fields with intelligent field naming</li>
+                    <li>Extracts ALL fields comprehensively (up to 100+ fields per document)</li>
                     <li>For loan documents: Splits into multiple accounts automatically</li>
                     <li>Calculates accuracy scores for data quality assessment</li>
                     <li>Saves all results to persistent storage (JSON database)</li>
@@ -448,7 +448,7 @@
                         <li>Universal document processing</li>
                         <li>12+ supported document types</li>
                         <li>Automatic type detection</li>
-                        <li>Smart field extraction (up to 20 fields)</li>
+                        <li>Comprehensive field extraction (ALL visible fields)</li>
                         <li>Persistent document storage</li>
                     </ul>
                 </div>
@@ -950,8 +950,8 @@ parsed = flatten_nested_objects(parsed)</code></pre>
                     <div class="flow-step">
                         <div class="step-number">5</div>
                         <div class="step-content">
-                            <h3>Basic Field Extraction (Up to 20 Fields)</h3>
-                            <p>AI extracts the most important fields with descriptive names (e.g., "full_name", "document_number"). Prioritizes IDs, names, dates, amounts, and contact info.</p>
+                            <h3>Comprehensive Field Extraction (ALL Fields)</h3>
+                            <p>AI extracts EVERY visible field from the document with descriptive names (e.g., "full_name", "document_number", "Signer1_Name"). Prioritizes IDs, names, dates, amounts, and contact info, but captures everything including signers, supporting documents, checkboxes, and all form fields.</p>
                         </div>
                     </div>
 
@@ -998,8 +998,8 @@ universal_idp.py
 ├── <span class="function">extract_text_with_textract_async()</span>  <span class="comment"># Async Textract for scanned PDFs</span>
 ├── <span class="function">try_extract_pdf_with_pypdf()</span>  <span class="comment"># PyPDF2 fallback</span>
 ├── <span class="function">detect_document_type()</span>  <span class="comment"># Hybrid keyword + AI detection</span>
-├── <span class="function">extract_basic_fields()</span>  <span class="comment"># Extract up to 20 key fields</span>
-├── <span class="function">detect_and_extract_documents()</span>  <span class="comment"># Full AI extraction</span>
+├── <span class="function">extract_basic_fields()</span>  <span class="comment"># Extract ALL fields comprehensively (100+ fields)</span>
+├── <span class="function">detect_and_extract_documents()</span>  <span class="comment"># Full AI extraction with specialized prompts</span>
 ├── <span class="function">process_job()</span>  <span class="comment"># Background worker</span>
 ├── <span class="function">load_documents_db()</span>  <span class="comment"># Load persistent storage</span>
 └── <span class="function">save_documents_db()</span>  <span class="comment"># Save to JSON</span>
@@ -1066,9 +1066,11 @@ ocr_results/              <span class="comment"># Extracted text files</span>
             <h3 style="color: var(--primary); margin: 20px 0 15px 0;">🤖 AI-Powered Field Extraction</h3>
             <ul style="line-height: 1.8; margin-left: 20px;">
                 <li><strong>Claude 3.5 Sonnet</strong> via AWS Bedrock for intelligent extraction</li>
-                <li><strong>Up to 20 Key Fields:</strong> Extracts most important information with descriptive names</li>
-                <li><strong>Prioritized Extraction:</strong> IDs, names, dates, amounts, contact info first</li>
+                <li><strong>Comprehensive Extraction:</strong> Extracts ALL visible fields (100+ fields per document)</li>
+                <li><strong>Prioritized Extraction:</strong> IDs, names, dates, amounts, contact info extracted first</li>
                 <li><strong>Document-Specific Prompts:</strong> Tailored extraction based on detected type</li>
+                <li><strong>Smart Field Naming:</strong> Converts labels to descriptive names (e.g., "Date of Birth" → "Date_of_Birth")</li>
+                <li><strong>No Empty Fields:</strong> Only includes fields with actual values (skips N/A and empty)</li>
                 <li><strong>Context-Aware:</strong> Understands document structure and relationships</li>
             </ul>
 
@@ -1094,8 +1096,8 @@ ocr_results/              <span class="comment"># Extracted text files</span>
                 <li><strong>Edit Persistence:</strong> User edits saved to S3 cache and survive page refreshes</li>
                 <li><strong>Cache Management:</strong> Clear cache button to force re-extraction with updated prompts</li>
                 <li><strong>Comprehensive Dashboard:</strong> View all documents with filtering (All/Today/OCR)</li>
-                <li><strong>Document Cards:</strong> Preview with filename, type, date, and key fields</li>
-                <li><strong>Detailed View:</strong> Click any document to see full extraction results</li>
+                <li><strong>Document Cards:</strong> Preview with filename, type, date, and extracted fields</li>
+                <li><strong>Detailed View:</strong> Click any document to see ALL extraction results</li>
                 <li><strong>Statistics:</strong> Total documents, today's count, OCR processed count</li>
                 <li><strong>Persistent Across Restarts:</strong> Data survives server restarts</li>
             </ul>
