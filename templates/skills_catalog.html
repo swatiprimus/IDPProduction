@@ -43,10 +43,22 @@
         .skills-table { background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); overflow: hidden; }
         table { width: 100%; border-collapse: collapse; }
         thead { background: #f8f9fa; border-bottom: 2px solid #e9ecef; }
-        th { padding: 15px 20px; text-align: left; font-weight: 600; color: #495057; font-size: 0.9em; }
+        th { padding: 15px 20px; text-align: left; font-weight: 600; color: #495057; font-size: 0.9em; cursor: pointer; user-select: none; position: relative; }
+        th:hover { background: #e9ecef; }
+        th.sortable::after { content: ' ⇅'; opacity: 0.3; font-size: 0.8em; }
+        th.sort-asc::after { content: ' ▲'; opacity: 1; color: #3498db; }
+        th.sort-desc::after { content: ' ▼'; opacity: 1; color: #3498db; }
         td { padding: 15px 20px; border-bottom: 1px solid #f1f3f5; }
         tbody tr { cursor: pointer; transition: background 0.2s; }
         tbody tr:hover { background: #f8f9fa; }
+        .pagination { display: flex; justify-content: space-between; align-items: center; padding: 20px; background: white; border-top: 1px solid #e9ecef; }
+        .pagination-info { color: #7f8c8d; font-size: 0.9em; }
+        .pagination-controls { display: flex; gap: 5px; }
+        .page-btn { padding: 8px 12px; border: 1px solid #ddd; background: white; cursor: pointer; border-radius: 4px; transition: all 0.2s; }
+        .page-btn:hover:not(:disabled) { background: #f8f9fa; border-color: #3498db; }
+        .page-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .page-btn.active { background: #3498db; color: white; border-color: #3498db; }
+        .per-page-select { padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; }
         .skill-name { font-weight: 500; color: #2c3e50; }
         .version-badge { display: inline-block; padding: 4px 10px; background: #e3f2fd; color: #1976d2; border-radius: 12px; font-size: 0.85em; font-weight: 500; }
         .description { color: #7f8c8d; font-size: 0.9em; }
@@ -130,9 +142,29 @@
         </div>
         <div class="skills-table">
             <table>
-                <thead><tr><th style="width:50px;"></th><th>Skill Name</th><th style="width:150px;">Created Date</th><th>Document Type</th><th style="width:120px;">Actions</th></tr></thead>
+                <thead>
+                    <tr>
+                        <th style="width:50px;"></th>
+                        <th class="sortable" onclick="sortTable('name')">Skill Name</th>
+                        <th class="sortable" onclick="sortTable('date')" style="width:150px;">Created Date</th>
+                        <th class="sortable" onclick="sortTable('type')">Document Type</th>
+                        <th style="width:120px;">Actions</th>
+                    </tr>
+                </thead>
                 <tbody id="skillsTableBody"></tbody>
             </table>
+            <div class="pagination">
+                <div class="pagination-info">
+                    Showing <span id="showingStart">0</span>-<span id="showingEnd">0</span> of <span id="totalCount">0</span> documents
+                    <select class="per-page-select" id="perPageSelect" onchange="changePerPage()">
+                        <option value="10">10 per page</option>
+                        <option value="25" selected>25 per page</option>
+                        <option value="50">50 per page</option>
+                        <option value="100">100 per page</option>
+                    </select>
+                </div>
+                <div class="pagination-controls" id="paginationControls"></div>
+            </div>
         </div>
     </div>
     <div class="modal" id="createModal">
@@ -151,6 +183,12 @@
     <script>
         let selectedFile=null;
         let allSkills=[];
+        let filteredSkills=[];
+        let currentPage=1;
+        let perPage=25;
+        let sortColumn='date';
+        let sortDirection='desc';
+        
         window.onload=function(){loadSkills();loadStats();};
         
         function toggleSection(sectionId) {
@@ -174,23 +212,88 @@
                 const response=await fetch('/api/documents');
                 const data=await response.json();
                 allSkills=data.documents||[];
-                displaySkills(allSkills);
+                filteredSkills=allSkills;
+                sortTable(sortColumn, true); // Apply default sort
+                displaySkills();
             }catch(error){
                 console.error('Error loading skills:',error);
                 document.getElementById('skillsTableBody').innerHTML='<tr><td colspan="5" style="text-align:center;padding:40px;color:#7f8c8d;">No skills created yet. Click "Create" to add your first document processing skill.</td></tr>';
             }
         }
         
-        function displaySkills(skills){
+        function sortTable(column, skipToggle=false){
+            if(!skipToggle && sortColumn===column){
+                sortDirection=sortDirection==='asc'?'desc':'asc';
+            }else{
+                sortColumn=column;
+                if(skipToggle) sortDirection='desc';
+            }
+            
+            // Update header classes
+            document.querySelectorAll('th').forEach(th=>{
+                th.classList.remove('sort-asc','sort-desc');
+            });
+            const th=event?.currentTarget||document.querySelector(`th[onclick*="${column}"]`);
+            if(th) th.classList.add(sortDirection==='asc'?'sort-asc':'sort-desc');
+            
+            // Sort data
+            filteredSkills.sort((a,b)=>{
+                let aVal,bVal;
+                if(column==='name'){
+                    aVal=(a.document_name||a.filename||'').toLowerCase();
+                    bVal=(b.document_name||b.filename||'').toLowerCase();
+                }else if(column==='date'){
+                    aVal=new Date(a.processed_date||0);
+                    bVal=new Date(b.processed_date||0);
+                }else if(column==='type'){
+                    aVal=(a.document_type||'').toLowerCase();
+                    bVal=(b.document_type||'').toLowerCase();
+                }
+                
+                if(aVal<bVal) return sortDirection==='asc'?-1:1;
+                if(aVal>bVal) return sortDirection==='asc'?1:-1;
+                return 0;
+            });
+            
+            currentPage=1;
+            displaySkills();
+        }
+        
+        function changePerPage(){
+            perPage=parseInt(document.getElementById('perPageSelect').value);
+            currentPage=1;
+            displaySkills();
+        }
+        
+        function goToPage(page){
+            currentPage=page;
+            displaySkills();
+        }
+        
+        function displaySkills(){
             const tbody=document.getElementById('skillsTableBody');
             tbody.innerHTML='';
             
-            if(skills.length===0){
+            const totalDocs=filteredSkills.length;
+            const totalPages=Math.ceil(totalDocs/perPage);
+            const start=(currentPage-1)*perPage;
+            const end=Math.min(start+perPage,totalDocs);
+            const pageSkills=filteredSkills.slice(start,end);
+            
+            // Update pagination info
+            document.getElementById('showingStart').textContent=totalDocs>0?start+1:0;
+            document.getElementById('showingEnd').textContent=end;
+            document.getElementById('totalCount').textContent=totalDocs;
+            
+            // Render pagination controls
+            renderPagination(totalPages);
+            
+            if(pageSkills.length===0){
                 tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:40px;color:#7f8c8d;">No skills created yet. Click "Create" to add your first document processing skill.</td></tr>';
                 return;
             }
             
-            skills.forEach(skill=>{
+            pageSkills.forEach(skill=>{
                 const docTypeInfo=skill.document_type_info||{};
                 const icon=docTypeInfo.icon||'📄';
                 const docType=docTypeInfo.name||'Unknown';
@@ -252,17 +355,86 @@
                 tbody.appendChild(row);
             });
         }
+        function renderPagination(totalPages){
+            const controls=document.getElementById('paginationControls');
+            controls.innerHTML='';
+            
+            if(totalPages<=1) return;
+            
+            // Previous button
+            const prevBtn=document.createElement('button');
+            prevBtn.className='page-btn';
+            prevBtn.textContent='‹ Previous';
+            prevBtn.disabled=currentPage===1;
+            prevBtn.onclick=()=>goToPage(currentPage-1);
+            controls.appendChild(prevBtn);
+            
+            // Page numbers
+            const maxButtons=5;
+            let startPage=Math.max(1,currentPage-Math.floor(maxButtons/2));
+            let endPage=Math.min(totalPages,startPage+maxButtons-1);
+            
+            if(endPage-startPage<maxButtons-1){
+                startPage=Math.max(1,endPage-maxButtons+1);
+            }
+            
+            if(startPage>1){
+                const btn=document.createElement('button');
+                btn.className='page-btn';
+                btn.textContent='1';
+                btn.onclick=()=>goToPage(1);
+                controls.appendChild(btn);
+                if(startPage>2){
+                    const dots=document.createElement('span');
+                    dots.textContent='...';
+                    dots.style.padding='0 8px';
+                    controls.appendChild(dots);
+                }
+            }
+            
+            for(let i=startPage;i<=endPage;i++){
+                const btn=document.createElement('button');
+                btn.className='page-btn'+(i===currentPage?' active':'');
+                btn.textContent=i;
+                btn.onclick=()=>goToPage(i);
+                controls.appendChild(btn);
+            }
+            
+            if(endPage<totalPages){
+                if(endPage<totalPages-1){
+                    const dots=document.createElement('span');
+                    dots.textContent='...';
+                    dots.style.padding='0 8px';
+                    controls.appendChild(dots);
+                }
+                const btn=document.createElement('button');
+                btn.className='page-btn';
+                btn.textContent=totalPages;
+                btn.onclick=()=>goToPage(totalPages);
+                controls.appendChild(btn);
+            }
+            
+            // Next button
+            const nextBtn=document.createElement('button');
+            nextBtn.className='page-btn';
+            nextBtn.textContent='Next ›';
+            nextBtn.disabled=currentPage===totalPages;
+            nextBtn.onclick=()=>goToPage(currentPage+1);
+            controls.appendChild(nextBtn);
+        }
+        
         function filterSkills(){
             const searchTerm=document.getElementById('searchInput').value.toLowerCase();
             if(!searchTerm){
-                displaySkills(allSkills);
-                return;
+                filteredSkills=allSkills;
+            }else{
+                filteredSkills=allSkills.filter(skill=>
+                    (skill.document_name || skill.filename).toLowerCase().includes(searchTerm)||
+                    (skill.document_type_info&&skill.document_type_info.name.toLowerCase().includes(searchTerm))
+                );
             }
-            const filtered=allSkills.filter(skill=>
-                (skill.document_name || skill.filename).toLowerCase().includes(searchTerm)||
-                (skill.document_type_info&&skill.document_type_info.name.toLowerCase().includes(searchTerm))
-            );
-            displaySkills(filtered);
+            currentPage=1;
+            displaySkills();
         }
         async function loadStats(){
             try{

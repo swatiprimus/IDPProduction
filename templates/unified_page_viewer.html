@@ -131,28 +131,45 @@
         }
         
         .page-item {
-            padding: 12px;
-            margin-bottom: 8px;
-            background: #f9fafb;
+            position: relative;
+            margin-bottom: 10px;
+            border: 3px solid transparent;
             border-radius: 8px;
-            border-left: 4px solid var(--primary);
             cursor: pointer;
             transition: all 0.3s;
+            overflow: hidden;
+            background: #f9fafb;
         }
         
         .page-item:hover {
-            background: #f3f4f6;
-            transform: translateX(5px);
+            border-color: var(--primary);
+            transform: scale(1.05);
         }
         
         .page-item.active {
-            background: #e0e7ff;
-            border-left-color: var(--secondary);
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+        }
+        
+        .page-thumbnail {
+            width: 100%;
+            height: 150px;
+            object-fit: contain;
+            background: white;
+            display: block;
         }
         
         .page-number {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            text-align: center;
+            padding: 4px;
+            font-size: 0.75em;
             font-weight: 600;
-            color: #374151;
         }
         
         /* Right Content - Split View */
@@ -174,40 +191,95 @@
         }
         
         .viewer-header {
-            padding: 15px 20px;
-            background: #f9fafb;
-            border-bottom: 1px solid #e5e7eb;
+            padding: 12px 20px;
+            background: #ffffff;
+            border-bottom: 2px solid #e5e7eb;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            gap: 20px;
+        }
+        
+        .doc-filename {
+            font-size: 0.95em;
+            font-weight: 600;
+            color: #374151;
+            flex-shrink: 0;
         }
         
         .page-nav {
             display: flex;
-            gap: 10px;
+            gap: 8px;
             align-items: center;
-        }
-        
-        .nav-btn {
-            padding: 8px 16px;
-            background: var(--primary);
-            color: white;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 600;
-            transition: all 0.3s;
-        }
-        
-        .nav-btn:hover:not(:disabled) { background: var(--secondary); }
-        .nav-btn:disabled {
-            background: #d1d5db;
-            cursor: not-allowed;
+            flex: 1;
+            justify-content: center;
         }
         
         .page-info {
             font-weight: 600;
             color: #374151;
+            font-size: 1.1em;
+            padding: 0 20px;
+            min-width: 150px;
+            text-align: center;
+        }
+        
+        .toolbar-btn {
+            width: 36px;
+            height: 36px;
+            background: #f3f4f6;
+            color: #374151;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1.1em;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+        
+        .toolbar-btn:hover:not(:disabled) {
+            background: #e5e7eb;
+            border-color: #9ca3af;
+        }
+        
+        .toolbar-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .zoom-display {
+            font-size: 0.9em;
+            font-weight: 600;
+            color: #374151;
+            min-width: 50px;
+            text-align: center;
+        }
+        
+        .nav-btn {
+            width: 36px;
+            height: 36px;
+            background: #f3f4f6;
+            color: #374151;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1.1em;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+        
+        .nav-btn:hover:not(:disabled) { 
+            background: #e5e7eb;
+            border-color: #9ca3af;
+        }
+        
+        .nav-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
         }
         
         .viewer-content {
@@ -243,13 +315,88 @@
         
         .data-header h2 {
             font-size: 1.2em;
-            margin-bottom: 5px;
+            margin-bottom: 10px;
+        }
+        
+        .view-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        
+        .tab-btn {
+            padding: 8px 20px;
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.9em;
+            transition: all 0.3s;
+        }
+        
+        .tab-btn:hover {
+            background: rgba(255,255,255,0.3);
+        }
+        
+        .tab-btn.active {
+            background: white;
+            color: var(--primary);
         }
         
         .data-meta {
             font-size: 0.9em;
             opacity: 0.9;
+            margin-bottom: 10px;
+        }
+        
+        .fields-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .fields-title {
+            font-size: 1em;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .page-badge {
+            background: rgba(255,255,255,0.3);
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.85em;
+        }
+        
+        .field-count {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+        
+        .search-box {
+            width: 100%;
+            padding: 10px 15px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 8px;
+            background: rgba(255,255,255,0.1);
+            color: white;
+            font-size: 0.9em;
             margin-bottom: 15px;
+        }
+        
+        .search-box::placeholder {
+            color: rgba(255,255,255,0.6);
+        }
+        
+        .search-box:focus {
+            outline: none;
+            border-color: rgba(255,255,255,0.5);
+            background: rgba(255,255,255,0.15);
         }
         
         .data-controls {
@@ -413,10 +560,17 @@
             <!-- Document Viewer (50%) -->
             <div class="document-viewer-panel">
                 <div class="viewer-header">
+                    <div class="doc-filename" id="docFilename">{{ document.document_name or document.filename }}</div>
                     <div class="page-nav">
-                        <button class="nav-btn" id="prevBtn" onclick="previousPage()">← Previous</button>
+                        <button class="nav-btn" id="prevBtn" onclick="previousPage()" title="Previous Page">←</button>
                         <span class="page-info">Page <span id="currentPage">1</span> of <span id="totalPages">1</span></span>
-                        <button class="nav-btn" id="nextBtn" onclick="nextPage()">Next →</button>
+                        <button class="nav-btn" id="nextBtn" onclick="nextPage()" title="Next Page">→</button>
+                        <button class="toolbar-btn" onclick="zoomOut()" title="Zoom Out">🔍-</button>
+                        <span class="zoom-display" id="zoomLevel">100%</span>
+                        <button class="toolbar-btn" onclick="zoomIn()" title="Zoom In">🔍+</button>
+                        <button class="toolbar-btn" onclick="rotateImage()" title="Rotate">🔄</button>
+                        <button class="toolbar-btn" onclick="toggleFullscreen()" title="Fullscreen">⛶</button>
+                        <button class="toolbar-btn" onclick="downloadCurrentPage()" title="Download Page">⬇</button>
                     </div>
                 </div>
                 <div class="viewer-content" id="viewerContent">
@@ -431,7 +585,27 @@
             <div class="data-panel">
                 <div class="data-header">
                     <h2>Extracted Data</h2>
+                    
+                    <!-- View Tabs -->
+                    <div class="view-tabs">
+                        <button class="tab-btn active" id="reviewTab" onclick="switchTab('review')">Review</button>
+                        <button class="tab-btn" id="jsonTab" onclick="switchTab('json')">JSON Data</button>
+                    </div>
+                    
                     <div class="data-meta" id="dataMeta">Select a page to view data</div>
+                    
+                    <!-- Fields Header with Search -->
+                    <div id="fieldsSection" style="display:none;">
+                        <div class="fields-header">
+                            <div class="fields-title">
+                                <span>Extracted Fields</span>
+                                <span class="page-badge" id="pageBadge">📄 Page 1</span>
+                            </div>
+                            <div class="field-count" id="fieldCount">0 fields</div>
+                        </div>
+                        <input type="text" class="search-box" id="searchBox" placeholder="🔍 Search fields..." oninput="filterFields()">
+                    </div>
+                    
                     <div class="data-controls">
                         <button class="control-btn btn-edit" id="editBtn" onclick="toggleEditMode()" style="display:none;">
                             📝 Edit Page
@@ -458,6 +632,9 @@
                         <div class="spinner"></div>
                         <div>Select a page to view data</div>
                     </div>
+                </div>
+                <div class="data-content" id="jsonContent" style="display:none;">
+                    <pre id="jsonDisplay" style="background:#1e1e1e;color:#d4d4d4;padding:20px;border-radius:8px;overflow:auto;font-size:0.85em;line-height:1.6;"></pre>
                 </div>
             </div>
         </div>
@@ -591,9 +768,14 @@
             let html = '';
             
             for (let i = 0; i < totalPages; i++) {
+                const thumbnailUrl = hasAccounts && currentAccountIndex >= 0
+                    ? `/api/document/${documentId}/account/${currentAccountIndex}/page/${i}`
+                    : `/api/document/${documentId}/page/${i}`;
+                
                 html += `
                     <div class="page-item ${i === 0 ? 'active' : ''}" onclick="selectPage(${i})" id="page-${i}">
-                        <div class="page-number">Page ${i + 1}</div>
+                        <img src="${thumbnailUrl}" alt="Page ${i + 1}" class="page-thumbnail" loading="lazy">
+                        <div class="page-number">${i + 1}</div>
                     </div>
                 `;
             }
@@ -642,6 +824,9 @@
             } else {
                 viewer.innerHTML = `<img src="/api/document/${documentId}/page/${pageIndex}" alt="Page ${pageIndex + 1}">`;
             }
+            
+            // Reset zoom and rotation
+            resetViewerTransform();
             
             // Load page data
             renderPageData();
@@ -721,8 +906,20 @@
                     }
                     
                     container.innerHTML = html || '<div class="loading">No data extracted from this page</div>';
+                    
+                    // Update fields section
+                    document.getElementById('fieldsSection').style.display = 'block';
+                    document.getElementById('pageBadge').textContent = `📄 Page ${currentPageIndex + 1}`;
+                    document.getElementById('fieldCount').textContent = `${totalFields} fields`;
+                    document.getElementById('searchBox').value = ''; // Reset search
+                    
+                    // Update JSON view
+                    if (currentView === 'json') {
+                        document.getElementById('jsonDisplay').textContent = JSON.stringify(fields, null, 2);
+                    }
                 } else {
                     currentPageData = null;
+                    document.getElementById('fieldsSection').style.display = 'none';
                     container.innerHTML = `<div class="loading">Error: ${result.message}</div>`;
                 }
             } catch (error) {
@@ -953,6 +1150,110 @@
             setTimeout(() => {
                 notification.classList.remove('show');
             }, 3000);
+        }
+
+        // View mode
+        let currentView = 'review'; // 'review' or 'json'
+        
+        // Zoom functionality
+        let currentZoom = 100;
+        let currentRotation = 0;
+        
+        function switchTab(view) {
+            currentView = view;
+            
+            // Update tab buttons
+            document.getElementById('reviewTab').classList.toggle('active', view === 'review');
+            document.getElementById('jsonTab').classList.toggle('active', view === 'json');
+            
+            // Show/hide content
+            document.getElementById('dataContent').style.display = view === 'review' ? 'block' : 'none';
+            document.getElementById('jsonContent').style.display = view === 'json' ? 'block' : 'none';
+            document.getElementById('fieldsSection').style.display = view === 'review' ? 'block' : 'none';
+            
+            // Update JSON view if switching to it
+            if (view === 'json' && currentPageData) {
+                document.getElementById('jsonDisplay').textContent = JSON.stringify(currentPageData, null, 2);
+            }
+        }
+        
+        function filterFields() {
+            const searchTerm = document.getElementById('searchBox').value.toLowerCase();
+            const fieldItems = document.querySelectorAll('.field-item');
+            let visibleCount = 0;
+            
+            fieldItems.forEach(item => {
+                const label = item.querySelector('.field-label').textContent.toLowerCase();
+                const value = item.querySelector('.field-value').textContent.toLowerCase();
+                const matches = label.includes(searchTerm) || value.includes(searchTerm);
+                
+                item.style.display = matches ? 'block' : 'none';
+                if (matches) visibleCount++;
+            });
+            
+            // Update field count
+            const totalFields = fieldItems.length;
+            document.getElementById('fieldCount').textContent = searchTerm 
+                ? `${visibleCount} of ${totalFields} fields`
+                : `${totalFields} fields`;
+        }
+
+        function zoomIn() {
+            if (currentZoom < 200) {
+                currentZoom += 10;
+                applyZoom();
+            }
+        }
+
+        function zoomOut() {
+            if (currentZoom > 50) {
+                currentZoom -= 10;
+                applyZoom();
+            }
+        }
+
+        function applyZoom() {
+            const img = document.querySelector('#viewerContent img');
+            if (img) {
+                img.style.transform = `scale(${currentZoom / 100}) rotate(${currentRotation}deg)`;
+                img.style.transformOrigin = 'center center';
+                img.style.transition = 'transform 0.3s ease';
+            }
+            document.getElementById('zoomLevel').textContent = `${currentZoom}%`;
+        }
+
+        function rotateImage() {
+            currentRotation = (currentRotation + 90) % 360;
+            applyZoom();
+        }
+
+        function toggleFullscreen() {
+            const viewer = document.getElementById('viewerContent');
+            if (!document.fullscreenElement) {
+                viewer.requestFullscreen().catch(err => {
+                    showNotification('Fullscreen not supported', 'error');
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        function downloadCurrentPage() {
+            const img = document.querySelector('#viewerContent img');
+            if (img) {
+                const link = document.createElement('a');
+                link.href = img.src;
+                link.download = `page_${currentPageIndex + 1}.png`;
+                link.click();
+                showNotification('Downloading page...', 'success');
+            }
+        }
+
+        // Reset zoom and rotation when changing pages
+        function resetViewerTransform() {
+            currentZoom = 100;
+            currentRotation = 0;
+            document.getElementById('zoomLevel').textContent = '100%';
         }
 
         // Load pages on page load

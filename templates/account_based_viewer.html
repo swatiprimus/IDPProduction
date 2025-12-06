@@ -139,25 +139,49 @@
             overflow-x: visible;
             padding: 10px;
         }
+        
+        .accounts-list::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        .accounts-list::-webkit-scrollbar-track {
+            background: #e5e7eb;
+            border-radius: 4px;
+        }
+        
+        .accounts-list::-webkit-scrollbar-thumb {
+            background: #9ca3af;
+            border-radius: 4px;
+        }
+        
+        .accounts-list::-webkit-scrollbar-thumb:hover {
+            background: #6b7280;
+        }
 
         .account-item {
-            padding: 15px;
             margin-bottom: 10px;
+        }
+        
+        .account-header {
+            padding: 15px;
             background: #f9fafb;
             border-radius: 8px;
             border-left: 4px solid var(--primary);
             cursor: pointer;
             transition: all 0.3s;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
 
-        .account-item:hover {
+        .account-header:hover {
             background: #f3f4f6;
-            transform: translateX(5px);
         }
 
-        .account-item.active {
+        .account-header.expanded {
             background: #e0e7ff;
             border-left-color: var(--secondary);
+            border-radius: 8px 8px 0 0;
         }
 
         .account-number {
@@ -169,6 +193,91 @@
         .account-meta {
             font-size: 0.85em;
             color: #6b7280;
+        }
+        
+        .expand-icon {
+            font-size: 0.8em;
+            transition: transform 0.3s;
+        }
+        
+        .expand-icon.expanded {
+            transform: rotate(180deg);
+        }
+        
+        .account-pages {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+            background: #f9fafb;
+            border-radius: 0 0 8px 8px;
+            border-left: 4px solid var(--primary);
+        }
+        
+        .account-pages.expanded {
+            max-height: 500px;
+            padding: 10px;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+        
+        .account-pages::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        .account-pages::-webkit-scrollbar-track {
+            background: #e5e7eb;
+            border-radius: 4px;
+        }
+        
+        .account-pages::-webkit-scrollbar-thumb {
+            background: #9ca3af;
+            border-radius: 4px;
+        }
+        
+        .account-pages::-webkit-scrollbar-thumb:hover {
+            background: #6b7280;
+        }
+        
+        .page-thumbnail-item {
+            position: relative;
+            margin-bottom: 10px;
+            border: 3px solid transparent;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+            overflow: hidden;
+            background: white;
+        }
+        
+        .page-thumbnail-item:hover {
+            border-color: var(--primary);
+            transform: scale(1.05);
+        }
+        
+        .page-thumbnail-item.active {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+        }
+        
+        .page-thumbnail-img {
+            width: 100%;
+            height: 120px;
+            object-fit: contain;
+            background: white;
+            display: block;
+        }
+        
+        .page-thumbnail-label {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            text-align: center;
+            padding: 4px;
+            font-size: 0.75em;
+            font-weight: 600;
         }
 
         /* Right Content - Split View */
@@ -190,43 +299,95 @@
         }
 
         .viewer-header {
-            padding: 15px 20px;
-            background: #f9fafb;
-            border-bottom: 1px solid #e5e7eb;
+            padding: 12px 20px;
+            background: #ffffff;
+            border-bottom: 2px solid #e5e7eb;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            gap: 20px;
+        }
+        
+        .doc-filename {
+            font-size: 0.95em;
+            font-weight: 600;
+            color: #374151;
+            flex-shrink: 0;
         }
 
         .page-nav {
             display: flex;
-            gap: 10px;
+            gap: 8px;
             align-items: center;
+            flex: 1;
+            justify-content: center;
+        }
+        
+        .toolbar-btn {
+            width: 36px;
+            height: 36px;
+            background: #f3f4f6;
+            color: #374151;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1.1em;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+        
+        .toolbar-btn:hover:not(:disabled) {
+            background: #e5e7eb;
+            border-color: #9ca3af;
+        }
+        
+        .toolbar-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .zoom-display {
+            font-size: 0.9em;
+            font-weight: 600;
+            color: #374151;
+            min-width: 50px;
+            text-align: center;
         }
 
         .nav-btn {
-            padding: 8px 16px;
-            background: var(--primary);
-            color: white;
-            border: none;
+            width: 36px;
+            height: 36px;
+            background: #f3f4f6;
+            color: #374151;
+            border: 1px solid #d1d5db;
             border-radius: 6px;
             cursor: pointer;
-            font-weight: 600;
-            transition: all 0.3s;
+            font-size: 1.1em;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
         }
 
         .nav-btn:hover:not(:disabled) {
-            background: var(--secondary);
+            background: #e5e7eb;
+            border-color: #9ca3af;
         }
 
         .nav-btn:disabled {
-            background: #d1d5db;
+            opacity: 0.5;
             cursor: not-allowed;
         }
 
         .page-info {
             font-weight: 600;
             color: #374151;
+            font-size: 1.1em;
+            padding: 0 20px;
+            min-width: 150px;
+            text-align: center;
         }
 
         .viewer-content {
@@ -263,13 +424,88 @@
 
         .data-header h2 {
             font-size: 1.2em;
-            margin-bottom: 5px;
+            margin-bottom: 10px;
+        }
+        
+        .view-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        
+        .tab-btn {
+            padding: 8px 20px;
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.9em;
+            transition: all 0.3s;
+        }
+        
+        .tab-btn:hover {
+            background: rgba(255,255,255,0.3);
+        }
+        
+        .tab-btn.active {
+            background: white;
+            color: var(--primary);
         }
 
         .data-meta {
             font-size: 0.9em;
             opacity: 0.9;
+            margin-bottom: 10px;
+        }
+        
+        .fields-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .fields-title {
+            font-size: 1em;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .page-badge {
+            background: rgba(255,255,255,0.3);
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.85em;
+        }
+        
+        .field-count {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+        
+        .search-box {
+            width: 100%;
+            padding: 10px 15px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 8px;
+            background: rgba(255,255,255,0.1);
+            color: white;
+            font-size: 0.9em;
             margin-bottom: 15px;
+        }
+        
+        .search-box::placeholder {
+            color: rgba(255,255,255,0.6);
+        }
+        
+        .search-box:focus {
+            outline: none;
+            border-color: rgba(255,255,255,0.5);
+            background: rgba(255,255,255,0.15);
         }
 
         .data-controls {
@@ -453,10 +689,17 @@
             <!-- Document Viewer (50%) -->
             <div class="document-viewer-panel">
                 <div class="viewer-header">
+                    <div class="doc-filename" id="docFilename">{{ document.document_name or document.filename }}</div>
                     <div class="page-nav">
-                        <button class="nav-btn" id="prevBtn" onclick="previousPage()">← Previous</button>
+                        <button class="nav-btn" id="prevBtn" onclick="previousPage()" title="Previous Page">←</button>
                         <span class="page-info">Page <span id="currentPage">1</span> of <span id="totalPages">1</span></span>
-                        <button class="nav-btn" id="nextBtn" onclick="nextPage()">Next →</button>
+                        <button class="nav-btn" id="nextBtn" onclick="nextPage()" title="Next Page">→</button>
+                        <button class="toolbar-btn" onclick="zoomOut()" title="Zoom Out">🔍-</button>
+                        <span class="zoom-display" id="zoomLevel">100%</span>
+                        <button class="toolbar-btn" onclick="zoomIn()" title="Zoom In">🔍+</button>
+                        <button class="toolbar-btn" onclick="rotateImage()" title="Rotate">🔄</button>
+                        <button class="toolbar-btn" onclick="toggleFullscreen()" title="Fullscreen">⛶</button>
+                        <button class="toolbar-btn" onclick="downloadCurrentPage()" title="Download Page">⬇</button>
                     </div>
                 </div>
                 <div class="viewer-content" id="viewerContent">
@@ -471,7 +714,27 @@
             <div class="data-panel">
                 <div class="data-header">
                     <h2>Extracted Data</h2>
+                    
+                    <!-- View Tabs -->
+                    <div class="view-tabs">
+                        <button class="tab-btn active" id="reviewTab" onclick="switchTab('review')">Review</button>
+                        <button class="tab-btn" id="jsonTab" onclick="switchTab('json')">JSON Data</button>
+                    </div>
+                    
                     <div class="data-meta" id="dataMeta">Select an account to view data</div>
+                    
+                    <!-- Fields Header with Search -->
+                    <div id="fieldsSection" style="display:none;">
+                        <div class="fields-header">
+                            <div class="fields-title">
+                                <span>Extracted Fields</span>
+                                <span class="page-badge" id="pageBadge">📄 Page 1</span>
+                            </div>
+                            <div class="field-count" id="fieldCount">0 fields</div>
+                        </div>
+                        <input type="text" class="search-box" id="searchBox" placeholder="🔍 Search fields..." oninput="filterFields()">
+                    </div>
+                    
                     <div class="data-controls">
                         <button class="control-btn btn-edit" id="editBtn" onclick="toggleEditMode()" style="display:none;">
                             📝 Edit Page
@@ -499,6 +762,9 @@
                         <div>Select an account to view data</div>
                     </div>
                 </div>
+                <div class="data-content" id="jsonContent" style="display:none;">
+                    <pre id="jsonDisplay" style="background:#1e1e1e;color:#d4d4d4;padding:20px;border-radius:8px;overflow:auto;font-size:0.85em;line-height:1.6;"></pre>
+                </div>
             </div>
         </div>
     </div>
@@ -512,6 +778,9 @@
         let currentPageIndex = 0;
         let totalPages = 0;
         let editMode = false;
+        let currentView = 'review'; // 'review' or 'json'
+        let currentZoom = 100;
+        let currentRotation = 0;
         let originalData = {};
         let editedFields = {};
         let sidebarCollapsed = false;
@@ -570,22 +839,165 @@
             }
         }
 
-        function renderAccountsList() {
+        async function renderAccountsList() {
             const container = document.getElementById('accountsList');
             document.getElementById('accountCount').textContent = `${accounts.length} account(s) found`;
             
-            container.innerHTML = accounts.map((account, index) => {
-                // Show field count if available
+            // First, fetch page counts for all accounts
+            for (let index = 0; index < accounts.length; index++) {
+                try {
+                    const response = await fetch(`/api/document/${documentId}/account/${index}/pages`);
+                    const data = await response.json();
+                    if (data.success) {
+                        accounts[index].pageCount = data.total_pages || 0;
+                        accounts[index].pageNumbers = data.page_numbers || [];
+                    }
+                } catch (error) {
+                    console.error(`Error loading pages for account ${index}:`, error);
+                    accounts[index].pageCount = 0;
+                }
+            }
+            
+            let html = '';
+            for (let index = 0; index < accounts.length; index++) {
+                const account = accounts[index];
                 const fieldsDisplay = (account.total_fields > 0)
                     ? `${account.filled_fields}/${account.total_fields} fields`
                     : 'Ready';
-                return `
-                    <div class="account-item ${index === 0 ? 'active' : ''}" onclick="selectAccount(${index})" id="account-${index}">
-                        <div class="account-number">${account.accountNumber}</div>
-                        <div class="account-meta">${fieldsDisplay}</div>
+                
+                const pageCount = account.pageCount || 0;
+                
+                html += `
+                    <div class="account-item" id="account-${index}">
+                        <div class="account-header ${index === 0 ? 'expanded' : ''}" onclick="toggleAccount(${index})">
+                            <div>
+                                <div class="account-number">Account: ${account.accountNumber}</div>
+                                <div class="account-meta">${fieldsDisplay} • ${pageCount} pages</div>
+                            </div>
+                            <span class="expand-icon ${index === 0 ? 'expanded' : ''}" id="expand-icon-${index}">▼</span>
+                        </div>
+                        <div class="account-pages ${index === 0 ? 'expanded' : ''}" id="account-pages-${index}">
+                            <div id="pages-container-${index}">Loading pages...</div>
+                        </div>
                     </div>
                 `;
-            }).join('');
+            }
+            
+            container.innerHTML = html;
+            
+            // Load thumbnails for first account
+            if (accounts.length > 0) {
+                await loadAccountThumbnails(0);
+            }
+        }
+        
+        async function toggleAccount(index) {
+            const header = document.querySelector(`#account-${index} .account-header`);
+            const pages = document.getElementById(`account-pages-${index}`);
+            const icon = document.getElementById(`expand-icon-${index}`);
+            
+            const isExpanded = header.classList.contains('expanded');
+            
+            if (isExpanded) {
+                // Collapse
+                header.classList.remove('expanded');
+                pages.classList.remove('expanded');
+                icon.classList.remove('expanded');
+            } else {
+                // Expand
+                header.classList.add('expanded');
+                pages.classList.add('expanded');
+                icon.classList.add('expanded');
+                
+                // Load thumbnails if not loaded
+                const container = document.getElementById(`pages-container-${index}`);
+                if (container.innerHTML === 'Loading pages...') {
+                    await loadAccountThumbnails(index);
+                }
+            }
+        }
+        
+        function toggleSignerSection(signerNum) {
+            const container = document.getElementById(`signer-fields-${signerNum}`);
+            const icon = document.getElementById(`signer-icon-${signerNum}`);
+            
+            if (!container || !icon) return;
+            
+            const isExpanded = icon.classList.contains('expanded');
+            
+            if (isExpanded) {
+                // Collapse
+                container.style.maxHeight = '0';
+                icon.classList.remove('expanded');
+                icon.textContent = '▶';
+            } else {
+                // Expand
+                container.style.maxHeight = '2000px';
+                icon.classList.add('expanded');
+                icon.textContent = '▼';
+            }
+        }
+        
+        async function loadAccountThumbnails(accountIndex) {
+            const account = accounts[accountIndex];
+            const container = document.getElementById(`pages-container-${accountIndex}`);
+            
+            const pageCount = account.pageCount || 0;
+            
+            if (pageCount === 0) {
+                container.innerHTML = '<div style="padding:10px;text-align:center;color:#6b7280;">No pages</div>';
+                return;
+            }
+            
+            // Fetch the actual page numbers for this account
+            try {
+                const response = await fetch(`/api/document/${documentId}/account/${accountIndex}/pages`);
+                const data = await response.json();
+                
+                if (!data.success || !data.pages) {
+                    container.innerHTML = '<div style="padding:10px;text-align:center;color:#ef4444;">Failed to load pages</div>';
+                    return;
+                }
+                
+                const actualPageNumbers = data.pages;
+                
+                let html = '';
+                for (let i = 0; i < actualPageNumbers.length; i++) {
+                    const actualPageNum = actualPageNumbers[i];
+                    const thumbnailUrl = `/api/document/${documentId}/account/${accountIndex}/page/${actualPageNum}`;
+                    
+                    html += `
+                        <div class="page-thumbnail-item ${accountIndex === currentAccountIndex && i === currentPageIndex ? 'active' : ''}" 
+                             onclick="selectAccountPage(${accountIndex}, ${i})" 
+                             id="page-thumb-${accountIndex}-${i}">
+                            <img src="${thumbnailUrl}" alt="Page ${i + 1}" class="page-thumbnail-img" loading="lazy">
+                            <div class="page-thumbnail-label">${i + 1}</div>
+                        </div>
+                    `;
+                }
+                
+                container.innerHTML = html;
+            } catch (error) {
+                console.error('Error loading thumbnails:', error);
+                container.innerHTML = '<div style="padding:10px;text-align:center;color:#ef4444;">Error loading thumbnails</div>';
+            }
+        }
+        
+        function selectAccountPage(accountIndex, pageIndex) {
+            // If switching accounts, load account first
+            if (accountIndex !== currentAccountIndex) {
+                selectAccount(accountIndex);
+            }
+            
+            // Update active thumbnail
+            document.querySelectorAll('.page-thumbnail-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            const thumb = document.getElementById(`page-thumb-${accountIndex}-${pageIndex}`);
+            if (thumb) thumb.classList.add('active');
+            
+            // Show the page
+            showPage(pageIndex);
         }
 
         async function selectAccount(index) {
@@ -651,6 +1063,15 @@
             currentPageIndex = pageIndex;
             document.getElementById('currentPage').textContent = pageIndex + 1;
             
+            // Update active thumbnail highlighting
+            document.querySelectorAll('.page-thumbnail-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            const activeThumb = document.getElementById(`page-thumb-${currentAccountIndex}-${pageIndex}`);
+            if (activeThumb) {
+                activeThumb.classList.add('active');
+            }
+            
             // Update navigation buttons
             document.getElementById('prevBtn').disabled = pageIndex === 0;
             document.getElementById('nextBtn').disabled = pageIndex === totalPages - 1;
@@ -661,6 +1082,9 @@
             // Load page image using actual page number
             const viewer = document.getElementById('viewerContent');
             viewer.innerHTML = `<img src="/api/document/${documentId}/account/${currentAccountIndex}/page/${actualPageNum}" alt="Page ${pageIndex + 1}">`;
+            
+            // Reset zoom and rotation
+            resetViewerTransform();
             
             // Load page data
             renderPageData();
@@ -739,8 +1163,16 @@
                             continue;
                         }
                         
-                        // Handle nested objects (like SupportingDocuments)
-                        if (typeof value === 'object' && !Array.isArray(value)) continue;
+                        // Handle nested objects - flatten them into regularFields
+                        if (typeof value === 'object' && !Array.isArray(value)) {
+                            // Flatten nested object (e.g., dates.issue_date -> Issue Date)
+                            for (const [nestedKey, nestedValue] of Object.entries(value)) {
+                                if (nestedValue && nestedValue !== 'N/A' && nestedValue !== '') {
+                                    regularFields[nestedKey] = nestedValue;
+                                }
+                            }
+                            continue;
+                        }
                         
                         regularFields[key] = value;
                     }
@@ -800,10 +1232,17 @@
                         
                         // Only show signer header if there are fields to display
                         if (signerFieldCount > 0) {
-                            html += `<div class="field-item" style="background:#f0f9ff;border-left-color:#3b82f6;margin-top:15px;margin-bottom:5px;">
-                                <div class="field-label" style="color:#1e40af;font-weight:700;font-size:1.1em;">Signer ${signerNum}</div>
-                            </div>`;
-                            html += signerFieldsHtml;
+                            html += `
+                                <div class="field-item" style="background:#f0f9ff;border-left-color:#3b82f6;margin-top:15px;margin-bottom:0;cursor:pointer;" onclick="toggleSignerSection(${signerNum})">
+                                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                                        <div class="field-label" style="color:#1e40af;font-weight:700;font-size:1.1em;margin-bottom:0;">Signer ${signerNum} (${signerFieldCount} fields)</div>
+                                        <span class="expand-icon expanded" id="signer-icon-${signerNum}" style="color:#1e40af;font-size:1.2em;">▼</span>
+                                    </div>
+                                </div>
+                                <div id="signer-fields-${signerNum}" class="signer-fields-container" style="max-height:2000px;overflow:hidden;transition:max-height 0.3s ease;">
+                                    ${signerFieldsHtml}
+                                </div>
+                            `;
                         }
                     });
                     
@@ -819,8 +1258,20 @@
                     `;
                     
                     container.innerHTML = html || '<div class="loading">No data extracted from this page</div>';
+                    
+                    // Update fields section
+                    document.getElementById('fieldsSection').style.display = 'block';
+                    document.getElementById('pageBadge').textContent = `📄 Page ${currentPageIndex + 1}`;
+                    document.getElementById('fieldCount').textContent = `${totalFields} fields`;
+                    document.getElementById('searchBox').value = ''; // Reset search
+                    
+                    // Update JSON view
+                    if (currentView === 'json') {
+                        document.getElementById('jsonDisplay').textContent = JSON.stringify(fields, null, 2);
+                    }
                 } else {
                     currentPageData = null;
+                    document.getElementById('fieldsSection').style.display = 'none';
                     container.innerHTML = `<div class="loading">Error: ${result.message}</div>`;
                 }
             } catch (error) {
@@ -1059,6 +1510,92 @@
             }
         }
 
+        function switchTab(view) {
+            currentView = view;
+            document.getElementById('reviewTab').classList.toggle('active', view === 'review');
+            document.getElementById('jsonTab').classList.toggle('active', view === 'json');
+            document.getElementById('dataContent').style.display = view === 'review' ? 'block' : 'none';
+            document.getElementById('jsonContent').style.display = view === 'json' ? 'block' : 'none';
+            document.getElementById('fieldsSection').style.display = view === 'review' ? 'block' : 'none';
+            if (view === 'json' && currentPageData) {
+                document.getElementById('jsonDisplay').textContent = JSON.stringify(currentPageData, null, 2);
+            }
+        }
+        
+        function filterFields() {
+            const searchTerm = document.getElementById('searchBox').value.toLowerCase();
+            const fieldItems = document.querySelectorAll('.field-item');
+            let visibleCount = 0;
+            fieldItems.forEach(item => {
+                const label = item.querySelector('.field-label').textContent.toLowerCase();
+                const value = item.querySelector('.field-value').textContent.toLowerCase();
+                const matches = label.includes(searchTerm) || value.includes(searchTerm);
+                item.style.display = matches ? 'block' : 'none';
+                if (matches) visibleCount++;
+            });
+            const totalFields = fieldItems.length;
+            document.getElementById('fieldCount').textContent = searchTerm 
+                ? `${visibleCount} of ${totalFields} fields`
+                : `${totalFields} fields`;
+        }
+        
+        function zoomIn() {
+            if (currentZoom < 200) {
+                currentZoom += 10;
+                applyZoom();
+            }
+        }
+        
+        function zoomOut() {
+            if (currentZoom > 50) {
+                currentZoom -= 10;
+                applyZoom();
+            }
+        }
+        
+        function applyZoom() {
+            const img = document.querySelector('#viewerContent img');
+            if (img) {
+                img.style.transform = `scale(${currentZoom / 100}) rotate(${currentRotation}deg)`;
+                img.style.transformOrigin = 'center center';
+                img.style.transition = 'transform 0.3s ease';
+            }
+            document.getElementById('zoomLevel').textContent = `${currentZoom}%`;
+        }
+        
+        function rotateImage() {
+            currentRotation = (currentRotation + 90) % 360;
+            applyZoom();
+        }
+        
+        function toggleFullscreen() {
+            const viewer = document.getElementById('viewerContent');
+            if (!document.fullscreenElement) {
+                viewer.requestFullscreen().catch(err => {
+                    showNotification('Fullscreen not supported', 'error');
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        }
+        
+        function downloadCurrentPage() {
+            const img = document.querySelector('#viewerContent img');
+            if (img) {
+                const link = document.createElement('a');
+                link.href = img.src;
+                link.download = `page_${currentPageIndex + 1}.png`;
+                link.click();
+                showNotification('Downloading page...', 'success');
+            }
+        }
+        
+        function resetViewerTransform() {
+            currentZoom = 100;
+            currentRotation = 0;
+            document.getElementById('zoomLevel').textContent = '100%';
+        }
+        
         function showNotification(message, type = 'success') {
             const notification = document.getElementById('notification');
             notification.textContent = message;

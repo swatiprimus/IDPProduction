@@ -1573,8 +1573,6 @@ def pre_cache_all_pages(job_id: str, pdf_path: str, accounts: list):
         print(f"[INFO] Mapped {len(page_to_account)} pages to {len(accounts_found)} accounts")
         
         # Now extract and cache data for each page
-        page_extraction_prompt = get_comprehensive_extraction_prompt()
-        
         for page_num, (account_index, account_number) in page_to_account.items():
             try:
                 print(f"[INFO] Pre-caching page {page_num + 1} for account {account_number}")
@@ -1603,6 +1601,17 @@ def pre_cache_all_pages(job_id: str, pdf_path: str, accounts: list):
                     
                     if os.path.exists(temp_image_path):
                         os.remove(temp_image_path)
+                
+                # Detect document type on this page
+                detected_type = detect_document_type(page_text)
+                print(f"[INFO] Pre-cache: Detected document type on page {page_num + 1}: {detected_type}")
+                
+                # Use appropriate prompt based on detected type
+                if detected_type == "drivers_license":
+                    page_extraction_prompt = get_drivers_license_prompt()
+                    print(f"[INFO] Pre-cache: Using specialized DL prompt for page {page_num + 1}")
+                else:
+                    page_extraction_prompt = get_comprehensive_extraction_prompt()
                 
                 # Extract data using AI
                 response = call_bedrock(page_extraction_prompt, page_text, max_tokens=8192)
@@ -2213,7 +2222,17 @@ def get_account_page_data(doc_id, account_index, page_num):
         # Extract data from this specific page using AI
         print(f"[DEBUG] Calling AI to extract data from page {page_num}")
         
-        page_extraction_prompt = get_comprehensive_extraction_prompt()
+        # Detect document type on this page
+        detected_type = detect_document_type(page_text)
+        print(f"[DEBUG] Detected document type on page {page_num}: {detected_type}")
+        
+        # Use appropriate prompt based on detected type
+        if detected_type == "drivers_license":
+            page_extraction_prompt = get_drivers_license_prompt()
+            print(f"[DEBUG] Using specialized DL prompt for page {page_num}")
+        else:
+            page_extraction_prompt = get_comprehensive_extraction_prompt()
+            print(f"[DEBUG] Using comprehensive prompt for page {page_num}")
         
         print(f"[DEBUG] Got page extraction prompt, calling Bedrock...")
         response = call_bedrock(page_extraction_prompt, page_text, max_tokens=8192)
@@ -2789,7 +2808,7 @@ def clear_document_cache(doc_id):
         doc["cache_cleared_at"] = datetime.now().isoformat()
         
         # Save to database
-        save_documents_db()
+        save_documents_db(processed_documents)
         
         return jsonify({
             "success": True,
