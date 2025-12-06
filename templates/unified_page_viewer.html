@@ -860,8 +860,31 @@
                     let totalFields = 0;
                     let filledFields = 0;
                     
-                    for (const [key, value] of Object.entries(fields)) {
-                        if (typeof value === 'object' && !Array.isArray(value)) continue;
+                    // First, log all fields to debug
+                    console.log('All fields received:', fields);
+                    console.log('Number of fields:', Object.keys(fields).length);
+                    
+                    // Flatten nested objects into a single level
+                    function flattenObject(obj, prefix = '') {
+                        let flattened = {};
+                        for (const [key, value] of Object.entries(obj)) {
+                            const newKey = prefix ? `${prefix}_${key}` : key;
+                            
+                            if (value && typeof value === 'object' && !Array.isArray(value)) {
+                                // Recursively flatten nested objects
+                                Object.assign(flattened, flattenObject(value, newKey));
+                            } else {
+                                flattened[newKey] = value;
+                            }
+                        }
+                        return flattened;
+                    }
+                    
+                    const flattenedFields = flattenObject(fields);
+                    console.log('Flattened fields:', flattenedFields);
+                    console.log('Total flattened fields:', Object.keys(flattenedFields).length);
+                    
+                    for (const [key, value] of Object.entries(flattenedFields)) {
                         totalFields++;
                         const displayValue = Array.isArray(value) ? value.join(', ') : value;
                         if (displayValue && displayValue !== 'N/A' && displayValue.toString().trim() !== '') {
@@ -879,9 +902,7 @@
                         </span>
                     `;
                     
-                    for (const [key, value] of Object.entries(fields)) {
-                        if (typeof value === 'object' && !Array.isArray(value)) continue;
-                        
+                    for (const [key, value] of Object.entries(flattenedFields)) {
                         // Skip duplicates (case-insensitive)
                         const normalizedKey = key.toLowerCase().replace(/[_\s]/g, '');
                         if (seenFields.has(normalizedKey)) {
@@ -894,8 +915,11 @@
                         
                         // Skip N/A fields
                         if (!displayValue || displayValue === 'N/A' || displayValue.toString().trim() === '') {
+                            console.log(`Skipping empty/N/A field: ${key} = ${displayValue}`);
                             continue;
                         }
+                        
+                        console.log(`Displaying field: ${key} = ${displayValue}`);
                         
                         html += `
                             <div class="field-item">

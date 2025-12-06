@@ -244,6 +244,106 @@ RETURN FORMAT:
 EXTRACT EVERYTHING - BE THOROUGH AND COMPLETE!
 """
 
+def get_drivers_license_prompt():
+    """Get specialized prompt for extracting driver's license / ID card information"""
+    return """
+You are a data extraction expert specializing in government-issued identification documents.
+
+Extract ALL information from this Driver's License or ID Card.
+
+CRITICAL FIELDS TO EXTRACT:
+1. **PERSONAL INFORMATION:**
+   - Full_Name (as shown on license)
+   - First_Name, Middle_Name, Last_Name
+   - Date_of_Birth (DOB)
+   - Sex / Gender
+   - Height
+   - Weight
+   - Eye_Color
+   - Hair_Color
+
+2. **LICENSE INFORMATION:**
+   - License_Number (DL #, ID #)
+   - State / Issuing_State
+   - License_Class (Class A, B, C, D, etc.)
+   - Issue_Date (ISS)
+   - Expiration_Date (EXP)
+   - Restrictions (if any)
+   - Endorsements (if any)
+
+3. **ADDRESS:**
+   - Street_Address
+   - City
+   - State
+   - ZIP_Code
+   - Full_Address (complete address as shown)
+
+4. **ADDITIONAL INFORMATION:**
+   - Document_Type (Driver License, ID Card, etc.)
+   - Card_Number (if different from license number)
+   - DD_Number (Document Discriminator)
+   - Organ_Donor (Yes/No if indicated)
+   - Veteran (if indicated)
+   - Any_Barcodes or QR_Codes
+   - Any_Other_Numbers or identifiers
+
+EXTRACTION RULES:
+- Extract EVERY visible field on the ID card
+- Include all numbers, dates, and text
+- Preserve exact formatting of license numbers and dates
+- Extract address exactly as shown
+- Include any stamps, seals, or watermarks mentioned
+- If a field is partially visible or unclear, still extract it and note "unclear" or "partially visible"
+- Look for information on BOTH front and back of the card if visible
+
+FIELD NAMING:
+- Use descriptive names with underscores
+- Example: "DL #" → "License_Number"
+- Example: "DOB" → "Date_of_Birth"
+- Example: "ISS" → "Issue_Date"
+- Example: "EXP" → "Expiration_Date"
+
+RETURN FORMAT:
+Return ONLY valid JSON in this exact format:
+{
+  "documents": [
+    {
+      "document_id": "dl_001",
+      "document_type": "drivers_license",
+      "document_type_display": "Driver's License / ID Card",
+      "document_icon": "🪪",
+      "document_description": "Government-issued identification",
+      "extracted_fields": {
+        "Document_Type": "Driver License",
+        "State": "Delaware",
+        "License_Number": "1234567",
+        "Full_Name": "John Doe",
+        "First_Name": "John",
+        "Last_Name": "Doe",
+        "Date_of_Birth": "01/15/1980",
+        "Sex": "M",
+        "Height": "5-10",
+        "Weight": "180",
+        "Eye_Color": "BRN",
+        "Hair_Color": "BRN",
+        "Address": "123 Main St",
+        "City": "Wilmington",
+        "State_Address": "DE",
+        "ZIP_Code": "19801",
+        "Issue_Date": "12/03/2012",
+        "Expiration_Date": "12/03/2020",
+        "License_Class": "D",
+        "DD_Number": "1234567890123",
+        "Organ_Donor": "Yes"
+      }
+    }
+  ]
+}
+
+CRITICAL: Only include fields that are VISIBLE in the document. Do not use "N/A" or empty strings.
+Extract EVERYTHING you can see on the ID card - be thorough and complete!
+"""
+
 def get_loan_document_prompt():
     """Get the specialized prompt for loan/account documents"""
     return """
@@ -1225,22 +1325,30 @@ def detect_and_extract_documents(text: str):
         "expected_fields": []
     })
     
-    # Build extraction prompt based on document type
-    if doc_type != "unknown" and doc_info.get("expected_fields"):
-        expected_fields_str = ", ".join(doc_info["expected_fields"])
-        field_instructions = f"""
+    # Use specialized prompts for specific document types
+    if doc_type == "drivers_license":
+        # Use specialized driver's license prompt
+        prompt = get_drivers_license_prompt()
+    elif doc_type == "loan_document":
+        # Use specialized loan document prompt
+        prompt = get_loan_document_prompt()
+    else:
+        # Build extraction prompt based on document type
+        if doc_type != "unknown" and doc_info.get("expected_fields"):
+            expected_fields_str = ", ".join(doc_info["expected_fields"])
+            field_instructions = f"""
 This is a {doc_info['name']}.
 Extract ALL of these fields if present: {expected_fields_str}
 
 Also extract any other relevant information you find in the document.
 """
-    else:
-        field_instructions = f"""
+        else:
+            field_instructions = f"""
 This appears to be a {doc_info['name']}.
 Extract all relevant fields you can identify from the document.
 """
-    
-    prompt = f"""
+        
+        prompt = f"""
 {field_instructions}
 
 YOU ARE A METICULOUS DATA EXTRACTION EXPERT. YOUR GOAL IS TO EXTRACT ABSOLUTELY EVERYTHING FROM THIS DOCUMENT.
@@ -1385,6 +1493,12 @@ CRITICAL: Do NOT use "N/A" or empty strings - ONLY include fields that have ACTU
 If a field is not present or has no value, DO NOT include it in the JSON at all.
 Only extract fields where you can see a clear, definite value in the document.
 """
+    
+    # For driver's license and loan documents, the prompt is already complete
+    # For other documents, we need to wrap the response format
+    if doc_type not in ["drivers_license", "loan_document"]:
+        # The generic prompt needs the full format instructions which are already included above
+        pass
     
     try:
         response = call_bedrock(prompt, text, max_tokens=8192)
@@ -1623,6 +1737,18 @@ def pre_cache_all_pages(job_id: str, pdf_path: str, accounts: list):
                 if json_start != -1 and json_end != -1:
                     json_str = response[json_start:json_end + 1]
                     parsed = json.loads(json_str)
+                    
+                    # Handle driver's license format: unwrap documents array if present
+                    if detected_type == "drivers_license" and "documents" in parsed:
+                        if len(parsed["documents"]) > 0:
+                            doc_data = parsed["documents"][0]
+                            # Extract the fields from extracted_fields
+                            if "extracted_fields" in doc_data:
+                                parsed = doc_data["extracted_fields"]
+                                print(f"[INFO] Pre-cache: Unwrapped driver's license data: {len(parsed)} fields")
+                            else:
+                                parsed = doc_data
+                    
                     parsed["AccountNumber"] = account_number
                     
                     # Cache to S3
@@ -2255,6 +2381,17 @@ def get_account_page_data(doc_id, account_index, page_num):
                     "raw_response": response[:500]
                 }), 500
             
+            # Handle driver's license format: unwrap documents array if present
+            if detected_type == "drivers_license" and "documents" in parsed:
+                if len(parsed["documents"]) > 0:
+                    doc_data = parsed["documents"][0]
+                    # Extract the fields from extracted_fields
+                    if "extracted_fields" in doc_data:
+                        parsed = doc_data["extracted_fields"]
+                        print(f"[DEBUG] Unwrapped driver's license data: {len(parsed)} fields")
+                    else:
+                        parsed = doc_data
+            
             # Add account number to the result
             parsed["AccountNumber"] = account_number
             
@@ -2438,7 +2575,18 @@ def extract_page_data(doc_id, page_num):
         # Extract data using AI
         print(f"[DEBUG] Calling AI to extract data from page {page_num}")
         
-        page_extraction_prompt = get_comprehensive_extraction_prompt()
+        # Detect document type on this page
+        detected_type = detect_document_type(page_text)
+        print(f"[DEBUG] Detected document type: {detected_type}")
+        
+        # Use appropriate prompt
+        if detected_type == "drivers_license":
+            page_extraction_prompt = get_drivers_license_prompt()
+            print(f"[DEBUG] Using specialized driver's license prompt")
+        else:
+            page_extraction_prompt = get_comprehensive_extraction_prompt()
+            print(f"[DEBUG] Using comprehensive extraction prompt")
+        
         response = call_bedrock(page_extraction_prompt, page_text, max_tokens=8192)
         print(f"[DEBUG] Got response from Bedrock, length: {len(response)}")
         
@@ -2449,6 +2597,17 @@ def extract_page_data(doc_id, page_num):
         if json_start != -1 and json_end != -1:
             json_str = response[json_start:json_end + 1]
             parsed = json.loads(json_str)
+            
+            # Handle driver's license format: unwrap documents array if present
+            if detected_type == "drivers_license" and "documents" in parsed:
+                if len(parsed["documents"]) > 0:
+                    doc_data = parsed["documents"][0]
+                    # Extract the fields from extracted_fields
+                    if "extracted_fields" in doc_data:
+                        parsed = doc_data["extracted_fields"]
+                        print(f"[DEBUG] Unwrapped driver's license data: {len(parsed)} fields")
+                    else:
+                        parsed = doc_data
             
             # POST-PROCESSING: For death certificates, rename certificate_number to account_number
             if doc.get("document_type") == "death_certificate" or "death" in doc.get("document_name", "").lower():
