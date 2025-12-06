@@ -8,6 +8,8 @@ from flask import Flask, render_template, request, jsonify
 import boto3, json, time, threading, hashlib, os, re
 from datetime import datetime
 import io
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import multiprocessing
 
 app = Flask(__name__)
 
@@ -102,22 +104,18 @@ def split_accounts_strict(text: str):
     return chunks
 
 
-def scan_and_map_pages(doc_id, pdf_path, accounts):
-    """Scan pages and create a mapping of page_num -> account_number (optimized)"""
+def _process_single_page_scan(args):
+    """Helper function to process a single page (for parallel processing)"""
+    page_num, pdf_path, doc_id, accounts = args
     import fitz
     import re
     
-    pdf_doc = fitz.open(pdf_path)
-    total_pages = len(pdf_doc)
-    page_to_account = {}
-    accounts_found = set()
-    
-    print(f"[INFO] Fast scanning {total_pages} pages to find account boundaries")
-    
-    # Scan ALL pages to find every occurrence of account numbers
-    for page_num in range(total_pages):
+    try:
+        # Open PDF for this thread
+        pdf_doc = fitz.open(pdf_path)
         page = pdf_doc[page_num]
         page_text = page.get_text()
+        pdf_doc.close()
         
         # Check if page has watermark
         has_watermark = "PDF-XChange" in page_text or "Click to BUY NOW" in page_text
@@ -125,13 +123,19 @@ def scan_and_map_pages(doc_id, pdf_path, accounts):
         # If no text, has watermark, or very little text - do OCR
         if not page_text or len(page_text.strip()) < 20 or has_watermark:
             try:
-                pix = page.get_pixmap(matrix=fitz.Matrix(1, 1))  # Use 1x for better accuracy
+                pdf_doc = fitz.open(pdf_path)
+                page = pdf_doc[page_num]
+                # SPEED: Use lower resolution (1x) for scanning - faster and cheaper
+                pix = page.get_pixmap(matrix=fitz.Matrix(1, 1))
+                pdf_doc.close()
+                
                 temp_image_path = os.path.join(OUTPUT_DIR, f"temp_scan_{doc_id}_{page_num}.png")
                 pix.save(temp_image_path)
                 
                 with open(temp_image_path, 'rb') as image_file:
                     image_bytes = image_file.read()
                 
+                # SPEED: Use detect_document_text (sync) for faster processing
                 textract_response = textract.detect_document_text(Document={'Bytes': image_bytes})
                 
                 page_text = ""
@@ -139,32 +143,88 @@ def scan_and_map_pages(doc_id, pdf_path, accounts):
                     if block['BlockType'] == 'LINE':
                         page_text += block.get('Text', '') + "\n"
                 
-                print(f"[DEBUG] OCR on page {page_num + 1}: extracted {len(page_text)} chars")
-                
                 if os.path.exists(temp_image_path):
                     os.remove(temp_image_path)
+                    
             except Exception as ocr_err:
                 print(f"[ERROR] OCR failed on page {page_num + 1}: {str(ocr_err)}")
-                pass
+                return page_num, None, None
         
         if not page_text or len(page_text.strip()) < 20:
-            continue
+            return page_num, page_text, None
         
         # Check which account appears on this page
+        matched_account = None
         for acc in accounts:
             acc_num = acc.get("accountNumber", "").strip()
-            
             normalized_text = re.sub(r'[\s\-]', '', page_text)
             normalized_acc = re.sub(r'[\s\-]', '', acc_num)
             
             if normalized_acc and normalized_acc in normalized_text:
-                page_to_account[page_num] = acc_num
-                accounts_found.add(acc_num)
-                print(f"[INFO] Page {page_num + 1} -> Account {acc_num}")
-                break  # Only one account per page
+                matched_account = acc_num
+                break
+        
+        return page_num, page_text, matched_account
+        
+    except Exception as e:
+        print(f"[ERROR] Failed to process page {page_num + 1}: {str(e)}")
+        return page_num, None, None
+
+
+def scan_and_map_pages(doc_id, pdf_path, accounts):
+    """Scan pages and create a mapping of page_num -> account_number (PARALLEL + CACHED)"""
+    import fitz
     
+    pdf_doc = fitz.open(pdf_path)
+    total_pages = len(pdf_doc)
     pdf_doc.close()
-    print(f"[INFO] Scan complete: Found {len(accounts_found)} accounts on {len(page_to_account)} pages")
+    
+    page_to_account = {}
+    accounts_found = set()
+    ocr_text_cache = {}
+    
+    print(f"[INFO] FAST PARALLEL scanning {total_pages} pages to find account boundaries")
+    
+    # SPEED OPTIMIZATION: Process pages in parallel (up to 10 workers)
+    max_workers = min(10, total_pages)
+    
+    # Prepare arguments for parallel processing
+    page_args = [(page_num, pdf_path, doc_id, accounts) for page_num in range(total_pages)]
+    
+    # Process pages in parallel
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(_process_single_page_scan, args) for args in page_args]
+        
+        for future in as_completed(futures):
+            try:
+                page_num, page_text, matched_account = future.result()
+                
+                if page_text:
+                    ocr_text_cache[page_num] = page_text
+                
+                if matched_account:
+                    page_to_account[page_num] = matched_account
+                    accounts_found.add(matched_account)
+                    print(f"[INFO] Page {page_num + 1} -> Account {matched_account}")
+                    
+            except Exception as e:
+                print(f"[ERROR] Future failed: {str(e)}")
+    
+    print(f"[INFO] PARALLEL scan complete: Found {len(accounts_found)} accounts on {len(page_to_account)} pages")
+    
+    # OPTIMIZATION: Save OCR cache to S3 to avoid re-running OCR
+    try:
+        cache_key = f"ocr_cache/{doc_id}/text_cache.json"
+        s3_client.put_object(
+            Bucket=S3_BUCKET,
+            Key=cache_key,
+            Body=json.dumps(ocr_text_cache),
+            ContentType='application/json'
+        )
+        print(f"[INFO] Cached OCR text for {len(ocr_text_cache)} pages to S3")
+    except Exception as e:
+        print(f"[WARNING] Failed to cache OCR text: {str(e)}")
+    
     return page_to_account
 
 
@@ -458,11 +518,13 @@ EXTRACTION RULES:
 - **CRITICAL: DO NOT use "N/A" or empty strings - ONLY include fields with actual values found in the document**
 - **CRITICAL: If a field is not visible in the document, DO NOT include it in the JSON response**
 - For AccountHolderNames: Return as array even if single name, e.g., ["John Doe"]
-- **For Signers: Extract EACH signer as a SEPARATE top-level field**:
-  * Use "Signer1", "Signer2", "Signer3" etc. as field names
-  * Each signer should be a flat object with their information
-  * Example: "Signer1_Name", "Signer1_SSN", "Signer1_DateOfBirth", "Signer1_Address"
-  * Example: "Signer2_Name", "Signer2_SSN", "Signer2_DateOfBirth", "Signer2_Address"
+- **CRITICAL FOR SIGNERS - DO NOT USE NESTED OBJECTS**:
+  * WRONG: "Signer1": {"Name": "John", "SSN": "123"}
+  * CORRECT: "Signer1_Name": "John", "Signer1_SSN": "123"
+  * Use FLAT fields with underscore naming: Signer1_Name, Signer1_SSN, Signer1_DateOfBirth, Signer1_Address, Signer1_Phone, Signer1_DriversLicense
+  * For second signer: Signer2_Name, Signer2_SSN, Signer2_DateOfBirth, Signer2_Address, Signer2_Phone, Signer2_DriversLicense
+  * For third signer: Signer3_Name, Signer3_SSN, etc.
+  * NEVER nest signer data - always use flat top-level fields
 - For SupportingDocuments: Create separate objects for EACH document type found
 - Preserve exact account numbers and SSNs as they appear
 - If you see multiple account types mentioned, use the most specific one
@@ -532,7 +594,7 @@ Example 5: Multiple supporting documents
   ]
 }
 
-Example 6: Multiple signers (CORRECT FORMAT - each signer as separate fields)
+Example 6: Multiple signers (CORRECT FORMAT - FLAT fields, NOT nested objects)
 {
   "AccountNumber": "468869904",
   "AccountType": "Personal",
@@ -549,6 +611,20 @@ Example 6: Multiple signers (CORRECT FORMAT - each signer as separate fields)
   "Signer2_Address": "512 PONDEROSA DR, BEAR, DE, 19701-2155",
   "Signer2_Phone": "(302) 834-0382",
   "Signer2_DriversLicense": "651782"
+}
+
+WRONG FORMAT (DO NOT USE):
+{
+  "Signer1": {
+    "Name": "Danette Eberly",
+    "SSN": "222-50-2263"
+  }
+}
+
+CORRECT FORMAT (USE THIS):
+{
+  "Signer1_Name": "Danette Eberly",
+  "Signer1_SSN": "222-50-2263"
 }
 
 CRITICAL RULES:
@@ -663,6 +739,46 @@ def save_documents_db(documents):
 
 # Load existing documents on startup
 processed_documents = load_documents_db()
+
+
+def flatten_nested_objects(data):
+    """
+    Flatten nested objects like Signer1: {Name: "John"} to Signer1_Name: "John"
+    Also handles SupportingDocuments and other nested structures
+    """
+    if not isinstance(data, dict):
+        return data
+    
+    flattened = {}
+    
+    for key, value in data.items():
+        # Check if this is a signer object (Signer1, Signer2, etc.)
+        # Match: Signer1, Signer2, Signer_1, Signer_2, etc.
+        if (key.startswith("Signer") and isinstance(value, dict) and 
+            any(char.isdigit() for char in key)):
+            # Flatten the signer object
+            print(f"[DEBUG] Flattening signer object: {key} with {len(value)} fields")
+            for sub_key, sub_value in value.items():
+                flat_key = f"{key}_{sub_key}"
+                flattened[flat_key] = sub_value
+                print(f"[DEBUG] Created flat field: {flat_key} = {sub_value}")
+        # Keep arrays and other structures as-is
+        elif isinstance(value, (list, str, int, float, bool)) or value is None:
+            flattened[key] = value
+        # Recursively flatten other nested dicts (but not arrays of dicts)
+        elif isinstance(value, dict):
+            # Check if it's a special structure like SupportingDocuments
+            if key in ["SupportingDocuments", "AccountHolderNames"]:
+                flattened[key] = value
+            else:
+                # Flatten other nested objects
+                for sub_key, sub_value in value.items():
+                    flattened[f"{key}_{sub_key}"] = sub_value
+        else:
+            flattened[key] = value
+    
+    print(f"[DEBUG] Flattening complete: {len(data)} input fields -> {len(flattened)} output fields")
+    return flattened
 
 
 def call_bedrock(prompt: str, text: str, max_tokens: int = 8192):
@@ -1528,6 +1644,9 @@ Only extract fields where you can see a clear, definite value in the document.
             if "extracted_fields" not in doc:
                 doc["extracted_fields"] = {}
             
+            # CRITICAL: Flatten nested objects in extracted_fields
+            doc["extracted_fields"] = flatten_nested_objects(doc["extracted_fields"])
+            
             fields = doc.get("extracted_fields", {})
             
             # POST-PROCESSING: For death certificates, rename certificate_number to account_number
@@ -1622,6 +1741,7 @@ def pre_cache_all_pages(job_id: str, pdf_path: str, accounts: list):
     """
     Pre-cache all page data during initial upload to avoid re-running OCR on every click.
     This extracts text and data from all pages once and stores in S3.
+    OPTIMIZED: Reuses OCR text cache to avoid duplicate OCR calls.
     """
     import fitz
     import json
@@ -1633,6 +1753,18 @@ def pre_cache_all_pages(job_id: str, pdf_path: str, accounts: list):
     print(f"[INFO] Starting pre-cache for all pages in document {job_id}")
     
     try:
+        # OPTIMIZATION: Try to load OCR cache first
+        ocr_text_cache = {}
+        try:
+            cache_key = f"ocr_cache/{job_id}/text_cache.json"
+            cache_response = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+            ocr_text_cache = json.loads(cache_response['Body'].read().decode('utf-8'))
+            # Convert string keys to int
+            ocr_text_cache = {int(k): v for k, v in ocr_text_cache.items()}
+            print(f"[INFO] Loaded OCR cache with {len(ocr_text_cache)} pages - will reuse to save costs")
+        except Exception as cache_err:
+            print(f"[INFO] No OCR cache found, will extract text: {str(cache_err)}")
+        
         pdf_doc = fitz.open(pdf_path)
         total_pages = len(pdf_doc)
         
@@ -1643,35 +1775,43 @@ def pre_cache_all_pages(job_id: str, pdf_path: str, accounts: list):
         print(f"[INFO] Scanning {total_pages} pages to map accounts...")
         
         for page_num in range(total_pages):
-            page = pdf_doc[page_num]
-            page_text = page.get_text()
-            
-            # Check if page needs OCR
-            has_watermark = "PDF-XChange" in page_text or "Click to BUY NOW" in page_text
-            
-            if not page_text or len(page_text.strip()) < 20 or has_watermark:
-                # Extract with OCR
-                try:
-                    pix = page.get_pixmap(matrix=fitz.Matrix(1, 1))
-                    temp_image_path = os.path.join(OUTPUT_DIR, f"temp_precache_{job_id}_{page_num}.png")
-                    pix.save(temp_image_path)
-                    
-                    with open(temp_image_path, 'rb') as image_file:
-                        image_bytes = image_file.read()
-                    
-                    textract_response = textract.detect_document_text(Document={'Bytes': image_bytes})
-                    
-                    page_text = ""
-                    for block in textract_response.get('Blocks', []):
-                        if block['BlockType'] == 'LINE':
-                            page_text += block.get('Text', '') + "\n"
-                    
-                    if os.path.exists(temp_image_path):
-                        os.remove(temp_image_path)
+            # OPTIMIZATION: Check cache first
+            if page_num in ocr_text_cache:
+                page_text = ocr_text_cache[page_num]
+                print(f"[DEBUG] Reusing cached OCR for page {page_num + 1} ({len(page_text)} chars)")
+            else:
+                page = pdf_doc[page_num]
+                page_text = page.get_text()
+                
+                # Check if page needs OCR
+                has_watermark = "PDF-XChange" in page_text or "Click to BUY NOW" in page_text
+                
+                if not page_text or len(page_text.strip()) < 20 or has_watermark:
+                    # Extract with OCR
+                    try:
+                        pix = page.get_pixmap(matrix=fitz.Matrix(1, 1))
+                        temp_image_path = os.path.join(OUTPUT_DIR, f"temp_precache_{job_id}_{page_num}.png")
+                        pix.save(temp_image_path)
                         
-                except Exception as ocr_err:
-                    print(f"[ERROR] OCR failed on page {page_num + 1}: {str(ocr_err)}")
-                    continue
+                        with open(temp_image_path, 'rb') as image_file:
+                            image_bytes = image_file.read()
+                        
+                        textract_response = textract.detect_document_text(Document={'Bytes': image_bytes})
+                        
+                        page_text = ""
+                        for block in textract_response.get('Blocks', []):
+                            if block['BlockType'] == 'LINE':
+                                page_text += block.get('Text', '') + "\n"
+                        
+                        if os.path.exists(temp_image_path):
+                            os.remove(temp_image_path)
+                            
+                    except Exception as ocr_err:
+                        print(f"[ERROR] OCR failed on page {page_num + 1}: {str(ocr_err)}")
+                        continue
+                
+                # Cache for later reuse
+                ocr_text_cache[page_num] = page_text
             
             # Map page to account
             for acc_idx, acc in enumerate(accounts):
@@ -1686,44 +1826,56 @@ def pre_cache_all_pages(job_id: str, pdf_path: str, accounts: list):
         
         print(f"[INFO] Mapped {len(page_to_account)} pages to {len(accounts_found)} accounts")
         
-        # Now extract and cache data for each page
-        for page_num, (account_index, account_number) in page_to_account.items():
+        # SPEED OPTIMIZATION: Extract and cache data for pages in PARALLEL
+        def _extract_page_data(page_info):
+            """Helper to extract data from a single page"""
+            page_num, account_index, account_number = page_info
             try:
                 print(f"[INFO] Pre-caching page {page_num + 1} for account {account_number}")
                 
-                # Get page text (already extracted above, but re-extract for consistency)
-                page = pdf_doc[page_num]
-                page_text = page.get_text()
-                
-                # Check if needs OCR
-                has_watermark = "PDF-XChange" in page_text or "Click to BUY NOW" in page_text
-                
-                if not page_text or len(page_text.strip()) < 20 or has_watermark:
-                    pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-                    temp_image_path = os.path.join(OUTPUT_DIR, f"temp_extract_{job_id}_{page_num}.png")
-                    pix.save(temp_image_path)
+                # OPTIMIZATION: Reuse cached OCR text
+                if page_num in ocr_text_cache:
+                    page_text = ocr_text_cache[page_num]
+                    print(f"[DEBUG] Reusing cached text for page {page_num + 1} - saved OCR call!")
+                else:
+                    # Fallback: extract if not in cache
+                    import fitz
+                    pdf_doc_local = fitz.open(pdf_path)
+                    page = pdf_doc_local[page_num]
+                    page_text = page.get_text()
+                    pdf_doc_local.close()
                     
-                    with open(temp_image_path, 'rb') as image_file:
-                        image_bytes = image_file.read()
+                    # Check if needs OCR
+                    has_watermark = "PDF-XChange" in page_text or "Click to BUY NOW" in page_text
                     
-                    textract_response = textract.detect_document_text(Document={'Bytes': image_bytes})
-                    
-                    page_text = ""
-                    for block in textract_response.get('Blocks', []):
-                        if block['BlockType'] == 'LINE':
-                            page_text += block.get('Text', '') + "\n"
-                    
-                    if os.path.exists(temp_image_path):
-                        os.remove(temp_image_path)
+                    if not page_text or len(page_text.strip()) < 20 or has_watermark:
+                        pdf_doc_local = fitz.open(pdf_path)
+                        page = pdf_doc_local[page_num]
+                        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+                        pdf_doc_local.close()
+                        
+                        temp_image_path = os.path.join(OUTPUT_DIR, f"temp_extract_{job_id}_{page_num}.png")
+                        pix.save(temp_image_path)
+                        
+                        with open(temp_image_path, 'rb') as image_file:
+                            image_bytes = image_file.read()
+                        
+                        textract_response = textract.detect_document_text(Document={'Bytes': image_bytes})
+                        
+                        page_text = ""
+                        for block in textract_response.get('Blocks', []):
+                            if block['BlockType'] == 'LINE':
+                                page_text += block.get('Text', '') + "\n"
+                        
+                        if os.path.exists(temp_image_path):
+                            os.remove(temp_image_path)
                 
                 # Detect document type on this page
                 detected_type = detect_document_type(page_text)
-                print(f"[INFO] Pre-cache: Detected document type on page {page_num + 1}: {detected_type}")
                 
                 # Use appropriate prompt based on detected type
                 if detected_type == "drivers_license":
                     page_extraction_prompt = get_drivers_license_prompt()
-                    print(f"[INFO] Pre-cache: Using specialized DL prompt for page {page_num + 1}")
                 else:
                     page_extraction_prompt = get_comprehensive_extraction_prompt()
                 
@@ -1738,16 +1890,17 @@ def pre_cache_all_pages(job_id: str, pdf_path: str, accounts: list):
                     json_str = response[json_start:json_end + 1]
                     parsed = json.loads(json_str)
                     
-                    # Handle driver's license format: unwrap documents array if present
+                    # Handle driver's license format
                     if detected_type == "drivers_license" and "documents" in parsed:
                         if len(parsed["documents"]) > 0:
                             doc_data = parsed["documents"][0]
-                            # Extract the fields from extracted_fields
                             if "extracted_fields" in doc_data:
                                 parsed = doc_data["extracted_fields"]
-                                print(f"[INFO] Pre-cache: Unwrapped driver's license data: {len(parsed)} fields")
                             else:
                                 parsed = doc_data
+                    
+                    # CRITICAL: Flatten nested objects
+                    parsed = flatten_nested_objects(parsed)
                     
                     parsed["AccountNumber"] = account_number
                     
@@ -1768,13 +1921,33 @@ def pre_cache_all_pages(job_id: str, pdf_path: str, accounts: list):
                     )
                     
                     print(f"[INFO] Cached page {page_num + 1} data to S3: {cache_key}")
+                    return True
                     
             except Exception as page_error:
                 print(f"[ERROR] Failed to pre-cache page {page_num + 1}: {str(page_error)}")
-                continue
+                return False
         
-        pdf_doc.close()
-        print(f"[INFO] Pre-caching completed for document {job_id}")
+        # Prepare page info for parallel processing
+        page_infos = [(page_num, account_index, account_number) 
+                      for page_num, (account_index, account_number) in page_to_account.items()]
+        
+        # PARALLEL PROCESSING: Extract data from multiple pages simultaneously
+        # Use up to 5 workers for LLM calls (to avoid rate limits)
+        max_workers = min(5, len(page_infos))
+        print(f"[INFO] PARALLEL extraction: Processing {len(page_infos)} pages with {max_workers} workers")
+        
+        success_count = 0
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [executor.submit(_extract_page_data, page_info) for page_info in page_infos]
+            
+            for future in as_completed(futures):
+                try:
+                    if future.result():
+                        success_count += 1
+                except Exception as e:
+                    print(f"[ERROR] Future failed: {str(e)}")
+        
+        print(f"[INFO] PARALLEL pre-caching completed: {success_count}/{len(page_infos)} pages cached successfully")
         
     except Exception as e:
         print(f"[ERROR] Pre-caching failed: {str(e)}")
@@ -1812,8 +1985,32 @@ def process_job(job_id: str, file_bytes: bytes, filename: str, use_ocr: bool, do
             "progress": 5
         }
         
-        # Step 1: OCR if needed
-        if use_ocr:
+        # OPTIMIZATION: For PDFs, do a quick check to see if it's a loan document
+        # If so, skip expensive full-document OCR and go straight to page-level processing
+        is_loan_document = False
+        if use_ocr and filename.lower().endswith('.pdf') and saved_pdf_path:
+            job_status_map[job_id].update({
+                "status": "Quick scan to detect document type...",
+                "progress": 10
+            })
+            
+            # Quick scan: extract text from first page only to detect type
+            try:
+                import fitz
+                pdf_doc = fitz.open(saved_pdf_path)
+                if len(pdf_doc) > 0:
+                    first_page_text = pdf_doc[0].get_text()
+                    pdf_doc.close()
+                    
+                    # Quick detection based on first page
+                    if "ACCOUNT NUMBER" in first_page_text.upper() and "ACCOUNT HOLDER" in first_page_text.upper():
+                        is_loan_document = True
+                        print(f"[INFO] OPTIMIZATION: Detected loan document - will skip full OCR and use page-level processing")
+            except Exception as quick_scan_err:
+                print(f"[WARNING] Quick scan failed: {str(quick_scan_err)}, will proceed with normal OCR")
+        
+        # Step 1: OCR if needed (skip for loan documents - we'll do page-level OCR instead)
+        if use_ocr and not is_loan_document:
             job_status_map[job_id].update({
                 "status": "Running OCR with Amazon Textract (this may take 1-2 minutes for scanned PDFs)...",
                 "progress": 10
@@ -1840,6 +2037,29 @@ def process_job(job_id: str, file_bytes: bytes, filename: str, use_ocr: bool, do
                         raise Exception(f"Both Textract and PyPDF2 failed. Textract error: {str(textract_error)}")
                 else:
                     raise textract_error
+        elif is_loan_document:
+            # OPTIMIZATION: For loan documents, extract text quickly with PyMuPDF (no expensive OCR yet)
+            print(f"[INFO] OPTIMIZATION: Skipping full document OCR for loan document - will do page-level OCR during pre-caching")
+            job_status_map[job_id].update({
+                "status": "Extracting text for account detection (no OCR yet)...",
+                "progress": 10
+            })
+            
+            import fitz
+            pdf_doc = fitz.open(saved_pdf_path)
+            text = ""
+            for page_num in range(len(pdf_doc)):
+                text += pdf_doc[page_num].get_text() + "\n"
+            pdf_doc.close()
+            
+            # Save extracted text
+            ocr_file = f"{OUTPUT_DIR}/{timestamp}_{filename}.txt"
+            with open(ocr_file, 'w', encoding='utf-8') as f:
+                f.write(text)
+            
+            job_status_map[job_id]["ocr_file"] = ocr_file
+            job_status_map[job_id]["ocr_method"] = "PyMuPDF (Fast - OCR deferred to page-level)"
+            print(f"[INFO] Extracted {len(text)} characters without OCR - saved significant cost!")
         else:
             print(f"[INFO] Processing as text file (no OCR needed)")
             job_status_map[job_id].update({
@@ -1865,7 +2085,7 @@ def process_job(job_id: str, file_bytes: bytes, filename: str, use_ocr: bool, do
         })
         
         # Check if this is a loan document - use special processing
-        doc_type_preview = detect_document_type(text)
+        doc_type_preview = detect_document_type(text) if not is_loan_document else "loan_document"
         print(f"[INFO] Document type detected: {doc_type_preview}")
         
         if doc_type_preview == "loan_document":
@@ -2260,11 +2480,17 @@ def get_account_page_data(doc_id, account_index, page_num):
             cache_response = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
             cached_data = json.loads(cache_response['Body'].read().decode('utf-8'))
             print(f"[DEBUG] Found cached data in S3")
+            
+            # CRITICAL: Apply flattening to cached data too!
+            cached_fields = cached_data.get("data", {})
+            cached_fields = flatten_nested_objects(cached_fields)
+            print(f"[DEBUG] Applied flattening to cached data")
+            
             return jsonify({
                 "success": True,
                 "page_number": page_num + 1,
                 "account_number": cached_data.get("account_number"),
-                "data": cached_data.get("data"),
+                "data": cached_fields,
                 "cached": True
             })
         except s3_client.exceptions.NoSuchKey:
@@ -2277,63 +2503,76 @@ def get_account_page_data(doc_id, account_index, page_num):
         if not pdf_path or not os.path.exists(pdf_path):
             return jsonify({"success": False, "message": "PDF file not found"}), 404
         
-        # Extract text from the specific page
-        print(f"[DEBUG] Opening PDF: {pdf_path}")
-        pdf_doc = fitz.open(pdf_path)
-        print(f"[DEBUG] PDF has {len(pdf_doc)} pages")
+        # OPTIMIZATION: Try to load OCR text from cache first
+        page_text = None
+        try:
+            cache_key = f"ocr_cache/{doc_id}/text_cache.json"
+            cache_response = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+            ocr_cache = json.loads(cache_response['Body'].read().decode('utf-8'))
+            page_text = ocr_cache.get(str(page_num))
+            if page_text:
+                print(f"[DEBUG] Loaded page {page_num} text from OCR cache ({len(page_text)} chars)")
+        except Exception as cache_err:
+            print(f"[DEBUG] No OCR cache found, will extract text: {str(cache_err)}")
         
-        if page_num >= len(pdf_doc):
-            print(f"[ERROR] Page number {page_num} out of range (total pages: {len(pdf_doc)})")
-            return jsonify({"success": False, "message": "Page number out of range"}), 404
-        
-        page = pdf_doc[page_num]
-        page_text = page.get_text()
-        
-        print(f"[DEBUG] Extracted {len(page_text)} characters from page {page_num}")
-        print(f"[DEBUG] Page text preview: {page_text[:200]}")
-        
-        # Check if page has watermark or is mostly garbage text
-        has_watermark = "PDF-XChange" in page_text or "Click to BUY NOW" in page_text
-        is_mostly_single_chars = page_text.count('\n') > len(page_text) / 3  # Too many line breaks
-        
-        # If no text found, has watermark, or is likely an image - use OCR
-        if not page_text or len(page_text.strip()) < 50 or has_watermark or is_mostly_single_chars:
-            print(f"[DEBUG] Page {page_num} has no text layer, using OCR...")
+        # If not in cache, extract text from PDF
+        if not page_text:
+            print(f"[DEBUG] Opening PDF: {pdf_path}")
+            pdf_doc = fitz.open(pdf_path)
+            print(f"[DEBUG] PDF has {len(pdf_doc)} pages")
             
-            # Save page as image temporarily
-            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-            temp_image_path = os.path.join(OUTPUT_DIR, f"temp_page_{doc_id}_{page_num}.png")
-            pix.save(temp_image_path)
+            if page_num >= len(pdf_doc):
+                print(f"[ERROR] Page number {page_num} out of range (total pages: {len(pdf_doc)})")
+                return jsonify({"success": False, "message": "Page number out of range"}), 404
             
-            # Use Textract to extract text from the image
-            try:
-                with open(temp_image_path, 'rb') as image_file:
-                    image_bytes = image_file.read()
-                
-                textract_response = textract.detect_document_text(
-                    Document={'Bytes': image_bytes}
-                )
-                
-                # Extract text from Textract response
-                page_text = ""
-                for block in textract_response.get('Blocks', []):
-                    if block['BlockType'] == 'LINE':
-                        page_text += block.get('Text', '') + "\n"
-                
-                print(f"[DEBUG] OCR extracted {len(page_text)} characters from page {page_num}")
-                
-                # Clean up temp file
-                if os.path.exists(temp_image_path):
-                    os.remove(temp_image_path)
-                    
-            except Exception as ocr_error:
-                print(f"[ERROR] OCR failed: {str(ocr_error)}")
-                pdf_doc.close()
-                return jsonify({"success": False, "message": f"OCR failed: {str(ocr_error)}"}), 500
-        else:
+            page = pdf_doc[page_num]
+            page_text = page.get_text()
+            
             print(f"[DEBUG] Extracted {len(page_text)} characters from page {page_num}")
-        
-        pdf_doc.close()
+            print(f"[DEBUG] Page text preview: {page_text[:200]}")
+            
+            # Check if page has watermark or is mostly garbage text
+            has_watermark = "PDF-XChange" in page_text or "Click to BUY NOW" in page_text
+            is_mostly_single_chars = page_text.count('\n') > len(page_text) / 3  # Too many line breaks
+            
+            # If no text found, has watermark, or is likely an image - use OCR
+            if not page_text or len(page_text.strip()) < 50 or has_watermark or is_mostly_single_chars:
+                print(f"[DEBUG] Page {page_num} has no text layer, using OCR...")
+                
+                # Save page as image temporarily
+                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+                temp_image_path = os.path.join(OUTPUT_DIR, f"temp_page_{doc_id}_{page_num}.png")
+                pix.save(temp_image_path)
+                
+                # Use Textract to extract text from the image
+                try:
+                    with open(temp_image_path, 'rb') as image_file:
+                        image_bytes = image_file.read()
+                    
+                    textract_response = textract.detect_document_text(
+                        Document={'Bytes': image_bytes}
+                    )
+                    
+                    # Extract text from Textract response
+                    page_text = ""
+                    for block in textract_response.get('Blocks', []):
+                        if block['BlockType'] == 'LINE':
+                            page_text += block.get('Text', '') + "\n"
+                    
+                    print(f"[DEBUG] OCR extracted {len(page_text)} characters from page {page_num}")
+                    
+                    # Clean up temp file
+                    if os.path.exists(temp_image_path):
+                        os.remove(temp_image_path)
+                        
+                except Exception as ocr_error:
+                    print(f"[ERROR] OCR failed: {str(ocr_error)}")
+                    pdf_doc.close()
+                    return jsonify({"success": False, "message": f"OCR failed: {str(ocr_error)}"}), 500
+            else:
+                print(f"[DEBUG] Extracted {len(page_text)} characters from page {page_num}")
+            
+            pdf_doc.close()
         
         # Get account info to know what account number this page belongs to
         doc_data = doc.get("documents", [{}])[0]
@@ -2391,6 +2630,10 @@ def get_account_page_data(doc_id, account_index, page_num):
                         print(f"[DEBUG] Unwrapped driver's license data: {len(parsed)} fields")
                     else:
                         parsed = doc_data
+            
+            # CRITICAL: Flatten nested objects (Signer1: {Name: "John"} -> Signer1_Name: "John")
+            parsed = flatten_nested_objects(parsed)
+            print(f"[DEBUG] Flattened nested objects in parsed data")
             
             # Add account number to the result
             parsed["AccountNumber"] = account_number
@@ -2510,10 +2753,16 @@ def extract_page_data(doc_id, page_num):
                 cache_response = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
                 cached_data = json.loads(cache_response['Body'].read().decode('utf-8'))
                 print(f"[DEBUG] Found cached data in S3")
+                
+                # CRITICAL: Apply flattening to cached data too!
+                cached_fields = cached_data.get("data", {})
+                cached_fields = flatten_nested_objects(cached_fields)
+                print(f"[DEBUG] Applied flattening to cached data")
+                
                 return jsonify({
                     "success": True,
                     "page_number": page_num + 1,
-                    "data": cached_data.get("data"),
+                    "data": cached_fields,
                     "cached": True,
                     "edited": cached_data.get("edited", False)
                 })
@@ -2663,6 +2912,7 @@ def update_page_data(doc_id, page_num):
     try:
         data = request.get_json()
         page_data = data.get("page_data")
+        account_index = data.get("account_index")  # Get account index if provided
         
         if not page_data:
             return jsonify({"success": False, "message": "No page data provided"}), 400
@@ -2671,14 +2921,33 @@ def update_page_data(doc_id, page_num):
         if not doc:
             return jsonify({"success": False, "message": "Document not found"}), 404
         
-        # Update S3 cache with edited data
-        cache_key = f"page_data/{doc_id}/page_{page_num}.json"
+        # Determine cache key based on whether this is an account-based document
+        if account_index is not None:
+            # Account-based document (loan documents)
+            cache_key = f"page_data/{doc_id}/account_{account_index}/page_{page_num}.json"
+            print(f"[INFO] Updating account-based cache: {cache_key}")
+        else:
+            # Regular document
+            cache_key = f"page_data/{doc_id}/page_{page_num}.json"
+            print(f"[INFO] Updating regular cache: {cache_key}")
+        
+        # Get existing cache to preserve metadata
+        try:
+            cache_response = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+            existing_cache = json.loads(cache_response['Body'].read().decode('utf-8'))
+            account_number = existing_cache.get("account_number")
+        except:
+            account_number = None
         
         cache_data = {
             "data": page_data,
             "extracted_at": datetime.now().isoformat(),
-            "edited": True
+            "edited": True,
+            "edited_at": datetime.now().isoformat()
         }
+        
+        if account_number:
+            cache_data["account_number"] = account_number
         
         try:
             s3_client.put_object(
@@ -2688,10 +2957,12 @@ def update_page_data(doc_id, page_num):
                 ContentType='application/json'
             )
             print(f"[INFO] Updated S3 cache with edited data: {cache_key}")
+            print(f"[INFO] Updated fields: {list(page_data.keys())}")
             
             return jsonify({
                 "success": True,
-                "message": "Page data updated successfully"
+                "message": "Page data updated successfully",
+                "cache_key": cache_key
             })
         except Exception as s3_error:
             print(f"[ERROR] Failed to update S3 cache: {str(s3_error)}")
@@ -2699,6 +2970,8 @@ def update_page_data(doc_id, page_num):
             
     except Exception as e:
         print(f"[ERROR] Failed to update page data: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"success": False, "message": str(e)}), 500
 
 
@@ -2912,6 +3185,129 @@ def get_document_page_thumbnail(doc_id, page_num):
     except Exception as e:
         print(f"[ERROR] Failed to create thumbnail: {str(e)}")
         return "Failed to create thumbnail", 500
+
+
+@app.route("/api/document/<doc_id>/debug-cache/<int:account_index>/<int:page_num>", methods=["GET"])
+def debug_cache_data(doc_id, account_index, page_num):
+    """Debug endpoint to see what's actually in the cache"""
+    try:
+        cache_key = f"page_data/{doc_id}/account_{account_index}/page_{page_num}.json"
+        
+        try:
+            cache_response = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+            cached_data = json.loads(cache_response['Body'].read().decode('utf-8'))
+            
+            data = cached_data.get("data", {})
+            
+            # Analyze the data
+            all_keys = list(data.keys())
+            signer_keys = [k for k in all_keys if 'signer' in k.lower()]
+            
+            return jsonify({
+                "success": True,
+                "cache_key": cache_key,
+                "total_fields": len(all_keys),
+                "all_keys": all_keys,
+                "signer_keys": signer_keys,
+                "sample_data": {k: data[k] for k in list(data.keys())[:10]},
+                "full_data": data
+            })
+        except s3_client.exceptions.NoSuchKey:
+            return jsonify({"success": False, "message": "No cache found"}), 404
+            
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/document/<doc_id>/migrate-cache", methods=["POST"])
+def migrate_document_cache(doc_id):
+    """Migrate existing S3 cache to flatten nested objects (Signer1: {} -> Signer1_Name, etc.)"""
+    try:
+        doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+        if not doc:
+            return jsonify({"success": False, "message": "Document not found"}), 404
+        
+        # Get all accounts
+        doc_data = doc.get("documents", [{}])[0]
+        accounts = doc_data.get("accounts", [])
+        
+        migrated_count = 0
+        
+        # Migrate cache for all accounts and pages
+        for account_index in range(len(accounts)):
+            # Migrate page data cache (try up to 100 pages)
+            for page_num in range(100):
+                try:
+                    cache_key = f"page_data/{doc_id}/account_{account_index}/page_{page_num}.json"
+                    
+                    # Try to load existing cache
+                    cache_response = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+                    cached_data = json.loads(cache_response['Body'].read().decode('utf-8'))
+                    
+                    # Apply flattening
+                    original_data = cached_data.get("data", {})
+                    flattened_data = flatten_nested_objects(original_data)
+                    
+                    # Check if anything changed
+                    if flattened_data != original_data:
+                        cached_data["data"] = flattened_data
+                        cached_data["migrated"] = True
+                        cached_data["migrated_at"] = datetime.now().isoformat()
+                        
+                        # Save back to S3
+                        s3_client.put_object(
+                            Bucket=S3_BUCKET,
+                            Key=cache_key,
+                            Body=json.dumps(cached_data),
+                            ContentType='application/json'
+                        )
+                        migrated_count += 1
+                        print(f"[INFO] Migrated cache: {cache_key}")
+                except s3_client.exceptions.NoSuchKey:
+                    pass  # No cache for this page
+                except Exception as e:
+                    print(f"[WARNING] Failed to migrate {cache_key}: {str(e)}")
+        
+        # Also migrate non-account page cache
+        for page_num in range(100):
+            try:
+                cache_key = f"page_data/{doc_id}/page_{page_num}.json"
+                
+                cache_response = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+                cached_data = json.loads(cache_response['Body'].read().decode('utf-8'))
+                
+                original_data = cached_data.get("data", {})
+                flattened_data = flatten_nested_objects(original_data)
+                
+                if flattened_data != original_data:
+                    cached_data["data"] = flattened_data
+                    cached_data["migrated"] = True
+                    cached_data["migrated_at"] = datetime.now().isoformat()
+                    
+                    s3_client.put_object(
+                        Bucket=S3_BUCKET,
+                        Key=cache_key,
+                        Body=json.dumps(cached_data),
+                        ContentType='application/json'
+                    )
+                    migrated_count += 1
+                    print(f"[INFO] Migrated cache: {cache_key}")
+            except s3_client.exceptions.NoSuchKey:
+                pass
+            except Exception as e:
+                print(f"[WARNING] Failed to migrate {cache_key}: {str(e)}")
+        
+        print(f"[INFO] Migrated {migrated_count} cache entries for document {doc_id}")
+        
+        return jsonify({
+            "success": True,
+            "message": f"Cache migrated successfully. Updated {migrated_count} cache entries.",
+            "note": "Refresh the page to see updated data with flattened signers"
+        })
+        
+    except Exception as e:
+        print(f"[ERROR] Failed to migrate cache: {str(e)}")
+        return jsonify({"success": False, "message": f"Failed to migrate cache: {str(e)}"}), 500
 
 
 @app.route("/api/document/<doc_id>/clear-cache", methods=["POST"])

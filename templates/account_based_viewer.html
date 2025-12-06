@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>Account Viewer - {{ document.document_name or document.filename }}</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
@@ -1118,6 +1121,7 @@
                     // Check for Signer fields
                     const signerFields = Object.keys(fields).filter(k => k.startsWith('Signer'));
                     console.log('Signer fields found:', signerFields);
+                    console.log('Sample signer field values:', signerFields.slice(0, 3).map(k => `${k}: ${fields[k]}`));
                     
                     // Calculate accuracy: fields with values / total fields
                     let totalFields = 0;
@@ -1128,6 +1132,9 @@
                     const regularFields = {};
                     
                     for (const [key, value] of Object.entries(fields)) {
+                        // DEBUG: Log every field
+                        console.log(`Processing field: ${key} = ${typeof value === 'object' ? JSON.stringify(value) : value}`);
+                        
                         if (key === 'AccountNumber') continue;
                         
                         // Handle nested Signers array (convert to flat format)
@@ -1143,6 +1150,7 @@
                         // Check if this is a signer field (Signer_1, Signer_2, etc.)
                         const signerMatch = key.match(/^Signer_?(\d+)$/);
                         if (signerMatch && signerMatch[1]) {
+                            console.log(`Matched Signer object: ${key}`);
                             const signerNum = parseInt(signerMatch[1]);
                             // If value is an object, it contains all signer info
                             if (typeof value === 'object' && !Array.isArray(value)) {
@@ -1151,16 +1159,27 @@
                             continue;
                         }
                         
-                        // Also check for Signer1_Name, Signer2_SSN format
-                        const signerFieldMatch = key.match(/^Signer_?(\d+)_(.+)$/);
+                        // CRITICAL: Check for signer fields in multiple formats:
+                        // Format 1: Signer1_Name, Signer_1_Name
+                        // Format 2: signer_information_signer1_name (with prefix)
+                        // Format 3: signer1_name (lowercase)
+                        
+                        // Try format with prefix first: signer_information_signer1_name
+                        let signerFieldMatch = key.match(/^.*signer_?(\d+)_(.+)$/i);
+                        
                         if (signerFieldMatch && signerFieldMatch[1]) {
                             const signerNum = parseInt(signerFieldMatch[1]);
                             const fieldName = signerFieldMatch[2];
+                            console.log(`✓ MATCHED SIGNER FIELD: ${key} -> Signer ${signerNum}, Field: ${fieldName}`);
                             if (!signerGroups[signerNum]) {
                                 signerGroups[signerNum] = {};
+                                console.log(`✓ Created signer group ${signerNum}`);
                             }
                             signerGroups[signerNum][fieldName] = value;
+                            console.log(`✓ Added to Signer ${signerNum}: ${fieldName} = ${value}`);
                             continue;
+                        } else if (key.toLowerCase().includes('signer')) {
+                            console.warn(`⚠️ Field contains 'signer' but didn't match regex: ${key}`);
                         }
                         
                         // Handle nested objects - flatten them into regularFields
@@ -1200,7 +1219,21 @@
                     // Display signer groups
                     const signerNumbers = Object.keys(signerGroups).sort((a, b) => a - b);
                     if (signerNumbers.length > 0) {
-                        console.log('Displaying', signerNumbers.length, 'signer groups');
+                        console.log('Displaying', signerNumbers.length, 'signer groups:', signerNumbers);
+                        console.log('Signer groups data:', signerGroups);
+                        
+                        // Add section header for signers
+                        html += `
+                            <div style="margin-top:25px;margin-bottom:10px;padding:10px;background:#f8fafc;border-left:4px solid #667eea;border-radius:4px;">
+                                <div style="font-weight:700;font-size:1.2em;color:#334155;display:flex;align-items:center;gap:8px;">
+                                    <span style="font-size:1.3em;">👥</span>
+                                    Signers Information
+                                    <span style="background:#667eea;color:white;padding:2px 10px;border-radius:12px;font-size:0.75em;font-weight:600;">${signerNumbers.length} ${signerNumbers.length === 1 ? 'Signer' : 'Signers'}</span>
+                                </div>
+                            </div>
+                        `;
+                    } else {
+                        console.log('No signer groups found');
                     }
                     
                     signerNumbers.forEach(signerNum => {
@@ -1233,13 +1266,17 @@
                         // Only show signer header if there are fields to display
                         if (signerFieldCount > 0) {
                             html += `
-                                <div class="field-item" style="background:#f0f9ff;border-left-color:#3b82f6;margin-top:15px;margin-bottom:0;cursor:pointer;" onclick="toggleSignerSection(${signerNum})">
+                                <div class="field-item" style="background:linear-gradient(135deg, #667eea 0%, #764ba2 100%);border:none;margin-top:20px;margin-bottom:0;cursor:pointer;box-shadow:0 4px 6px rgba(0,0,0,0.1);" onclick="toggleSignerSection(${signerNum})">
                                     <div style="display:flex;justify-content:space-between;align-items:center;">
-                                        <div class="field-label" style="color:#1e40af;font-weight:700;font-size:1.1em;margin-bottom:0;">Signer ${signerNum} (${signerFieldCount} fields)</div>
-                                        <span class="expand-icon expanded" id="signer-icon-${signerNum}" style="color:#1e40af;font-size:1.2em;">▼</span>
+                                        <div class="field-label" style="color:white;font-weight:700;font-size:1.15em;margin-bottom:0;display:flex;align-items:center;gap:8px;">
+                                            <span style="background:rgba(255,255,255,0.2);padding:4px 10px;border-radius:20px;font-size:0.9em;">👤</span>
+                                            Signer ${signerNum}
+                                            <span style="background:rgba(255,255,255,0.2);padding:2px 8px;border-radius:12px;font-size:0.85em;font-weight:500;">${signerFieldCount} fields</span>
+                                        </div>
+                                        <span class="expand-icon expanded" id="signer-icon-${signerNum}" style="color:white;font-size:1.3em;font-weight:bold;">▼</span>
                                     </div>
                                 </div>
-                                <div id="signer-fields-${signerNum}" class="signer-fields-container" style="max-height:2000px;overflow:hidden;transition:max-height 0.3s ease;">
+                                <div id="signer-fields-${signerNum}" class="signer-fields-container" style="max-height:2000px;overflow:hidden;transition:max-height 0.3s ease;border-left:3px solid #667eea;padding-left:10px;margin-left:5px;">
                                     ${signerFieldsHtml}
                                 </div>
                             `;
