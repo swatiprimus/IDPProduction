@@ -1163,13 +1163,14 @@
                         // Format 1: Signer1_Name, Signer_1_Name
                         // Format 2: signer_information_signer1_name (with prefix)
                         // Format 3: signer1_name (lowercase)
+                        // Format 4: Signature1_Name, signature1_name (alternative naming)
                         
-                        // Try format with prefix first: signer_information_signer1_name
-                        let signerFieldMatch = key.match(/^.*signer_?(\d+)_(.+)$/i);
+                        // Try format with prefix first: signer_information_signer1_name OR signature1_name
+                        let signerFieldMatch = key.match(/^.*(signer|signature)_?(\d+)_(.+)$/i);
                         
-                        if (signerFieldMatch && signerFieldMatch[1]) {
-                            const signerNum = parseInt(signerFieldMatch[1]);
-                            const fieldName = signerFieldMatch[2];
+                        if (signerFieldMatch && signerFieldMatch[2]) {
+                            const signerNum = parseInt(signerFieldMatch[2]);
+                            const fieldName = signerFieldMatch[3];
                             console.log(`✓ MATCHED SIGNER FIELD: ${key} -> Signer ${signerNum}, Field: ${fieldName}`);
                             if (!signerGroups[signerNum]) {
                                 signerGroups[signerNum] = {};
@@ -1178,8 +1179,8 @@
                             signerGroups[signerNum][fieldName] = value;
                             console.log(`✓ Added to Signer ${signerNum}: ${fieldName} = ${value}`);
                             continue;
-                        } else if (key.toLowerCase().includes('signer')) {
-                            console.warn(`⚠️ Field contains 'signer' but didn't match regex: ${key}`);
+                        } else if (key.toLowerCase().includes('signer') || key.toLowerCase().includes('signature')) {
+                            console.warn(`⚠️ Field contains 'signer/signature' but didn't match regex: ${key}`);
                         }
                         
                         // Handle nested objects - flatten them into regularFields
