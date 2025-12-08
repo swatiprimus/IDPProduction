@@ -329,11 +329,11 @@ IMPORTANT: Use SIMPLE, SHORT field names. Do NOT copy the entire label text from
 - Simplify all verbose labels to their core meaning
 
 PRIORITY ORDER (Extract in this order):
-1. **IDENTIFYING NUMBERS** - Certificate numbers, license numbers, file numbers, document numbers, reference numbers
+1. **IDENTIFYING NUMBERS** - Match field names to document labels (Certificate_Number, Account_Number, License_Number, File_Number, etc.)
 2. **NAMES** - All person names (full names, witness names, registrar names, etc.)
 3. **DATES** - All dates (issue dates, birth dates, marriage dates, death dates, expiration dates, stamp dates)
 4. **LOCATIONS** - Cities, states, counties, countries, addresses
-5. **FORM FIELDS** - All labeled fields with values (Business Name, Account Number, etc.)
+5. **FORM FIELDS** - All labeled fields with values (Business Name, etc.)
 6. **SIGNER INFORMATION** - Extract ALL signers with their complete information
 7. **CONTACT INFO** - Phone numbers, emails, addresses
 8. **CHECKBOXES** - Checkbox states (Yes/No, checked/unchecked)
@@ -341,7 +341,9 @@ PRIORITY ORDER (Extract in this order):
 
 CRITICAL RULES:
 - Extract EVERY field you can see in the document
-- Include ALL identifying numbers (license #, certificate #, file #, reference #, etc.)
+- Include ALL identifying numbers (license #, certificate #, file #, reference #, account #, etc.)
+- **HANDWRITTEN NUMBERS:** Pay special attention to handwritten numbers - they are often account numbers or reference numbers
+- **MULTIPLE NUMBERS:** A document can have multiple number types (e.g., Certificate_Number AND Account_Number)
 - Extract ALL names, even if they appear multiple times in different contexts
 - Extract ALL dates in their original format
 - Do NOT extract long legal text, disclaimers, or authorization paragraphs
@@ -349,9 +351,20 @@ CRITICAL RULES:
 - Extract actual DATA, not explanatory text
 
 WHAT TO EXTRACT:
-✓ **ALL IDENTIFYING NUMBERS:**
-  - Certificate_Number, License_Number, File_Number, Document_Number
-  - Reference_Number, Registration_Number, Case_Number
+✓ **IDENTIFYING NUMBERS (Extract ALL - Documents can have multiple number types):**
+  - **ALWAYS match the field name to the LABEL on the document**
+  - **A document can have MULTIPLE number types** (e.g., both Certificate_Number AND Account_Number)
+  - **Certificate_Number:** Use when you see "Certificate Number", "Certificate No", "Cert #"
+  - **Account_Number:** Use when you see "Account Number", "Account No", "Acct #", "Acct Number" (may be handwritten or printed)
+  - **File_Number:** Use when you see "File Number", "File No", "State File Number"
+  - **License_Number:** Use when you see "License Number", "License No", "DL #"
+  - **Reference_Number:** Use when you see "Reference Number", "Ref #", "Reference No"
+  - **Registration_Number:** Use when you see "Registration Number", "Registration No"
+  - **IMPORTANT:** Extract ALL numbers you find - don't skip any!
+  - **Example:** A death certificate might have BOTH Certificate_Number (for the certificate) AND Account_Number (handwritten for billing)
+  - **Rule:** If you see "Account" or "Acct" label → ALWAYS extract as Account_Number (even on certificates)
+✓ **ALL OTHER IDENTIFYING NUMBERS:**
+  - Document_Number, Reference_Number, Case_Number
   - Any number with a label or identifier
 ✓ **ALL NAMES:**
   - Full_Name, Spouse_Name, Witness_Names, Registrar_Name
@@ -388,11 +401,36 @@ WHAT NOT TO EXTRACT:
 FIELD NAMING:
 - Use SIMPLE, SHORT field names (not the full label text)
 - Replace spaces with underscores
+- **MATCH THE LABEL ON THE DOCUMENT:**
+  * If document says "Certificate Number" → use "Certificate_Number"
+  * If document says "Account Number" → use "Account_Number"
+  * If document says "License Number" → use "License_Number"
+  * If document says "File Number" → use "File_Number"
 - Example: "License Number" → "License_Number"
 - Example: "Date of Birth" → "Date_Of_Birth"
 - Example: "DATE PRONOUNCED DEAD" → "Death_Date"
 - Example: "ACTUAL OR PRESUMED DATE OF DEATH" → "Death_Date"
-- Simplify verbose labels to their core meaning
+- Simplify verbose labels to their core meaning, but keep the field type accurate
+
+EXAMPLES OF MULTIPLE NUMBER TYPES:
+
+Example 1: Death Certificate with handwritten account number
+- Document shows: "Certificate Number: 2025-12345" (printed)
+- Document shows: "Account No: 987654321" (handwritten)
+- Extract BOTH:
+{
+  "Certificate_Number": {"value": "2025-12345", "confidence": 95},
+  "Account_Number": {"value": "987654321", "confidence": 75}
+}
+
+Example 2: Bank document with multiple numbers
+- Document shows: "Account Number: 1234567890"
+- Document shows: "Reference #: 298"
+- Extract BOTH:
+{
+  "Account_Number": {"value": "1234567890", "confidence": 95},
+  "Reference_Number": {"value": "298", "confidence": 90}
+}
 
 RETURN FORMAT:
 Return a JSON object where each field has both a value and a confidence score (0-100):
@@ -483,7 +521,7 @@ FIELD NAMING:
 - Example: "EXP" → "Expiration_Date"
 
 RETURN FORMAT:
-Return ONLY valid JSON in this exact format:
+Return ONLY valid JSON in this exact format where EVERY field has both value and confidence:
 {
   "documents": [
     {
@@ -493,34 +531,59 @@ Return ONLY valid JSON in this exact format:
       "document_icon": "🪪",
       "document_description": "Government-issued identification",
       "extracted_fields": {
-        "Document_Type": "Driver License",
-        "State": "Delaware",
-        "License_Number": "1234567",
-        "Full_Name": "John Doe",
-        "First_Name": "John",
-        "Last_Name": "Doe",
-        "Date_of_Birth": "01/15/1980",
-        "Sex": "M",
-        "Height": "5-10",
-        "Weight": "180",
-        "Eye_Color": "BRN",
-        "Hair_Color": "BRN",
-        "Address": "123 Main St",
-        "City": "Wilmington",
-        "State_Address": "DE",
-        "ZIP_Code": "19801",
-        "Issue_Date": "12/03/2012",
-        "Expiration_Date": "12/03/2020",
-        "License_Class": "D",
-        "DD_Number": "1234567890123",
-        "Organ_Donor": "Yes"
+        "Document_Type": {
+          "value": "Driver License",
+          "confidence": 95
+        },
+        "State": {
+          "value": "Delaware",
+          "confidence": 100
+        },
+        "License_Number": {
+          "value": "1234567",
+          "confidence": 95
+        },
+        "Full_Name": {
+          "value": "John Doe",
+          "confidence": 98
+        },
+        "Date_of_Birth": {
+          "value": "01/15/1980",
+          "confidence": 100
+        },
+        "Address": {
+          "value": "123 Main St",
+          "confidence": 95
+        },
+        "City": {
+          "value": "Wilmington",
+          "confidence": 100
+        },
+        "Issue_Date": {
+          "value": "12/03/2012",
+          "confidence": 100
+        },
+        "Expiration_Date": {
+          "value": "12/03/2020",
+          "confidence": 100
+        }
       }
     }
   ]
 }
 
-CRITICAL: Only include fields that are VISIBLE in the document. Do not use "N/A" or empty strings.
-Extract EVERYTHING you can see on the ID card - be thorough and complete!
+CONFIDENCE SCORE GUIDELINES:
+- 90-100: Text is clear, printed, and easily readable
+- 70-89: Text is readable but slightly unclear (handwritten, faded, or small)
+- 50-69: Text is partially unclear or ambiguous
+- 30-49: Text is difficult to read or uncertain
+- 0-29: Very uncertain or guessed
+
+CRITICAL REQUIREMENTS:
+- EVERY field MUST have both "value" and "confidence"
+- Only include fields that are VISIBLE in the document
+- Do not use "N/A" or empty strings
+- Extract EVERYTHING you can see on the ID card - be thorough and complete!
 """
 
 def get_loan_document_prompt():
@@ -533,6 +596,18 @@ CRITICAL: Use SIMPLE, SHORT field names. Do NOT copy verbose labels from the doc
 - Example: "DATE OF BIRTH" → use "DOB" or "Birth_Date" (NOT "DateOfBirth")
 - Example: "SOCIAL SECURITY NUMBER" → use "SSN" (NOT "SocialSecurityNumber")
 - Keep field names concise and readable
+
+**CRITICAL ACCOUNT NUMBER DETECTION RULES (FOR BANK/LOAN DOCUMENTS ONLY):**
+- This prompt is for BANK/LOAN documents, so Account_Number is the primary identifier
+- Account numbers may be HANDWRITTEN or printed on the document
+- Look for labels like: "Account", "Acct", "Account #", "Account No", "Acct Number", "Account Number"
+- Account numbers are typically 8-12 digits, may have dashes or spaces
+- If you see a handwritten number near an "Account" label, extract it as Account_Number
+- DO NOT use Account_Number for:
+  * Death/Birth/Marriage certificates (use Certificate_Number instead)
+  * Driver's licenses (use License_Number instead)
+  * File reference numbers (use File_Number instead)
+- ONLY use Account_Number if the document is clearly a bank/loan/account document
 
 Extract EVERY piece of information from the document and return it as valid JSON.
 
@@ -576,9 +651,9 @@ For documents with MULTIPLE signers, add Signer2_, Signer3_, etc.:
   "Signer2_DOB": "string"
 }
 
-FIELD DEFINITIONS - READ CAREFULLY:
+FIELD DEFINITIONS - READ CAREFULLY - THESE ARE SEPARATE FIELDS:
 
-1. Account_Type: The USAGE TYPE or WHO uses the account. Look for these terms:
+1. Account_Type: The USAGE TYPE or WHO uses the account. Look for these EXACT terms:
    - "Personal" (for individual/family use)
    - "Business" (for business operations)
    - "Commercial" (for commercial purposes)
@@ -586,15 +661,9 @@ FIELD DEFINITIONS - READ CAREFULLY:
    - "Trust" (trust account)
    - "Estate" (estate account)
    Extract whether it's for personal or business use.
+   EXAMPLE: If you see "Personal" on the form → Account_Type: "Personal"
 
-2. WSFS_Account_Type: The SPECIFIC internal bank account type code or classification. Look for:
-   - Specific product names like "Premier Checking", "Platinum Savings", "Gold CD"
-   - Internal codes or account classifications
-   - Branded account names unique to the bank
-   - If the document shows "Account Type: Premier Checking", then Account_Type="Personal" (if for personal use) and WSFS_Account_Type="Premier Checking"
-   - If only one type is mentioned, use it for WSFS_Account_Type and infer Account_Type from context
-
-3. Account_Purpose: The CATEGORY or CLASSIFICATION of the account. Look for:
+2. Account_Purpose: The CATEGORY or CLASSIFICATION of the account. Look for these EXACT terms:
    - "Consumer" (consumer banking)
    - "Checking" (checking account)
    - "Savings" (savings account)
@@ -604,6 +673,14 @@ FIELD DEFINITIONS - READ CAREFULLY:
    - "Loan" (loan account)
    - "Mortgage" (mortgage account)
    Extract the banking product category or account classification.
+   EXAMPLE: If you see "Consumer" on the form → Account_Purpose: "Consumer"
+
+3. WSFS_Account_Type: The SPECIFIC internal bank account type code or classification. Look for:
+   - Specific product names like "Premier Checking", "Platinum Savings", "Gold CD"
+   - Internal codes or account classifications
+   - Branded account names unique to the bank
+   - If the document shows "Account Type: Premier Checking", then Account_Type="Personal" (if for personal use) and WSFS_Account_Type="Premier Checking"
+   - If only one type is mentioned, use it for WSFS_Account_Type and infer Account_Type from context
 
 4. Ownership_Type: WHO owns the account legally. Common values:
    - "Individual" or "Single Owner" (single owner)
@@ -613,6 +690,13 @@ FIELD DEFINITIONS - READ CAREFULLY:
    - "Estate" (estate account)
    - "Custodial" (for minor)
    - "Business" or "Corporate"
+
+CRITICAL: DO NOT COMBINE Account_Type and Account_Purpose into one field!
+- If you see "Consumer" and "Personal" on the form, create TWO separate fields:
+  * Account_Purpose: "Consumer"
+  * Account_Type: "Personal"
+- DO NOT create a field called "Purpose" with value "Consumer Personal"
+- These are ALWAYS separate fields even if they appear together on the form
 
 EXTRACTION RULES:
 - Extract EVERY field visible in the document, not just the ones listed above
@@ -678,6 +762,13 @@ Example 3: Document says "Personal Checking Account, Consumer"
   "WSFS_Account_Type": "Personal Checking",
   "Account_Purpose": "Consumer"
 }
+
+Example 3b: Document shows checkboxes with "Consumer" checked and "Personal" checked
+{
+  "Account_Purpose": "Consumer",
+  "Account_Type": "Personal"
+}
+WRONG: DO NOT combine them like this: {"Purpose": "Consumer Personal"}
 
 Example 4: Supporting_Documents with OFAC check and verification
 {
@@ -921,10 +1012,18 @@ def normalize_confidence_format(data):
     return values, confidences
 
 
+def is_confidence_object(obj):
+    """Check if an object is a confidence object {value: X, confidence: Y}"""
+    return (isinstance(obj, dict) and 
+            "value" in obj and 
+            "confidence" in obj and 
+            len(obj) == 2)
+
 def flatten_nested_objects(data):
     """
     Flatten nested objects like Signer1: {Name: "John"} to Signer1_Name: "John"
-    Also handles SupportingDocuments and other nested structures
+    Also handles arrays of signer objects and other nested structures
+    CRITICAL: Preserves confidence objects {value: X, confidence: Y} at all levels
     """
     if not isinstance(data, dict):
         return data
@@ -932,30 +1031,78 @@ def flatten_nested_objects(data):
     flattened = {}
     
     for key, value in data.items():
+        # FIRST: Check if this value itself is a confidence object
+        if is_confidence_object(value):
+            flattened[key] = value
+            print(f"[DEBUG] Preserved top-level confidence object: {key}")
+            continue
+        
         # Check if this is a signer object (Signer1, Signer2, etc.)
-        # Match: Signer1, Signer2, Signer_1, Signer_2, etc.
         if (key.startswith("Signer") and isinstance(value, dict) and 
             any(char.isdigit() for char in key)):
             # Flatten the signer object
             print(f"[DEBUG] Flattening signer object: {key} with {len(value)} fields")
             for sub_key, sub_value in value.items():
                 flat_key = f"{key}_{sub_key}"
-                flattened[flat_key] = sub_value
-                print(f"[DEBUG] Created flat field: {flat_key} = {sub_value}")
-        # Keep arrays and other structures as-is
-        elif isinstance(value, (list, str, int, float, bool)) or value is None:
+                # Preserve confidence objects
+                if is_confidence_object(sub_value):
+                    flattened[flat_key] = sub_value
+                    print(f"[DEBUG] Preserved signer confidence: {flat_key}")
+                else:
+                    flattened[flat_key] = sub_value
+                    print(f"[DEBUG] Flattened signer field: {flat_key}")
+            continue
+        
+        # Handle arrays of signer objects
+        if isinstance(value, list) and len(value) > 0:
+            key_lower = key.lower().replace('_', '').replace(' ', '')
+            is_signer_array = any(keyword in key_lower for keyword in ['signer', 'signature', 'accountholder'])
+            first_item = value[0]
+            is_object_array = isinstance(first_item, dict)
+            
+            if is_object_array and is_signer_array:
+                print(f"[DEBUG] Found signer array '{key}' with {len(value)} signers")
+                for idx, signer_obj in enumerate(value):
+                    signer_num = idx + 1
+                    for sub_key, sub_value in signer_obj.items():
+                        flat_key = f"Signer{signer_num}_{sub_key}"
+                        # Preserve confidence objects
+                        if is_confidence_object(sub_value):
+                            flattened[flat_key] = sub_value
+                            print(f"[DEBUG] Preserved array signer confidence: {flat_key}")
+                        else:
+                            flattened[flat_key] = sub_value
+                continue
+            else:
+                # Keep other arrays as-is
+                flattened[key] = value
+                continue
+        
+        # Keep primitives as-is
+        if isinstance(value, (str, int, float, bool)) or value is None:
             flattened[key] = value
-        # Recursively flatten other nested dicts (but not arrays of dicts)
-        elif isinstance(value, dict):
-            # Check if it's a special structure like SupportingDocuments
+            continue
+        
+        # Handle nested dicts
+        if isinstance(value, dict):
+            # Check if it's a special structure to preserve
             if key in ["SupportingDocuments", "AccountHolderNames", "Supporting_Documents", "Account_Holders"]:
                 flattened[key] = value
-            else:
-                # Flatten other nested objects
-                for sub_key, sub_value in value.items():
-                    flattened[f"{key}_{sub_key}"] = sub_value
-        else:
-            flattened[key] = value
+                continue
+            
+            # Flatten other nested objects
+            for sub_key, sub_value in value.items():
+                flat_key = f"{key}_{sub_key}"
+                # Preserve confidence objects at nested level
+                if is_confidence_object(sub_value):
+                    flattened[flat_key] = sub_value
+                    print(f"[DEBUG] Preserved nested confidence: {flat_key}")
+                else:
+                    flattened[flat_key] = sub_value
+            continue
+        
+        # Default: keep as-is
+        flattened[key] = value
     
     print(f"[DEBUG] Flattening complete: {len(data)} input fields -> {len(flattened)} output fields")
     return flattened
@@ -1061,26 +1208,52 @@ EXTRACT EVERY SINGLE FIELD - DO NOT MISS ANYTHING:
 - Extract EVERY time stamp
 - If you see a field label but can't read the value, still include it as "illegible" or "unclear"
 
-Return ONLY valid JSON. Extract up to {num_fields} fields - BE THOROUGH AND COMPLETE!
+Return ONLY valid JSON where EVERY field has both value and confidence. Extract up to {num_fields} fields - BE THOROUGH AND COMPLETE!
 
 Example format for Death Certificate:
 {{
-  "account_number": "468431466",
-  "state_file_number": "K1-0000608",
-  "date_pronounced_dead": "01/09/2016",
-  "time_pronounced_dead": "22:29",
-  "actual_date_of_death": "January 9, 2016",
-  "time_of_death": "22:29",
-  "deceased_name": "John Doe",
-  "place_of_death": "New Castle, DE",
-  "license_number_for": "funeral_director_name",
-  "signature_of_person_pronouncing_death": "signature_present",
-  "date_signed": "01/09/2016",
-  "cause_of_death": "description",
-  "manner_of_death": "Natural",
-  "was_medical_examiner_contacted": "Yes",
-  ...
+  "account_number": {{
+    "value": "468431466",
+    "confidence": 95
+  }},
+  "state_file_number": {{
+    "value": "K1-0000608",
+    "confidence": 100
+  }},
+  "date_pronounced_dead": {{
+    "value": "01/09/2016",
+    "confidence": 100
+  }},
+  "time_pronounced_dead": {{
+    "value": "22:29",
+    "confidence": 90
+  }},
+  "deceased_name": {{
+    "value": "John Doe",
+    "confidence": 98
+  }},
+  "place_of_death": {{
+    "value": "New Castle, DE",
+    "confidence": 100
+  }},
+  "cause_of_death": {{
+    "value": "description",
+    "confidence": 85
+  }},
+  "manner_of_death": {{
+    "value": "Natural",
+    "confidence": 100
+  }}
 }}
+
+CONFIDENCE SCORE GUIDELINES:
+- 90-100: Text is clear, printed, and easily readable
+- 70-89: Text is readable but slightly unclear (handwritten, faded, or small)
+- 50-69: Text is partially unclear or ambiguous
+- 30-49: Text is difficult to read or uncertain
+- 0-29: Very uncertain or guessed
+
+CRITICAL: EVERY field MUST have both "value" and "confidence"
 """
     
     try:
@@ -1257,7 +1430,7 @@ EXTRACT ABSOLUTELY EVERYTHING - MISS NOTHING:
 - Extract license numbers, file numbers, reference numbers
 - If a field is partially visible or unclear, still extract it and mark as "unclear" or "illegible"
 
-Return ONLY valid JSON in this exact format:
+Return ONLY valid JSON in this exact format where EVERY field has both value and confidence:
 {{
   "documents": [
     {{
@@ -1267,7 +1440,14 @@ Return ONLY valid JSON in this exact format:
       "document_icon": "{doc_info['icon']}",
       "document_description": "{doc_info['description']}",
       "extracted_fields": {{
-        "field_name": "exact_value_from_document",
+        "Field_Name": {{
+          "value": "exact_value_from_document",
+          "confidence": 95
+        }},
+        "Another_Field": {{
+          "value": "another_value",
+          "confidence": 85
+        }},
         "SupportingDocuments": [
           {{
             "DocumentType": "type of document",
@@ -1278,6 +1458,15 @@ Return ONLY valid JSON in this exact format:
     }}
   ]
 }}
+
+CONFIDENCE SCORE GUIDELINES:
+- 90-100: Text is clear, printed, and easily readable
+- 70-89: Text is readable but slightly unclear (handwritten, faded, or small)
+- 50-69: Text is partially unclear or ambiguous
+- 30-49: Text is difficult to read or uncertain
+- 0-29: Very uncertain or guessed
+
+CRITICAL: EVERY field (except SupportingDocuments array) MUST have both "value" and "confidence"
 
 For SupportingDocuments, ONLY include:
 - Driver's License or State ID (with ID numbers)
@@ -1355,6 +1544,18 @@ Only extract fields where you can see a clear, definite value in the document.
             doc["accuracy_score"] = round((filled_fields / total_fields) * 100, 1)
             doc["total_fields"] = total_fields
             doc["filled_fields"] = filled_fields
+            
+            # Calculate average confidence score
+            confidence_scores = []
+            for field_name, value in fields.items():
+                # Check if value is a confidence object
+                if isinstance(value, dict) and "confidence" in value:
+                    confidence_scores.append(value["confidence"])
+            
+            if confidence_scores:
+                doc["confidence_score"] = round(sum(confidence_scores) / len(confidence_scores), 1)
+            else:
+                doc["confidence_score"] = None
             
             # Identify fields needing review
             fields_needing_review = []
@@ -1852,6 +2053,20 @@ def process_job(job_id: str, file_bytes: bytes, filename: str, use_ocr: bool, do
         if result.get("documents") and len(result["documents"]) > 0:
             doc = result["documents"][0]
             doc_type = doc.get("document_type", "unknown")
+            
+            # Map AI-generated types to supported types
+            type_mappings = {
+                "account_opening": "loan_document",
+                "account_opening_form": "loan_document",
+                "signature_card": "loan_document",
+                "bank_account": "loan_document",
+                "account_form": "loan_document"
+            }
+            
+            # Apply mapping if exists
+            if doc_type in type_mappings:
+                doc_type = type_mappings[doc_type]
+            
             if doc_type in SUPPORTED_DOCUMENT_TYPES:
                 doc_info = SUPPORTED_DOCUMENT_TYPES[doc_type]
                 result["document_type_info"] = {
@@ -2740,9 +2955,9 @@ def extract_page_data(doc_id, page_num):
                     else:
                         parsed = doc_data
             
-            # Normalize confidence format
-            parsed, confidences = normalize_confidence_format(parsed)
-            print(f"[DEBUG] Normalized confidence scores for {len(confidences)} fields")
+            # KEEP confidence format intact - don't normalize
+            # The frontend expects {value: "X", confidence: 95} format
+            print(f"[DEBUG] Keeping confidence format intact for frontend processing")
             
             # POST-PROCESSING: For death certificates, rename certificate_number to account_number
             if doc.get("document_type") == "death_certificate" or "death" in doc.get("document_name", "").lower():
@@ -2756,7 +2971,6 @@ def extract_page_data(doc_id, page_num):
             # Cache the result in S3
             cache_data = {
                 "data": parsed,
-                "confidences": confidences,
                 "extracted_at": datetime.now().isoformat()
             }
             
@@ -2775,7 +2989,6 @@ def extract_page_data(doc_id, page_num):
                 "success": True,
                 "page_number": page_num + 1,
                 "data": parsed,
-                "confidences": confidences,
                 "cached": False
             })
         else:

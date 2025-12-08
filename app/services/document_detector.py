@@ -112,17 +112,44 @@ def detect_document_type(text: str):
         return all(p.upper() in text_upper for p in patterns)
     
     # ============================================================
-    # STEP 1: Check for SPECIFIC FORM TYPES FIRST (highest priority)
+    # STEP 1: Check for LOAN/ACCOUNT DOCUMENT FIRST (highest priority)
+    # ============================================================
+    has_account_number = "ACCOUNT NUMBER" in text_upper
+    has_account_holder = "ACCOUNT HOLDER" in text_upper
+    has_account_purpose = "ACCOUNT PURPOSE" in text_upper
+    has_account_type = "ACCOUNT TYPE" in text_upper
+    has_ownership_type = "OWNERSHIP TYPE" in text_upper
+    has_signature_card = "SIGNATURE CARD" in text_upper
+    
+    # Count how many required fields are present
+    required_fields_count = sum([
+        has_account_number,
+        has_account_holder,
+        has_account_purpose,
+        has_account_type,
+        has_ownership_type,
+        has_signature_card
+    ])
+    
+    # If 3 or more required fields present, it's likely a loan/account document
+    if required_fields_count >= 3:
+        print(f"[DETECT_TYPE] Found {required_fields_count}/6 account document fields")
+        print(f"[DETECT_TYPE] ✓ Detected: Loan/Account Document")
+        print(f"{'='*80}\n")
+        return "loan_document"
+    
+    # ============================================================
+    # STEP 2: Check for SPECIFIC FORM TYPES
     # ============================================================
     
-    # Business Card Order Form (check BEFORE loan document)
-    if contains_any(["BUSINESS CARD ORDER FORM", "CARD ORDER FORM", "BUSINESS CARD ORDER"]):
+    # Business Card Order Form (must be specific - not just "CARD")
+    if contains_any(["BUSINESS CARD ORDER FORM", "BUSINESS CARD ORDER"]) and not has_signature_card:
         print(f"[DETECT_TYPE] ✓ Detected: Business Card Order Form")
         print(f"{'='*80}\n")
         return "business_card"
     
-    # ATM/Debit Card Request
-    if contains_any(["ATM/POS/DEBIT CARD REQUEST", "CARD REQUEST", "DEBIT CARD REQUEST", "ATM CARD"]):
+    # ATM/Debit Card Request (must be specific)
+    if contains_any(["ATM/POS/DEBIT CARD REQUEST", "DEBIT CARD REQUEST", "ATM CARD REQUEST"]) and not has_signature_card:
         print(f"[DETECT_TYPE] ✓ Detected: Card Request Form")
         print(f"{'='*80}\n")
         return "business_card"
@@ -145,30 +172,7 @@ def detect_document_type(text: str):
         print(f"{'='*80}\n")
         return "tax_form"
     
-    # ============================================================
-    # STEP 2: Check for Loan/Account Document Indicators
-    # ============================================================
-    has_account_number = "ACCOUNT NUMBER" in text_upper
-    has_account_holder = "ACCOUNT HOLDER" in text_upper
-    has_account_purpose = "ACCOUNT PURPOSE" in text_upper
-    has_account_type = "ACCOUNT TYPE" in text_upper
-    has_ownership_type = "OWNERSHIP TYPE" in text_upper
-    
-    # Count how many required fields are present
-    required_fields_count = sum([
-        has_account_number,
-        has_account_holder,
-        has_account_purpose,
-        has_account_type,
-        has_ownership_type
-    ])
-    
-    # If 3 or more required fields present, it's likely a loan/account document
-    if required_fields_count >= 3:
-        print(f"[DETECT_TYPE] Found {required_fields_count}/5 account document fields")
-        print(f"[DETECT_TYPE] ✓ Detected: Loan/Account Document")
-        print(f"{'='*80}\n")
-        return "loan_document"
+
     
     # ============================================================
     # STEP 3: Check for ID CARD (Driver's License)

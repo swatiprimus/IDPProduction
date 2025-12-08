@@ -7,13 +7,13 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Inter', sans-serif; background: #f5f7fa; color: #333; }
-        .sidebar { position: fixed; left: 0; top: 0; width: 250px; height: 100vh; background: #1e293b; color: white; padding: 0; z-index: 1000; box-shadow: 4px 0 15px rgba(0,0,0,0.2); overflow-y: auto; }
-        .sidebar-header { padding: 25px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-bottom: 3px solid rgba(255,255,255,0.1); }
-        .sidebar-header h2 { font-size: 1.3em; font-weight: 700; margin: 0; }
-        .sidebar-item { padding: 15px 20px; cursor: pointer; transition: all 0.3s ease; display: flex; align-items: center; gap: 12px; border-left: 4px solid transparent; }
-        .sidebar-item:hover { background: #334155; border-left-color: #667eea; }
-        .sidebar-item.active { background: #334155; border-left-color: #667eea; font-weight: 600; }
+        body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: linear-gradient(135deg, #f5f7fa 0%, #e8eef5 100%); color: #1f2937; min-height: 100vh; }
+        .sidebar { position: fixed; left: 0; top: 0; width: 280px; height: 100vh; background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%); color: white; padding: 0; z-index: 1000; box-shadow: 4px 0 20px rgba(0,0,0,0.15); overflow-y: auto; }
+        .sidebar-header { padding: 30px 25px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-bottom: 3px solid rgba(255,255,255,0.15); }
+        .sidebar-header h2 { font-size: 1.4em; font-weight: 800; margin: 0; letter-spacing: -0.5px; display: flex; align-items: center; gap: 12px; }
+        .sidebar-item { padding: 16px 25px; cursor: pointer; transition: all 0.3s ease; display: flex; align-items: center; gap: 14px; border-left: 4px solid transparent; margin: 4px 0; }
+        .sidebar-item:hover { background: rgba(102, 126, 234, 0.15); border-left-color: #667eea; transform: translateX(4px); }
+        .sidebar-item.active { background: rgba(102, 126, 234, 0.2); border-left-color: #667eea; font-weight: 600; }
         .sidebar-item .icon { font-size: 1.2em; width: 24px; text-align: center; }
         .sidebar-divider { height: 1px; background: rgba(255,255,255,0.1); margin: 15px 0; }
         .sidebar-section { margin: 10px 0; }
@@ -26,66 +26,80 @@
         .sidebar-subitem { padding: 12px 20px 12px 56px; cursor: pointer; transition: all 0.3s ease; display: flex; align-items: center; gap: 10px; font-size: 0.95em; opacity: 0.9; }
         .sidebar-subitem:hover { background: #1e293b; opacity: 1; padding-left: 60px; }
         .sidebar-subitem .icon { font-size: 1.1em; }
-        .main-content { margin-left: 250px; padding: 30px; }
-        .header { background: white; padding: 25px 30px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 30px; }
-        .header h1 { font-size: 1.8em; color: #2c3e50; margin-bottom: 20px; }
-        .stats { display: flex; gap: 30px; margin-bottom: 20px; }
-        .stat-item { display: flex; align-items: center; gap: 10px; }
-        .stat-number { font-size: 1.5em; font-weight: 700; color: #3498db; }
-        .stat-label { font-size: 0.85em; color: #7f8c8d; }
-        .toolbar { display: flex; gap: 15px; align-items: center; }
-        .btn { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; transition: all 0.3s; display: flex; align-items: center; gap: 8px; }
-        .btn-primary { background: #3498db; color: white; }
-        .btn-primary:hover { background: #2980b9; transform: translateY(-2px); box-shadow: 0 4px 12px rgba(52, 152, 219, 0.4); }
-        .search-box { flex: 1; max-width: 300px; position: relative; }
-        .search-box input { width: 100%; padding: 10px 15px 10px 40px; border: 1px solid #ddd; border-radius: 6px; }
-        .search-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #7f8c8d; }
-        .skills-table { background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); overflow: hidden; }
+        .main-content { margin-left: 280px; padding: 40px; }
+        .header { background: white; padding: 35px 40px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); margin-bottom: 35px; border: 1px solid rgba(0,0,0,0.05); }
+        .header h1 { font-size: 2.2em; color: #111827; margin-bottom: 25px; font-weight: 800; letter-spacing: -1px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+        .stats { display: flex; gap: 35px; margin-bottom: 25px; flex-wrap: wrap; }
+        .stat-item { display: flex; align-items: center; gap: 14px; padding: 16px 24px; background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border-radius: 12px; border: 1px solid #bae6fd; }
+        .stat-number { font-size: 2em; font-weight: 800; background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+        .stat-label { font-size: 0.9em; color: #0c4a6e; font-weight: 600; }
+        .toolbar { display: flex; gap: 18px; align-items: center; }
+        .btn { padding: 13px 26px; border: none; border-radius: 10px; cursor: pointer; font-weight: 600; transition: all 0.3s; display: flex; align-items: center; gap: 10px; font-size: 0.95em; letter-spacing: 0.3px; }
+        .btn-primary { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3); }
+        .btn-primary:hover { transform: translateY(-3px); box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4); }
+        .search-box { flex: 1; max-width: 350px; position: relative; }
+        .search-box input { width: 100%; padding: 13px 18px 13px 48px; border: 2px solid #e5e7eb; border-radius: 10px; font-size: 0.95em; transition: all 0.3s; background: white; }
+        .search-box input:focus { outline: none; border-color: #667eea; box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1); }
+        .search-icon { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: #9ca3af; font-size: 1.1em; }
+        .skills-table { background: white; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); overflow: hidden; border: 1px solid rgba(0,0,0,0.05); }
         table { width: 100%; border-collapse: collapse; }
-        thead { background: #f8f9fa; border-bottom: 2px solid #e9ecef; }
-        th { padding: 15px 20px; text-align: left; font-weight: 600; color: #495057; font-size: 0.9em; cursor: pointer; user-select: none; position: relative; }
-        th:hover { background: #e9ecef; }
+        thead { background: linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%); border-bottom: 2px solid #e5e7eb; }
+        th { padding: 18px 24px; text-align: left; font-weight: 700; color: #374151; font-size: 0.85em; cursor: pointer; user-select: none; position: relative; text-transform: uppercase; letter-spacing: 0.5px; }
+        th:hover { background: rgba(102, 126, 234, 0.05); }
         th.sortable::after { content: ' ⇅'; opacity: 0.3; font-size: 0.8em; }
-        th.sort-asc::after { content: ' ▲'; opacity: 1; color: #3498db; }
-        th.sort-desc::after { content: ' ▼'; opacity: 1; color: #3498db; }
-        td { padding: 15px 20px; border-bottom: 1px solid #f1f3f5; }
-        tbody tr { cursor: pointer; transition: background 0.2s; }
-        tbody tr:hover { background: #f8f9fa; }
-        .pagination { display: flex; justify-content: space-between; align-items: center; padding: 20px; background: white; border-top: 1px solid #e9ecef; }
-        .pagination-info { color: #7f8c8d; font-size: 0.9em; }
-        .pagination-controls { display: flex; gap: 5px; }
-        .page-btn { padding: 8px 12px; border: 1px solid #ddd; background: white; cursor: pointer; border-radius: 4px; transition: all 0.2s; }
-        .page-btn:hover:not(:disabled) { background: #f8f9fa; border-color: #3498db; }
-        .page-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .page-btn.active { background: #3498db; color: white; border-color: #3498db; }
-        .per-page-select { padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; }
-        .skill-name { font-weight: 500; color: #2c3e50; }
-        .version-badge { display: inline-block; padding: 4px 10px; background: #e3f2fd; color: #1976d2; border-radius: 12px; font-size: 0.85em; font-weight: 500; }
-        .description { color: #7f8c8d; font-size: 0.9em; }
+        th.sort-asc::after { content: ' ▲'; opacity: 1; color: #667eea; }
+        th.sort-desc::after { content: ' ▼'; opacity: 1; color: #667eea; }
+        td { padding: 18px 24px; border-bottom: 1px solid #f3f4f6; }
+        tbody tr { cursor: pointer; transition: all 0.3s; }
+        tbody tr:hover { background: linear-gradient(135deg, #f9fafb 0%, #f0f9ff 100%); transform: scale(1.01); box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+        .pagination { display: flex; justify-content: space-between; align-items: center; padding: 24px; background: linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%); border-top: 2px solid #e5e7eb; }
+        .pagination-info { color: #6b7280; font-size: 0.9em; font-weight: 600; }
+        .pagination-controls { display: flex; gap: 8px; }
+        .page-btn { padding: 10px 16px; border: 2px solid #e5e7eb; background: white; cursor: pointer; border-radius: 8px; transition: all 0.3s; font-weight: 600; color: #374151; }
+        .page-btn:hover:not(:disabled) { background: #667eea; color: white; border-color: #667eea; transform: translateY(-2px); }
+        .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .page-btn.active { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-color: transparent; box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3); }
+        .per-page-select { padding: 10px 16px; border: 2px solid #e5e7eb; border-radius: 8px; cursor: pointer; font-weight: 600; background: white; color: #374151; }
+        .skill-name { 
+            font-weight: 600; 
+            color: #1e293b; 
+            font-size: 0.9em; 
+            background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%); 
+            padding: 8px 16px; 
+            border-radius: 20px; 
+            display: inline-block;
+            border: 1px solid #cbd5e1;
+        }
+        .version-badge { display: inline-block; padding: 6px 14px; background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%); color: #1e40af; border-radius: 20px; font-size: 0.8em; font-weight: 700; letter-spacing: 0.3px; border: 1px solid #93c5fd; }
+        .description { color: #6b7280; font-size: 0.9em; font-weight: 500; }
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
         .modal.show { display: flex; }
-        .modal-content { background: white; border-radius: 8px; width: 90%; max-width: 600px; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
-        .modal-header { padding: 20px 30px; background: #f8f9fa; border-bottom: 1px solid #e9ecef; display: flex; justify-content: space-between; align-items: center; }
-        .modal-header h2 { font-size: 1.3em; color: #2c3e50; display: flex; align-items: center; gap: 10px; }
-        .close-btn { background: none; border: none; font-size: 1.5em; cursor: pointer; color: #7f8c8d; }
-        .modal-body { padding: 30px; }
-        .form-group { margin-bottom: 25px; }
-        .form-label { display: block; margin-bottom: 8px; font-weight: 500; color: #495057; }
-        .required { color: #e74c3c; margin-right: 4px; }
-        .form-input { width: 100%; padding: 12px 15px; border: 2px solid #e9ecef; border-radius: 6px; font-size: 1em; }
-        .form-input:focus { outline: none; border-color: #3498db; }
-        .form-textarea { min-height: 100px; resize: vertical; }
-        .file-upload { border: 2px dashed #cbd5e0; border-radius: 8px; padding: 30px; text-align: center; cursor: pointer; }
-        .file-upload:hover { border-color: #3498db; background: #f8f9fa; }
+        .modal-content { background: white; border-radius: 16px; width: 90%; max-width: 650px; max-height: 90vh; overflow-y: auto; box-shadow: 0 25px 70px rgba(0,0,0,0.3); border: 1px solid rgba(0,0,0,0.1); }
+        .modal-header { padding: 30px 35px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-bottom: none; display: flex; justify-content: space-between; align-items: center; border-radius: 16px 16px 0 0; }
+        .modal-header h2 { font-size: 1.5em; color: white; display: flex; align-items: center; gap: 12px; font-weight: 700; letter-spacing: -0.5px; }
+        .close-btn { background: rgba(255,255,255,0.2); border: none; font-size: 1.3em; cursor: pointer; color: white; width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; transition: all 0.3s; }
+        .close-btn:hover { background: rgba(255,255,255,0.3); transform: rotate(90deg); }
+        .modal-body { padding: 35px; background: #fafbfc; }
+        .form-group { margin-bottom: 28px; }
+        .form-label { display: block; margin-bottom: 10px; font-weight: 600; color: #374151; font-size: 0.95em; letter-spacing: 0.3px; }
+        .required { color: #ef4444; margin-right: 4px; font-weight: 700; }
+        .form-input { width: 100%; padding: 14px 18px; border: 2px solid #e5e7eb; border-radius: 10px; font-size: 1em; transition: all 0.3s; background: white; }
+        .form-input:focus { outline: none; border-color: #667eea; box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1); }
+        .form-textarea { min-height: 120px; resize: vertical; font-family: inherit; }
+        .file-upload { border: 3px dashed #cbd5e0; border-radius: 12px; padding: 40px; text-align: center; cursor: pointer; transition: all 0.3s; background: white; }
+        .file-upload:hover { border-color: #667eea; background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); transform: scale(1.02); }
         .file-input { display: none; }
-        .modal-footer { padding: 20px 30px; background: #f8f9fa; border-top: 1px solid #e9ecef; display: flex; justify-content: flex-end; gap: 10px; }
-        .btn-cancel { background: white; color: #7f8c8d; border: 1px solid #ddd; }
-        .btn-create { background: #3498db; color: white; }
-        .btn-create:disabled { background: #cbd5e0; cursor: not-allowed; }
-        .needs-review-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: #fef3c7; color: #92400e; border-radius: 12px; font-size: 0.75em; font-weight: 600; border: 1px solid #fbbf24; }
-        .needs-review-badge .icon { font-size: 1.1em; }
-        .updated-row { background: #fffbeb !important; border-left: 4px solid #f59e0b; }
-        .updated-row:hover { background: #fef3c7 !important; }
+        .modal-footer { padding: 25px 35px; background: white; border-top: 2px solid #e5e7eb; display: flex; justify-content: flex-end; gap: 12px; border-radius: 0 0 16px 16px; }
+        .btn-cancel { background: white; color: #6b7280; border: 2px solid #d1d5db; font-weight: 600; }
+        .btn-cancel:hover { background: #f9fafb; border-color: #9ca3af; }
+        .btn-create { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3); font-weight: 600; }
+        .btn-create:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4); }
+        .btn-create:disabled { background: #cbd5e0; cursor: not-allowed; opacity: 0.6; transform: none; box-shadow: none; }
+        .needs-review-badge { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); color: #92400e; border-radius: 20px; font-size: 0.75em; font-weight: 700; border: 2px solid #fbbf24; letter-spacing: 0.3px; animation: pulse 2s ease-in-out infinite; }
+        .needs-review-badge .icon { font-size: 1.2em; }
+        .updated-row { background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%) !important; border-left: 5px solid #f59e0b; box-shadow: 0 2px 8px rgba(245, 158, 11, 0.15); }
+        .updated-row:hover { background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%) !important; transform: scale(1.02) !important; box-shadow: 0 4px 16px rgba(245, 158, 11, 0.25) !important; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.8; } }
         .changes-tooltip { position: relative; cursor: help; }
         .changes-tooltip:hover::after { content: attr(data-changes); position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: #1e293b; color: white; padding: 8px 12px; border-radius: 6px; font-size: 0.85em; white-space: nowrap; z-index: 1000; margin-bottom: 5px; }
     </style>
@@ -177,9 +191,9 @@
         <div class="modal-content">
             <div class="modal-header"><h2><span>📄</span><span>Process New Document</span></h2><button class="close-btn" onclick="closeCreateModal()">×</button></div>
             <div class="modal-body">
-                <div class="form-group"><label class="form-label"><span class="required">*</span>Upload Document</label><div class="file-upload" onclick="document.getElementById('fileInput').click()"><div style="font-size:3em;color:#cbd5e0;">📁</div><div>Click to upload or drag and drop</div><div style="font-size:0.85em;color:#adb5bd;">PDF, PNG, JPG, JPEG, TXT</div><div style="font-size:0.9em;color:#64748b;margin-top:8px;">The filename will be used as the document name</div></div><input type="file" id="fileInput" class="file-input" accept=".pdf,.png,.jpg,.jpeg,.txt" onchange="handleFileSelect(event)"><div id="selectedFileInfo" style="display:none;"></div></div>
+                <div class="form-group"><label class="form-label"><span class="required">*</span>Upload Documents</label><div class="file-upload" onclick="document.getElementById('fileInput').click()"><div style="font-size:3em;color:#cbd5e0;">📁</div><div>Click to upload or drag and drop</div><div style="font-size:0.85em;color:#adb5bd;">PDF, PNG, JPG, JPEG, TXT</div><div style="font-size:0.9em;color:#64748b;margin-top:8px;">Select multiple files to upload at once</div></div><input type="file" id="fileInput" class="file-input" accept=".pdf,.png,.jpg,.jpeg,.txt" multiple onchange="handleFileSelect(event)"><div id="selectedFileInfo" style="display:none;"></div></div>
             </div>
-            <div class="modal-footer"><button class="btn btn-cancel" onclick="closeCreateModal()">Cancel</button><button class="btn btn-create" id="createBtn" onclick="processDocument()" disabled>Create</button></div>
+            <div class="modal-footer"><button class="btn btn-cancel" onclick="closeCreateModal()">Cancel</button><button class="btn btn-create" id="createBtn" onclick="processDocument()" disabled>Process Documents</button></div>
         </div>
     </div>
     
@@ -307,7 +321,7 @@
                 let accuracy=0;
                 if(skill.documents&&skill.documents.length>0){
                     const doc=skill.documents[0];
-                    // Use the accuracy_score from backend (already calculated correctly)
+                    // Use the accuracy_score from backend
                     accuracy=doc.accuracy_score||0;
                 }
                 
@@ -470,43 +484,82 @@
                 console.error('Error:',error);
             }
         }
-        function openCreateModal(){document.getElementById('createModal').classList.add('show');}
-        function closeCreateModal(){document.getElementById('createModal').classList.remove('show');selectedFile=null;document.getElementById('selectedFileInfo').style.display='none';document.getElementById('createBtn').disabled=true;}
+        function openCreateModal(){
+            // Reset the modal state
+            selectedFile = null;
+            document.getElementById('fileInput').value = '';
+            document.getElementById('selectedFileInfo').style.display = 'none';
+            document.getElementById('selectedFileInfo').innerHTML = '';
+            document.getElementById('createBtn').disabled = true;
+            document.getElementById('createBtn').textContent = 'Process Documents';
+            document.getElementById('createModal').classList.add('show');
+        }
+        function closeCreateModal(){
+            document.getElementById('createModal').classList.remove('show');
+            selectedFile=null;
+            document.getElementById('fileInput').value = '';
+            document.getElementById('selectedFileInfo').style.display='none';
+            document.getElementById('selectedFileInfo').innerHTML = '';
+            document.getElementById('createBtn').disabled=true;
+            document.getElementById('createBtn').textContent = 'Process Documents';
+        }
         function handleFileSelect(event){
-            const file=event.target.files[0];
-            if(file){
-                selectedFile=file;
-                const fileSize=(file.size/1024/1024).toFixed(2);
-                document.getElementById('selectedFileInfo').innerHTML=`<div style="margin-top:15px;padding:12px;background:#e3f2fd;border-radius:6px;"><strong>${file.name}</strong> (${fileSize} MB)</div>`;
+            const files=event.target.files;
+            if(files && files.length > 0){
+                selectedFile=files; // Store all files
+                let totalSize=0;
+                let fileListHTML='<div style="margin-top:15px;">';
+                for(let i=0;i<files.length;i++){
+                    const file=files[i];
+                    const fileSize=(file.size/1024/1024).toFixed(2);
+                    totalSize+=file.size;
+                    fileListHTML+=`<div style="padding:10px;background:#e3f2fd;border-radius:6px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;"><span><strong>${file.name}</strong></span><span style="color:#64748b;">${fileSize} MB</span></div>`;
+                }
+                const totalSizeMB=(totalSize/1024/1024).toFixed(2);
+                fileListHTML+=`<div style="padding:10px;background:#f0f9ff;border-radius:6px;font-weight:600;color:#667eea;"><span>${files.length} file(s) selected</span><span style="float:right;">Total: ${totalSizeMB} MB</span></div></div>`;
+                document.getElementById('selectedFileInfo').innerHTML=fileListHTML;
                 document.getElementById('selectedFileInfo').style.display='block';
                 validateForm();
             }
         }
-        function validateForm(){document.getElementById('createBtn').disabled=!selectedFile;}
+        function validateForm(){document.getElementById('createBtn').disabled=!selectedFile || selectedFile.length===0;}
         async function processDocument(){
-            if(!selectedFile)return;
+            if(!selectedFile || selectedFile.length===0)return;
             const createBtn=document.getElementById('createBtn');
             createBtn.disabled=true;
-            createBtn.textContent='Processing...';
-            const formData=new FormData();
-            formData.append('file',selectedFile);
+            createBtn.textContent=`Processing ${selectedFile.length} file(s)...`;
             
-            try{
-                const response=await fetch('/process',{method:'POST',body:formData});
-                const data=await response.json();
-                if(data.success){
-                    closeCreateModal();
-                    showNotification('Document is being processed...');
-                    pollProcessing(data.job_id);
-                }else{
-                    alert('Upload failed: '+data.message);
-                    createBtn.disabled=false;
-                    createBtn.textContent='Create';
+            let successCount=0;
+            let failCount=0;
+            
+            for(let i=0;i<selectedFile.length;i++){
+                const file=selectedFile[i];
+                const formData=new FormData();
+                formData.append('file',file);
+                
+                try{
+                    const response=await fetch('/process',{method:'POST',body:formData});
+                    const data=await response.json();
+                    if(data.success){
+                        successCount++;
+                        showNotification(`Processing ${file.name}...`);
+                        pollProcessing(data.job_id);
+                    }else{
+                        failCount++;
+                        console.error(`Failed to upload ${file.name}:`,data.message);
+                    }
+                }catch(error){
+                    failCount++;
+                    console.error(`Error uploading ${file.name}:`,error.message);
                 }
-            }catch(error){
-                alert('Error: '+error.message);
-                createBtn.disabled=false;
-                createBtn.textContent='Create';
+            }
+            
+            closeCreateModal();
+            if(successCount>0){
+                showNotification(`${successCount} document(s) uploaded successfully!`);
+            }
+            if(failCount>0){
+                alert(`${failCount} document(s) failed to upload. Check console for details.`);
             }
         }
         function showNotification(message){

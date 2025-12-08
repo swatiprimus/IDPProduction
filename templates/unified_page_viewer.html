@@ -305,12 +305,15 @@
             display: flex;
             flex-direction: column;
             background: white;
+            overflow: hidden;
         }
         
         .data-header {
+            flex-shrink: 0;
             padding: 20px;
             background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
             color: white;
+            overflow: visible;
         }
         
         .data-header h2 {
@@ -450,6 +453,24 @@
             flex: 1;
             overflow-y: auto;
             padding: 20px;
+            min-height: 0;
+        }
+        
+        .data-content::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        .data-content::-webkit-scrollbar-track {
+            background: #f3f4f6;
+        }
+        
+        .data-content::-webkit-scrollbar-thumb {
+            background: #cbd5e0;
+            border-radius: 4px;
+        }
+        
+        .data-content::-webkit-scrollbar-thumb:hover {
+            background: #a0aec0;
         }
         
         .field-item {
@@ -573,26 +594,31 @@
     </div>
 
     {% if document.needs_review %}
-    <div id="reviewBanner" style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px 30px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-        <div style="display: flex; align-items: center; gap: 15px;">
-            <span style="font-size: 1.5em;">⚠️</span>
+    <div id="reviewBanner" style="background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); border-bottom: 3px solid #f59e0b; padding: 20px 35px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 4px 12px rgba(245,158,11,0.15);">
+        <div style="display: flex; align-items: center; gap: 20px;">
+            <div style="width: 52px; height: 52px; background: white; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 26px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); flex-shrink: 0;">
+                ⚠️
+            </div>
             <div>
-                <div style="font-weight: 600; color: #92400e; margin-bottom: 4px;">
-                    This document has been updated and needs review
+                <div style="font-weight: 700; color: #92400e; margin-bottom: 6px; font-size: 1.15em; letter-spacing: -0.3px;">
+                    Document Updated - Review Required
                 </div>
-                <div style="font-size: 0.9em; color: #78350f;">
-                    {{ document.changes|length }} field(s) changed
+                <div style="font-size: 0.95em; color: #78350f; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    <span style="padding: 3px 10px; background: white; border-radius: 12px; font-weight: 600;">
+                        {{ document.changes|length }} change(s)
+                    </span>
                     {% if document.update_source_filename %}
-                    from upload: {{ document.update_source_filename }}
+                    <span>•</span>
+                    <span>Source: <strong>{{ document.update_source_filename }}</strong></span>
                     {% endif %}
                 </div>
             </div>
         </div>
-        <div style="display: flex; gap: 10px;">
-            <button onclick="showChangesModal()" style="padding: 10px 20px; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; transition: all 0.3s;">
-                Review Changes
+        <div style="display: flex; gap: 12px;">
+            <button onclick="showChangesModal()" style="padding: 12px 24px; background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; transition: all 0.3s; font-size: 0.95em; box-shadow: 0 4px 12px rgba(59,130,246,0.3); display: flex; align-items: center; gap: 8px;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 16px rgba(59,130,246,0.4)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 12px rgba(59,130,246,0.3)'">
+                <span>📋</span> Review Changes
             </button>
-            <button onclick="rejectAllChanges()" style="padding: 10px 20px; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; transition: all 0.3s;">
+            <button onclick="rejectAllChanges()" style="padding: 12px 24px; background: white; color: #ef4444; border: 2px solid #ef4444; border-radius: 8px; cursor: pointer; font-weight: 600; transition: all 0.3s; font-size: 0.95em;" onmouseover="this.style.background='#fef2f2'" onmouseout="this.style.background='white'">
                 Reject All
             </button>
         </div>
@@ -971,7 +997,37 @@
                 result = await response.json();
                 
                 if (result.success) {
-                    const fields = result.data || {};
+                    let fields = result.data || {};
+                    
+                    // STEP 1: Process confidence objects recursively - keep both value and confidence for inline display
+                    const processedFields = {};
+                    const fieldConfidence = {}; // Store confidence scores separately
+                    
+                    function processConfidenceRecursive(obj, prefix = '') {
+                        const processed = {};
+                        for (const [key, value] of Object.entries(obj)) {
+                            const fullKey = prefix ? `${prefix}_${key}` : key;
+                            
+                            if (value && typeof value === 'object' && !Array.isArray(value)) {
+                                // Check if this is a confidence object
+                                if ('value' in value && 'confidence' in value && Object.keys(value).length === 2) {
+                                    // This is a confidence object
+                                    processed[key] = value.value;
+                                    fieldConfidence[fullKey] = value.confidence;
+                                    console.log(`✓ Processed confidence object: ${fullKey} = ${value.value} (${value.confidence}% confidence)`);
+                                } else {
+                                    // Recursively process nested objects
+                                    processed[key] = processConfidenceRecursive(value, fullKey);
+                                }
+                            } else {
+                                processed[key] = value;
+                            }
+                        }
+                        return processed;
+                    }
+                    
+                    fields = processConfidenceRecursive(fields);
+                    
                     currentPageData = fields;
                     let html = '';
                     let seenFields = new Set(); // Track fields to avoid duplicates
@@ -991,8 +1047,15 @@
                             const newKey = prefix ? `${prefix}_${key}` : key;
                             
                             if (value && typeof value === 'object' && !Array.isArray(value)) {
-                                // Recursively flatten nested objects
-                                Object.assign(flattened, flattenObject(value, newKey));
+                                // CRITICAL: Check if this is a confidence object {value: "X", confidence: 95}
+                                if ('value' in value && 'confidence' in value && Object.keys(value).length === 2) {
+                                    // This is a confidence object - keep it as-is, don't flatten
+                                    flattened[newKey] = value;
+                                    console.log(`✓ Preserved confidence object in flattening: ${newKey}`);
+                                } else {
+                                    // Recursively flatten other nested objects
+                                    Object.assign(flattened, flattenObject(value, newKey));
+                                }
                             } else {
                                 flattened[newKey] = value;
                             }
@@ -1012,15 +1075,23 @@
                         }
                     }
                     
-                    const accuracy = totalFields > 0 ? Math.round((filledFields / totalFields) * 100) : 0;
-                    const accuracyColor = accuracy >= 80 ? '#10b981' : accuracy >= 60 ? '#f59e0b' : '#ef4444';
+                    // Calculate average confidence score for this page
+                    const confidenceScores = Object.values(fieldConfidence);
+                    const avgConfidence = confidenceScores.length > 0 
+                        ? Math.round(confidenceScores.reduce((sum, conf) => sum + conf, 0) / confidenceScores.length)
+                        : 0;
+                    const confidenceColor = avgConfidence >= 90 ? '#10b981' : avgConfidence >= 70 ? '#f59e0b' : '#ef4444';
                     
                     document.getElementById('dataMeta').innerHTML = `
                         Page ${currentPageIndex + 1}
-                        <span style="display:inline-block;margin-left:10px;padding:4px 8px;background:${accuracyColor};color:white;border-radius:4px;font-size:0.85em;font-weight:600;">
-                            ${accuracy}% Complete (${filledFields}/${totalFields} fields)
+                        <span style="display:inline-block;margin-left:10px;padding:4px 8px;background:${confidenceColor};color:white;border-radius:4px;font-size:0.85em;font-weight:600;">
+                            ${avgConfidence}% Confidence (${filledFields} fields)
                         </span>
                     `;
+                    
+                    // Group signer fields
+                    const signerGroups = {};
+                    const regularFields = {};
                     
                     for (const [key, value] of Object.entries(flattenedFields)) {
                         // Skip duplicates (case-insensitive)
@@ -1031,7 +1102,31 @@
                         }
                         seenFields.add(normalizedKey);
                         
-                        const displayValue = Array.isArray(value) ? value.join(', ') : value;
+                        // Check if this is a confidence object that needs processing
+                        let actualValue = value;
+                        if (value && typeof value === 'object' && !Array.isArray(value) && 'value' in value && 'confidence' in value) {
+                            actualValue = value.value;
+                            fieldConfidence[key] = value.confidence;
+                            console.log(`✓ Post-flatten confidence object: ${key} = ${actualValue} (${value.confidence}% confidence)`);
+                        }
+                        
+                        // Format display value based on type
+                        let displayValue;
+                        if (Array.isArray(actualValue)) {
+                            // Check if array contains objects
+                            if (actualValue.length > 0 && typeof actualValue[0] === 'object') {
+                                // Format array of objects as JSON
+                                displayValue = JSON.stringify(actualValue, null, 2);
+                            } else {
+                                // Join primitive values
+                                displayValue = actualValue.join(', ');
+                            }
+                        } else if (typeof actualValue === 'object' && actualValue !== null) {
+                            // Format objects as JSON
+                            displayValue = JSON.stringify(actualValue, null, 2);
+                        } else {
+                            displayValue = actualValue;
+                        }
                         
                         // Skip N/A fields
                         if (!displayValue || displayValue === 'N/A' || displayValue.toString().trim() === '') {
@@ -1039,14 +1134,163 @@
                             continue;
                         }
                         
+                        // Check if this is a signer field: Signer1_Name, Signer1 Name, Signer2_Address, etc.
+                        // Match both underscore and space separators
+                        const signerMatch = key.match(/^Signer(\d+)[\s_](.+)$/i);
+                        if (signerMatch) {
+                            const signerNum = parseInt(signerMatch[1]);
+                            const fieldName = signerMatch[2];
+                            console.log(`✓ Matched signer field: ${key} -> Signer ${signerNum}, Field: ${fieldName}`);
+                            if (!signerGroups[signerNum]) {
+                                signerGroups[signerNum] = {};
+                            }
+                            signerGroups[signerNum][fieldName] = displayValue;
+                        } else {
+                            regularFields[key] = displayValue;
+                        }
+                    }
+                    
+                    // Helper function to escape HTML
+                    function escapeHtml(text) {
+                        const div = document.createElement('div');
+                        div.textContent = text;
+                        return div.innerHTML;
+                    }
+                    
+                    // Display regular fields first
+                    for (const [key, displayValue] of Object.entries(regularFields)) {
                         console.log(`Displaying field: ${key} = ${displayValue}`);
+                        
+                        // Special handling for SupportingDocuments
+                        if (key === 'SupportingDocuments' || key === 'Supporting_Documents') {
+                            let docsArray = displayValue;
+                            
+                            // Parse if it's a JSON string
+                            if (typeof displayValue === 'string') {
+                                try {
+                                    docsArray = JSON.parse(displayValue);
+                                } catch (e) {
+                                    console.error('Failed to parse SupportingDocuments:', e);
+                                }
+                            }
+                            
+                            if (Array.isArray(docsArray) && docsArray.length > 0) {
+                                const docId = `supporting-docs-${Date.now()}`;
+                                html += `
+                                    <div class="field-item" style="background:linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);border-left-color:#0ea5e9;cursor:pointer;" onclick="toggleSupportingDocs('${docId}')">
+                                        <div style="display:flex;justify-content:space-between;align-items:center;">
+                                            <div class="field-label" style="color:#0369a1;font-weight:700;">📎 Supporting Documents (${docsArray.length})</div>
+                                            <span id="${docId}-icon" style="color:#0369a1;font-size:1.2em;font-weight:bold;transition:transform 0.3s;">▶</span>
+                                        </div>
+                                    </div>
+                                    <div id="${docId}" style="max-height:0;overflow:hidden;transition:max-height 0.4s ease;">
+                                        <div style="padding:10px 20px;background:#f8fafc;">
+                                `;
+                                
+                                docsArray.forEach((doc, idx) => {
+                                    const docType = doc.DocumentType || doc.Type || 'Document';
+                                    const details = doc.Details || doc.details || 'No details';
+                                    html += `
+                                        <div style="margin-bottom:12px;padding:12px;background:white;border-left:3px solid #0ea5e9;border-radius:6px;">
+                                            <div style="font-weight:700;color:#0369a1;margin-bottom:4px;">📄 ${docType}</div>
+                                            <div style="color:#475569;font-size:0.95em;">${escapeHtml(details)}</div>
+                                        </div>
+                                    `;
+                                });
+                                
+                                html += `
+                                        </div>
+                                    </div>
+                                `;
+                            }
+                            continue;
+                        }
+                        
+                        // Prepare confidence badge with color
+                        let confidenceBadge = '';
+                        
+                        if (fieldConfidence[key]) {
+                            const conf = fieldConfidence[key];
+                            let confColor = '#6b7280'; // Default gray
+                            
+                            // Set color based on confidence
+                            if (conf >= 90) {
+                                confColor = '#10b981'; // Green
+                            } else if (conf >= 70) {
+                                confColor = '#f59e0b'; // Orange/Yellow
+                            } else {
+                                confColor = '#ef4444'; // Red
+                            }
+                            
+                            // Add confidence percentage badge with color
+                            confidenceBadge = ` <span style="color:${confColor};font-size:0.85em;font-weight:700;">(${conf}%)</span>`;
+                        }
+                        
+                        // Check if displayValue is JSON (starts with { or [)
+                        const isJson = typeof displayValue === 'string' && (displayValue.trim().startsWith('{') || displayValue.trim().startsWith('['));
+                        const fontFamily = isJson ? 'monospace' : 'inherit';
+                        const whiteSpace = isJson ? 'pre-wrap' : 'normal';
+                        
+                        // Escape HTML to preserve formatting
+                        const escapedValue = escapeHtml(displayValue.toString());
                         
                         html += `
                             <div class="field-item">
                                 <div class="field-label">${key.replace(/_/g, ' ')}</div>
-                                <div class="field-value" data-field="${key}">${displayValue}</div>
+                                <div class="field-value" data-field="${key}" style="font-family:${fontFamily};white-space:${whiteSpace};">${escapedValue}${confidenceBadge}</div>
                             </div>
                         `;
+                    }
+                    
+                    // Display grouped signers with clean design
+                    const signerNumbers = Object.keys(signerGroups).sort((a, b) => a - b);
+                    if (signerNumbers.length > 0) {
+                        console.log(`Found ${signerNumbers.length} signers to display`);
+                        
+                        // Display each signer with clean card design
+                        signerNumbers.forEach(signerNum => {
+                            const signer = signerGroups[signerNum];
+                            const fieldCount = Object.keys(signer).length;
+                            const signerId = `signer-${signerNum}-${Date.now()}`;
+                            
+                            // Build signer fields HTML
+                            let signerFieldsHtml = '';
+                            for (const [fieldName, fieldValue] of Object.entries(signer)) {
+                                const signerFieldKey = `Signer${signerNum}_${fieldName}`;
+                                let confidenceBadge = '';
+                                
+                                if (fieldConfidence[signerFieldKey]) {
+                                    const conf = fieldConfidence[signerFieldKey];
+                                    let confColor = conf >= 90 ? '#10b981' : conf >= 70 ? '#f59e0b' : '#ef4444';
+                                    confidenceBadge = ` <span style="color:${confColor};font-size:0.85em;font-weight:700;">(${conf}%)</span>`;
+                                }
+                                
+                                const isJson = typeof fieldValue === 'string' && (fieldValue.trim().startsWith('{') || fieldValue.trim().startsWith('['));
+                                const escapedValue = escapeHtml(fieldValue.toString());
+                                
+                                signerFieldsHtml += `
+                                    <div style="margin-bottom:12px;padding:12px;background:white;border-left:3px solid #667eea;border-radius:6px;">
+                                        <div style="font-weight:700;color:#667eea;margin-bottom:4px;font-size:0.85em;">${fieldName.replace(/_/g, ' ')}</div>
+                                        <div style="color:#1e293b;font-size:0.95em;font-family:${isJson ? 'monospace' : 'inherit'};white-space:${isJson ? 'pre-wrap' : 'normal'};">${escapedValue}${confidenceBadge}</div>
+                                    </div>
+                                `;
+                            }
+                            
+                            // Signer card with expand/collapse
+                            html += `
+                                <div class="field-item" style="background:linear-gradient(135deg, #f0f4ff 0%, #e5edff 100%);border-left-color:#667eea;cursor:pointer;margin-top:15px;" onclick="toggleSignerSection('${signerId}')">
+                                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                                        <div class="field-label" style="color:#4338ca;font-weight:700;">👤 Signer ${signerNum} (${fieldCount} fields)</div>
+                                        <span id="${signerId}-icon" style="color:#4338ca;font-size:1.2em;font-weight:bold;transition:transform 0.3s;">▶</span>
+                                    </div>
+                                </div>
+                                <div id="${signerId}" style="max-height:0;overflow:hidden;transition:max-height 0.4s ease;">
+                                    <div style="padding:10px 20px;background:#f8fafc;">
+                                        ${signerFieldsHtml}
+                                    </div>
+                                </div>
+                            `;
+                        });
                     }
                     
                     container.innerHTML = html || '<div class="loading">No data extracted from this page</div>';
@@ -1059,7 +1303,7 @@
                     
                     // Update JSON view
                     if (currentView === 'json') {
-                        document.getElementById('jsonDisplay').textContent = JSON.stringify(fields, null, 2);
+                        document.getElementById('jsonDisplay').innerHTML = formatJsonWithConfidence(fields);
                     }
                 } else {
                     currentPageData = null;
@@ -1081,6 +1325,44 @@
         function nextPage() {
             if (currentPageIndex < totalPages - 1) {
                 showPage(currentPageIndex + 1);
+            }
+        }
+        
+        function toggleSignerSection(signerId) {
+            const container = document.getElementById(signerId);
+            const icon = document.getElementById(`${signerId}-icon`);
+            
+            if (!container || !icon) return;
+            
+            const isExpanded = container.style.maxHeight && container.style.maxHeight !== '0px';
+            
+            if (isExpanded) {
+                // Collapse
+                container.style.maxHeight = '0';
+                icon.textContent = '▶';
+            } else {
+                // Expand
+                container.style.maxHeight = '2000px';
+                icon.textContent = '▼';
+            }
+        }
+        
+        function toggleSupportingDocs(docId) {
+            const container = document.getElementById(docId);
+            const icon = document.getElementById(`${docId}-icon`);
+            
+            if (!container || !icon) return;
+            
+            const isExpanded = container.style.maxHeight && container.style.maxHeight !== '0px';
+            
+            if (isExpanded) {
+                // Collapse
+                container.style.maxHeight = '0';
+                icon.textContent = '▶';
+            } else {
+                // Expand
+                container.style.maxHeight = '1000px';
+                icon.textContent = '▼';
             }
         }
 
@@ -1517,6 +1799,32 @@
         let currentZoom = 100;
         let currentRotation = 0;
         
+        function formatJsonWithConfidence(data) {
+            // Format JSON with syntax highlighting and colored confidence scores
+            let json = JSON.stringify(data, null, 2);
+            
+            // Syntax highlighting
+            json = json.replace(/(".*?"):/g, '<span style="color:#9cdcfe;">$1</span>:');
+            json = json.replace(/: (".*?")/g, ': <span style="color:#ce9178;">$1</span>');
+            json = json.replace(/: (\d+\.?\d*)/g, function(match, num) {
+                // Check if this is a confidence score (look for "confidence": pattern before it)
+                return ': <span style="color:#b5cea8;">' + num + '</span>';
+            });
+            json = json.replace(/: (true|false|null)/g, ': <span style="color:#569cd6;">$1</span>');
+            
+            // Highlight confidence scores with colors
+            json = json.replace(/"confidence":\s*<span style="color:#b5cea8;">(\d+)<\/span>/g, function(match, conf) {
+                const confNum = parseInt(conf);
+                let color = '#6b7280';
+                if (confNum >= 90) color = '#10b981';
+                else if (confNum >= 70) color = '#f59e0b';
+                else color = '#ef4444';
+                return `"confidence": <span style="color:${color};font-weight:700;">${conf}</span>`;
+            });
+            
+            return json;
+        }
+        
         function switchTab(view) {
             currentView = view;
             
@@ -1531,7 +1839,7 @@
             
             // Update JSON view if switching to it
             if (view === 'json' && currentPageData) {
-                document.getElementById('jsonDisplay').textContent = JSON.stringify(currentPageData, null, 2);
+                document.getElementById('jsonDisplay').innerHTML = formatJsonWithConfidence(currentPageData);
             }
         }
         
@@ -1667,18 +1975,25 @@
                 modalContent.style.cssText = 'background: white; border-radius: 12px; width: 90%; max-width: 800px; max-height: 80vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3);';
                 
                 let changesHTML = `
-                    <div style="padding: 25px; border-bottom: 2px solid #e5e7eb;">
-                        <h2 style="font-size: 1.5em; color: #1f2937; margin-bottom: 10px;">Review Changes</h2>
-                        <p style="color: #6b7280; font-size: 0.95em;">Select the changes you want to apply to the document</p>
+                    <div style="padding: 30px 35px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px 12px 0 0;">
+                        <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 12px;">
+                            <div style="width: 48px; height: 48px; background: rgba(255,255,255,0.2); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 24px;">
+                                📝
+                            </div>
+                            <div>
+                                <h2 style="font-size: 1.75em; color: white; margin: 0; font-weight: 700; letter-spacing: -0.5px;">Review Changes</h2>
+                                <p style="color: rgba(255,255,255,0.9); font-size: 0.95em; margin: 4px 0 0 0;">Select which updates you want to apply</p>
+                            </div>
+                        </div>
                     </div>
-                    <div style="padding: 25px;">
-                        <div style="margin-bottom: 20px;">
-                            <label style="display: flex; align-items: center; gap: 10px; padding: 12px; background: #f3f4f6; border-radius: 8px; cursor: pointer;">
-                                <input type="checkbox" id="selectAll" onchange="toggleAllChanges(this.checked)" style="width: 18px; height: 18px; cursor: pointer;">
-                                <span style="font-weight: 600; color: #374151;">Select All Changes</span>
+                    <div style="padding: 30px 35px; background: #f9fafb;">
+                        <div style="margin-bottom: 25px;">
+                            <label style="display: flex; align-items: center; gap: 12px; padding: 16px 20px; background: white; border: 2px solid #e5e7eb; border-radius: 10px; cursor: pointer; transition: all 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.05);" onmouseover="this.style.borderColor='#667eea'; this.style.boxShadow='0 4px 12px rgba(102,126,234,0.15)'" onmouseout="this.style.borderColor='#e5e7eb'; this.style.boxShadow='0 1px 3px rgba(0,0,0,0.05)'">
+                                <input type="checkbox" id="selectAll" onchange="toggleAllChanges(this.checked)" style="width: 20px; height: 20px; cursor: pointer; accent-color: #667eea;">
+                                <span style="font-weight: 600; color: #1f2937; font-size: 1.05em;">Select All Changes (${changes.length})</span>
                             </label>
                         </div>
-                        <div style="display: flex; flex-direction: column; gap: 15px;">
+                        <div style="display: flex; flex-direction: column; gap: 16px;">
                 `;
                 
                 changes.forEach((change, index) => {
@@ -1688,29 +2003,39 @@
                     const oldValue = change.old_value || 'N/A';
                     const newValue = change.new_value || '(empty)';
                     
-                    const bgColor = changeType === 'added' ? '#ecfdf5' : '#fef3c7';
-                    const borderColor = changeType === 'added' ? '#10b981' : '#f59e0b';
-                    const icon = changeType === 'added' ? '➕' : '✏️';
+                    const isAdded = changeType === 'added';
+                    const accentColor = isAdded ? '#10b981' : '#f59e0b';
+                    const accentBg = isAdded ? '#ecfdf5' : '#fef3c7';
+                    const icon = isAdded ? '➕' : '✏️';
+                    const badgeText = isAdded ? 'NEW' : 'UPDATED';
                     
                     changesHTML += `
-                        <label style="display: flex; gap: 15px; padding: 15px; background: ${bgColor}; border-left: 4px solid ${borderColor}; border-radius: 8px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.transform='translateX(5px)'" onmouseout="this.style.transform='translateX(0)'">
-                            <input type="checkbox" class="change-checkbox" data-index="${index}" style="width: 18px; height: 18px; cursor: pointer; margin-top: 2px;">
-                            <div style="flex: 1;">
-                                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
-                                    <span style="font-size: 1.2em;">${icon}</span>
-                                    <span style="font-weight: 600; color: #1f2937;">${fieldDisplayName}</span>
-                                    <span style="padding: 2px 8px; background: white; border-radius: 12px; font-size: 0.75em; font-weight: 600; color: ${borderColor};">${changeType.toUpperCase()}</span>
+                        <label style="display: flex; gap: 18px; padding: 20px; background: white; border: 2px solid #e5e7eb; border-radius: 12px; cursor: pointer; transition: all 0.3s; box-shadow: 0 1px 3px rgba(0,0,0,0.05);" onmouseover="this.style.borderColor='${accentColor}'; this.style.boxShadow='0 4px 12px rgba(0,0,0,0.1)'; this.style.transform='translateY(-2px)'" onmouseout="this.style.borderColor='#e5e7eb'; this.style.boxShadow='0 1px 3px rgba(0,0,0,0.05)'; this.style.transform='translateY(0)'">
+                            <input type="checkbox" class="change-checkbox" data-index="${index}" style="width: 22px; height: 22px; cursor: pointer; margin-top: 4px; accent-color: ${accentColor}; flex-shrink: 0;">
+                            <div style="flex: 1; min-width: 0;">
+                                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap;">
+                                    <div style="width: 36px; height: 36px; background: ${accentBg}; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0;">
+                                        ${icon}
+                                    </div>
+                                    <span style="font-weight: 700; color: #111827; font-size: 1.1em; letter-spacing: -0.3px;">${fieldDisplayName}</span>
+                                    <span style="padding: 4px 12px; background: ${accentColor}; color: white; border-radius: 20px; font-size: 0.75em; font-weight: 700; letter-spacing: 0.5px;">${badgeText}</span>
                                 </div>
-                                <div style="font-size: 0.8em; color: #9ca3af; margin-bottom: 8px;">${field}</div>
+                                <div style="font-size: 0.8em; color: #9ca3af; margin-bottom: 14px; font-family: 'Courier New', monospace; background: #f9fafb; padding: 6px 10px; border-radius: 6px; display: inline-block;">${field}</div>
                                 ${changeType === 'updated' ? `
-                                    <div style="margin-bottom: 5px;">
-                                        <span style="font-size: 0.85em; color: #6b7280; font-weight: 600;">Old Value:</span>
-                                        <div style="padding: 8px 12px; background: #fee2e2; color: #991b1b; border-radius: 6px; font-size: 0.95em; margin-top: 4px; word-break: break-word;">${oldValue}</div>
+                                    <div style="margin-bottom: 12px;">
+                                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                                            <span style="font-size: 0.8em; color: #6b7280; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Previous Value</span>
+                                            <div style="flex: 1; height: 1px; background: #e5e7eb;"></div>
+                                        </div>
+                                        <div style="padding: 12px 16px; background: #fef2f2; border-left: 3px solid #ef4444; color: #991b1b; border-radius: 8px; font-size: 0.95em; line-height: 1.6; word-break: break-word; font-family: system-ui, -apple-system, sans-serif;">${oldValue}</div>
                                     </div>
                                 ` : ''}
                                 <div>
-                                    <span style="font-size: 0.85em; color: #6b7280; font-weight: 600;">New Value:</span>
-                                    <div style="padding: 8px 12px; background: #d1fae5; color: #065f46; border-radius: 6px; font-size: 0.95em; margin-top: 4px; word-break: break-word;">${newValue}</div>
+                                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                                        <span style="font-size: 0.8em; color: #6b7280; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">${isAdded ? 'Value' : 'New Value'}</span>
+                                        <div style="flex: 1; height: 1px; background: #e5e7eb;"></div>
+                                    </div>
+                                    <div style="padding: 12px 16px; background: #f0fdf4; border-left: 3px solid #10b981; color: #065f46; border-radius: 8px; font-size: 0.95em; line-height: 1.6; word-break: break-word; font-family: system-ui, -apple-system, sans-serif;">${newValue}</div>
                                 </div>
                             </div>
                         </label>
@@ -1720,13 +2045,18 @@
                 changesHTML += `
                         </div>
                     </div>
-                    <div style="padding: 20px 25px; background: #f9fafb; border-top: 1px solid #e5e7eb; display: flex; justify-content: flex-end; gap: 10px;">
-                        <button onclick="closeChangesModal()" style="padding: 10px 20px; background: white; color: #6b7280; border: 1px solid #d1d5db; border-radius: 6px; cursor: pointer; font-weight: 500;">
-                            Cancel
-                        </button>
-                        <button onclick="applySelectedChanges()" style="padding: 10px 20px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 500;">
-                            Apply Selected Changes
-                        </button>
+                    <div style="padding: 25px 35px; background: white; border-top: 2px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; border-radius: 0 0 12px 12px;">
+                        <div style="color: #6b7280; font-size: 0.9em;">
+                            <span style="font-weight: 600; color: #374151;">${changes.length}</span> change(s) detected
+                        </div>
+                        <div style="display: flex; gap: 12px;">
+                            <button onclick="closeChangesModal()" style="padding: 12px 24px; background: white; color: #6b7280; border: 2px solid #d1d5db; border-radius: 8px; cursor: pointer; font-weight: 600; transition: all 0.3s; font-size: 0.95em;" onmouseover="this.style.background='#f9fafb'; this.style.borderColor='#9ca3af'" onmouseout="this.style.background='white'; this.style.borderColor='#d1d5db'">
+                                Cancel
+                            </button>
+                            <button onclick="applySelectedChanges()" style="padding: 12px 28px; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; transition: all 0.3s; font-size: 0.95em; box-shadow: 0 4px 12px rgba(16,185,129,0.3);" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 16px rgba(16,185,129,0.4)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 12px rgba(16,185,129,0.3)'">
+                                ✓ Apply Selected Changes
+                            </button>
+                        </div>
                     </div>
                 `;
                 

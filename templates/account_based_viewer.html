@@ -420,9 +420,11 @@
         }
 
         .data-header {
+            flex-shrink: 0;
             padding: 20px;
             background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
             color: white;
+            overflow: visible;
         }
 
         .data-header h2 {
@@ -578,6 +580,24 @@
             flex: 1;
             overflow-y: auto;
             padding: 20px;
+            min-height: 0;
+        }
+        
+        .data-content::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        .data-content::-webkit-scrollbar-track {
+            background: #f3f4f6;
+        }
+        
+        .data-content::-webkit-scrollbar-thumb {
+            background: #cbd5e0;
+            border-radius: 4px;
+        }
+        
+        .data-content::-webkit-scrollbar-thumb:hover {
+            background: #a0aec0;
         }
 
         .field-item {
@@ -705,26 +725,31 @@
     </div>
 
     {% if document.needs_review %}
-    <div id="reviewBanner" style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px 30px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-        <div style="display: flex; align-items: center; gap: 15px;">
-            <span style="font-size: 1.5em;">⚠️</span>
+    <div id="reviewBanner" style="background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); border-bottom: 3px solid #f59e0b; padding: 20px 35px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 4px 12px rgba(245,158,11,0.15);">
+        <div style="display: flex; align-items: center; gap: 20px;">
+            <div style="width: 52px; height: 52px; background: white; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 26px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); flex-shrink: 0;">
+                ⚠️
+            </div>
             <div>
-                <div style="font-weight: 600; color: #92400e; margin-bottom: 4px;">
-                    This document has been updated and needs review
+                <div style="font-weight: 700; color: #92400e; margin-bottom: 6px; font-size: 1.15em; letter-spacing: -0.3px;">
+                    Document Updated - Review Required
                 </div>
-                <div style="font-size: 0.9em; color: #78350f;">
-                    {{ document.changes|length }} field(s) changed
+                <div style="font-size: 0.95em; color: #78350f; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    <span style="padding: 3px 10px; background: white; border-radius: 12px; font-weight: 600;">
+                        {{ document.changes|length }} change(s)
+                    </span>
                     {% if document.update_source_filename %}
-                    from upload: {{ document.update_source_filename }}
+                    <span>•</span>
+                    <span>Source: <strong>{{ document.update_source_filename }}</strong></span>
                     {% endif %}
                 </div>
             </div>
         </div>
-        <div style="display: flex; gap: 10px;">
-            <button onclick="showChangesModal()" style="padding: 10px 20px; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; transition: all 0.3s;">
-                Review Changes
+        <div style="display: flex; gap: 12px;">
+            <button onclick="showChangesModal()" style="padding: 12px 24px; background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; transition: all 0.3s; font-size: 0.95em; box-shadow: 0 4px 12px rgba(59,130,246,0.3); display: flex; align-items: center; gap: 8px;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 16px rgba(59,130,246,0.4)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 12px rgba(59,130,246,0.3)'">
+                <span>📋</span> Review Changes
             </button>
-            <button onclick="rejectAllChanges()" style="padding: 10px 20px; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; transition: all 0.3s;">
+            <button onclick="rejectAllChanges()" style="padding: 12px 24px; background: white; color: #ef4444; border: 2px solid #ef4444; border-radius: 8px; cursor: pointer; font-weight: 600; transition: all 0.3s; font-size: 0.95em;" onmouseover="this.style.background='#fef2f2'" onmouseout="this.style.background='white'">
                 Reject All
             </button>
         </div>
@@ -1038,23 +1063,40 @@
             }
         }
         
-        function toggleSignerSection(signerNum) {
-            const container = document.getElementById(`signer-fields-${signerNum}`);
-            const icon = document.getElementById(`signer-icon-${signerNum}`);
+        function toggleSignerSection(signerId) {
+            const container = document.getElementById(signerId);
+            const icon = document.getElementById(`${signerId}-icon`);
             
             if (!container || !icon) return;
             
-            const isExpanded = icon.classList.contains('expanded');
+            const isExpanded = container.style.maxHeight && container.style.maxHeight !== '0px';
             
             if (isExpanded) {
                 // Collapse
                 container.style.maxHeight = '0';
-                icon.classList.remove('expanded');
                 icon.textContent = '▶';
             } else {
                 // Expand
                 container.style.maxHeight = '2000px';
-                icon.classList.add('expanded');
+                icon.textContent = '▼';
+            }
+        }
+        
+        function toggleSupportingDocs(docId) {
+            const container = document.getElementById(docId);
+            const icon = document.getElementById(`${docId}-icon`);
+            
+            if (!container || !icon) return;
+            
+            const isExpanded = container.style.maxHeight && container.style.maxHeight !== '0px';
+            
+            if (isExpanded) {
+                // Collapse
+                container.style.maxHeight = '0';
+                icon.textContent = '▶';
+            } else {
+                // Expand
+                container.style.maxHeight = '1000px';
                 icon.textContent = '▼';
             }
         }
@@ -1229,12 +1271,79 @@
                 const result = await response.json();
                 
                 if (result.success) {
-                    const fields = result.data || {};
+                    let fields = result.data || {};
+                    
+                    // STEP 1: Process confidence objects recursively - keep both value and confidence for inline display
+                    const processedFields = {};
+                    const fieldConfidence = {}; // Store confidence scores separately
+                    
+                    function processConfidenceRecursive(obj, prefix = '') {
+                        const processed = {};
+                        for (const [key, value] of Object.entries(obj)) {
+                            const fullKey = prefix ? `${prefix}_${key}` : key;
+                            
+                            if (value && typeof value === 'object' && !Array.isArray(value)) {
+                                // Check if this is a confidence object
+                                if ('value' in value && 'confidence' in value && Object.keys(value).length === 2) {
+                                    // This is a confidence object
+                                    processed[key] = value.value;
+                                    fieldConfidence[fullKey] = value.confidence;
+                                    console.log(`✓ Processed confidence object: ${fullKey} = ${value.value} (${value.confidence}% confidence)`);
+                                } else {
+                                    // Recursively process nested objects
+                                    processed[key] = processConfidenceRecursive(value, fullKey);
+                                }
+                            } else {
+                                processed[key] = value;
+                            }
+                        }
+                        return processed;
+                    }
+                    
+                    fields = processConfidenceRecursive(fields);
+                    
+                    // STEP 2: Flatten any arrays of signer objects that weren't flattened by backend
+                    // This handles old cached data or data from different extraction methods
+                    const fieldsToFlatten = {};
+                    for (const [key, value] of Object.entries(fields)) {
+                        const keyLower = key.toLowerCase().replace(/[\s_-]/g, '');
+                        const isSignerArray = (keyLower.includes('signer') || keyLower.includes('signature')) && 
+                                             Array.isArray(value) && 
+                                             value.length > 0 && 
+                                             typeof value[0] === 'object';
+                        
+                        if (isSignerArray) {
+                            console.log(`✓ FRONTEND: Flattening signer array '${key}' with ${value.length} signers`);
+                            // Flatten the array into Signer1_Name, Signer2_Name, etc.
+                            value.forEach((signerObj, idx) => {
+                                const signerNum = idx + 1;
+                                for (const [subKey, subValue] of Object.entries(signerObj)) {
+                                    const flatKey = `Signer${signerNum}_${subKey}`;
+                                    
+                                    // Check if subValue is a confidence object
+                                    if (subValue && typeof subValue === 'object' && 'value' in subValue && 'confidence' in subValue) {
+                                        fieldsToFlatten[flatKey] = subValue.value;
+                                        fieldConfidence[flatKey] = subValue.confidence;
+                                        console.log(`✓ FRONTEND: Created ${flatKey} = ${subValue.value} (${subValue.confidence}% confidence)`);
+                                    } else {
+                                        fieldsToFlatten[flatKey] = subValue;
+                                        console.log(`✓ FRONTEND: Created ${flatKey} = ${subValue}`);
+                                    }
+                                }
+                            });
+                            // Remove the original array field
+                            delete fields[key];
+                        }
+                    }
+                    
+                    // Merge flattened fields back into fields
+                    fields = { ...fields, ...fieldsToFlatten };
+                    
                     currentPageData = fields; // Store for download
                     let html = '';
                     
                     // Debug: Log the fields to see what we're getting
-                    console.log('Page data fields:', fields);
+                    console.log('Page data fields (after flattening):', fields);
                     console.log('Has Signers?', 'Signers' in fields);
                     console.log('All field keys:', Object.keys(fields));
                     
@@ -1255,16 +1364,58 @@
                         // DEBUG: Log every field
                         console.log(`Processing field: ${key} = ${typeof value === 'object' ? JSON.stringify(value) : value}`);
                         
-                        if (key === 'AccountNumber') continue;
+                        if (key === 'AccountNumber' || key === 'Account_Number') continue;
+                        
+                        // PRIORITY CHECK: Match signer fields FIRST before any other processing
+                        // This catches: "Signer1_Name", "Signer1 Name", "Signer2_Address", "Signer2 ID", etc.
+                        // Match both underscore and space separators
+                        const signerQuickMatch = key.match(/^(?:signer|signature)(\d+)[\s_](.+)$/i);
+                        if (signerQuickMatch) {
+                            const signerNum = parseInt(signerQuickMatch[1]);
+                            const fieldName = signerQuickMatch[2].trim();
+                            console.log(`✓ Matched signer field: ${key} -> Signer ${signerNum}, Field: ${fieldName}`);
+                            if (!signerGroups[signerNum]) {
+                                signerGroups[signerNum] = {};
+                            }
+                            // Unwrap confidence object if present
+                            let fieldValue = value;
+                            if (value && typeof value === 'object' && !Array.isArray(value) && 'value' in value && 'confidence' in value) {
+                                fieldValue = value.value;
+                            }
+                            signerGroups[signerNum][fieldName] = fieldValue;
+                            continue;
+                        }
                         
                         // Handle nested Signers array (convert to flat format)
-                        if (key === 'Signers' && Array.isArray(value)) {
-                            console.log('Found Signers array with', value.length, 'signers');
-                            value.forEach((signer, index) => {
-                                const signerNum = index + 1;
-                                signerGroups[signerNum] = signer;
-                            });
-                            continue;
+                        // Check for multiple variations: Signers, signer_details, SignerDetails, account_holders with details, etc.
+                        const keyLower = key.toLowerCase().replace(/[\s_-]/g, '');
+                        const isSignerArray = Array.isArray(value) && (
+                            keyLower === 'signers' || 
+                            keyLower === 'signerdetails' || 
+                            keyLower === 'accountholders' ||
+                            keyLower.includes('signer')
+                        );
+                        
+                        if (isSignerArray && value.length > 0) {
+                            // Check if array contains objects (not just strings)
+                            const firstItem = value[0];
+                            const isObjectArray = typeof firstItem === 'object' && firstItem !== null && !Array.isArray(firstItem);
+                            
+                            if (isObjectArray) {
+                                console.log(`✓ Found ${key} array with ${value.length} signers (object format)`);
+                                value.forEach((signer, index) => {
+                                    const signerNum = index + 1;
+                                    // Only add if signer is an object with properties
+                                    if (typeof signer === 'object' && signer !== null && Object.keys(signer).length > 0) {
+                                        signerGroups[signerNum] = signer;
+                                        console.log(`✓ Added Signer ${signerNum} from ${key} array:`, signer);
+                                    }
+                                });
+                                continue;
+                            } else {
+                                // Array of strings (like names) - treat as regular field
+                                console.log(`${key} is an array of strings, not signer objects - treating as regular field`);
+                            }
                         }
                         
                         // Check if this is a signer field (Signer_1, Signer_2, etc.)
@@ -1280,17 +1431,53 @@
                         }
                         
                         // CRITICAL: Check for signer fields in multiple formats:
-                        // Format 1: Signer1_Name, Signer_1_Name
-                        // Format 2: signer_information_signer1_name (with prefix)
-                        // Format 3: signer1_name (lowercase)
-                        // Format 4: Signature1_Name, signature1_name (alternative naming)
+                        // Format 1: Signer1_Name, Signer_1_Name, Signer1Name
+                        // Format 2: "Signer 1 Name" (with spaces) - COMMON IN UI
+                        // Format 3: signer_information_signer1_name (with prefix)
+                        // Format 4: signer1_name (lowercase)
+                        // Format 5: Signature1_Name, signature1_name (alternative naming)
+                        // Format 6: SIGNER_INFORMATION_Signer1 (uppercase with nested object)
                         
-                        // Try format with prefix first: signer_information_signer1_name OR signature1_name
-                        let signerFieldMatch = key.match(/^.*(signer|signature)_?(\d+)_(.+)$/i);
+                        // Try multiple regex patterns to catch all variations
+                        let signerFieldMatch = null;
+                        let signerNum = null;
+                        let fieldName = null;
                         
-                        if (signerFieldMatch && signerFieldMatch[2]) {
-                            const signerNum = parseInt(signerFieldMatch[2]);
-                            const fieldName = signerFieldMatch[3];
+                        // Pattern 1: "Signer2 Name", "Signer 2 Name", "Signer2Name" (with or without spaces)
+                        signerFieldMatch = key.match(/^(?:signer|signature)\s*(\d+)\s+(.+)$/i);
+                        if (signerFieldMatch) {
+                            signerNum = parseInt(signerFieldMatch[1]);
+                            fieldName = signerFieldMatch[2];
+                        }
+                        
+                        // Pattern 2: Signer1_Name, Signer_1_Name, signer_information_signer1_name
+                        if (!signerFieldMatch) {
+                            signerFieldMatch = key.match(/^(?:.*_)?(?:signer|signature)(\d+)_(.+)$/i);
+                            if (signerFieldMatch) {
+                                signerNum = parseInt(signerFieldMatch[1]);
+                                fieldName = signerFieldMatch[2];
+                            }
+                        }
+                        
+                        // Pattern 3: Signer1Name, Signer1DOB (no underscore before field)
+                        if (!signerFieldMatch) {
+                            signerFieldMatch = key.match(/^(?:signer|signature)_?(\d+)([A-Z][a-zA-Z]+)$/);
+                            if (signerFieldMatch) {
+                                signerNum = parseInt(signerFieldMatch[1]);
+                                fieldName = signerFieldMatch[2];
+                            }
+                        }
+                        
+                        // Pattern 4: SIGNER_INFORMATION_Signer1, NAMES_Signer1_Name
+                        if (!signerFieldMatch) {
+                            signerFieldMatch = key.match(/^[A-Z_]*(?:SIGNER|SIGNATURE)_?(\d+)(?:_(.+))?$/i);
+                            if (signerFieldMatch) {
+                                signerNum = parseInt(signerFieldMatch[1]);
+                                fieldName = signerFieldMatch[2] || 'Info';
+                            }
+                        }
+                        
+                        if (signerNum && fieldName) {
                             console.log(`✓ MATCHED SIGNER FIELD: ${key} -> Signer ${signerNum}, Field: ${fieldName}`);
                             if (!signerGroups[signerNum]) {
                                 signerGroups[signerNum] = {};
@@ -1300,14 +1487,58 @@
                             console.log(`✓ Added to Signer ${signerNum}: ${fieldName} = ${value}`);
                             continue;
                         } else if (key.toLowerCase().includes('signer') || key.toLowerCase().includes('signature')) {
-                            console.warn(`⚠️ Field contains 'signer/signature' but didn't match regex: ${key}`);
+                            console.warn(`⚠️ Field contains 'signer/signature' but didn't match any pattern: ${key}`);
+                        }
+                        
+                        // FINAL SAFETY CHECK: If this is an array of objects and contains signer-like data, convert it
+                        if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'object') {
+                            const firstObj = value[0];
+                            // Check if it looks like signer data (has name, ssn, dob, etc.)
+                            const hasSignerFields = firstObj && (
+                                'name' in firstObj || 
+                                'Name' in firstObj ||
+                                'ssn' in firstObj ||
+                                'dob' in firstObj ||
+                                'address' in firstObj
+                            );
+                            
+                            if (hasSignerFields) {
+                                console.log(`✓ SAFETY CHECK: Found array of signer objects in field "${key}"`);
+                                value.forEach((signer, index) => {
+                                    const signerNum = index + 1;
+                                    signerGroups[signerNum] = signer;
+                                    console.log(`✓ Added Signer ${signerNum} from ${key}:`, signer);
+                                });
+                                continue;
+                            }
+                        }
+                        
+                        // Handle arrays (like SupportingDocuments)
+                        if (Array.isArray(value)) {
+                            regularFields[key] = value;
+                            console.log(`✓ Added array field to regularFields: ${key}`);
+                            continue;
                         }
                         
                         // Handle nested objects - flatten them into regularFields
-                        if (typeof value === 'object' && !Array.isArray(value)) {
+                        if (typeof value === 'object' && value !== null) {
+                            // Check if this is a confidence object that wasn't processed
+                            if ('value' in value && 'confidence' in value && Object.keys(value).length === 2) {
+                                // This is a confidence object - extract value and store confidence
+                                regularFields[key] = value.value;
+                                fieldConfidence[key] = value.confidence;
+                                console.log(`✓ Late-processed confidence object: ${key} = ${value.value} (${value.confidence}% confidence)`);
+                                continue;
+                            }
+                            
                             // Flatten nested object (e.g., dates.issue_date -> Issue Date)
                             for (const [nestedKey, nestedValue] of Object.entries(value)) {
-                                if (nestedValue && nestedValue !== 'N/A' && nestedValue !== '') {
+                                // Check if nested value is a confidence object
+                                if (nestedValue && typeof nestedValue === 'object' && 'value' in nestedValue && 'confidence' in nestedValue) {
+                                    regularFields[nestedKey] = nestedValue.value;
+                                    fieldConfidence[nestedKey] = nestedValue.confidence;
+                                    console.log(`✓ Nested confidence object: ${nestedKey} = ${nestedValue.value} (${nestedValue.confidence}% confidence)`);
+                                } else if (nestedValue && nestedValue !== 'N/A' && nestedValue !== '') {
                                     regularFields[nestedKey] = nestedValue;
                                 }
                             }
@@ -1317,9 +1548,86 @@
                         regularFields[key] = value;
                     }
                     
+                    // Helper function to escape HTML
+                    function escapeHtml(text) {
+                        const div = document.createElement('div');
+                        div.textContent = text;
+                        return div.innerHTML;
+                    }
+                    
                     // Display regular fields first (only fields with values)
+                    console.log('=== DISPLAYING REGULAR FIELDS ===');
+                    console.log('Regular fields:', Object.keys(regularFields));
+                    console.log('Has SupportingDocuments?', 'SupportingDocuments' in regularFields || 'Supporting_Documents' in regularFields);
+                    
                     for (const [key, value] of Object.entries(regularFields)) {
-                        const displayValue = Array.isArray(value) ? value.join(', ') : value;
+                        // Special handling for SupportingDocuments
+                        if (key === 'SupportingDocuments' || key === 'Supporting_Documents') {
+                            console.log('✓ Found SupportingDocuments field!', value);
+                            let docsArray = value;
+                            
+                            // Parse if it's a JSON string
+                            if (typeof value === 'string') {
+                                try {
+                                    docsArray = JSON.parse(value);
+                                    console.log('✓ Parsed SupportingDocuments:', docsArray);
+                                } catch (e) {
+                                    console.error('Failed to parse SupportingDocuments:', e);
+                                }
+                            }
+                            
+                            if (Array.isArray(docsArray) && docsArray.length > 0) {
+                                const docId = `supporting-docs-${Date.now()}`;
+                                html += `
+                                    <div class="field-item" style="background:linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);border-left-color:#0ea5e9;cursor:pointer;" onclick="toggleSupportingDocs('${docId}')">
+                                        <div style="display:flex;justify-content:space-between;align-items:center;">
+                                            <div class="field-label" style="color:#0369a1;font-weight:700;">📎 Supporting Documents (${docsArray.length})</div>
+                                            <span id="${docId}-icon" style="color:#0369a1;font-size:1.2em;font-weight:bold;transition:transform 0.3s;">▶</span>
+                                        </div>
+                                    </div>
+                                    <div id="${docId}" style="max-height:0;overflow:hidden;transition:max-height 0.4s ease;">
+                                        <div style="padding:10px 20px;background:#f8fafc;">
+                                `;
+                                
+                                docsArray.forEach((doc, idx) => {
+                                    const docType = doc.DocumentType || doc.Type || 'Document';
+                                    const details = doc.Details || doc.details || 'No details';
+                                    html += `
+                                        <div style="margin-bottom:12px;padding:12px;background:white;border-left:3px solid #0ea5e9;border-radius:6px;">
+                                            <div style="font-weight:700;color:#0369a1;margin-bottom:4px;">📄 ${docType}</div>
+                                            <div style="color:#475569;font-size:0.95em;">${escapeHtml(details)}</div>
+                                        </div>
+                                    `;
+                                });
+                                
+                                html += `
+                                        </div>
+                                    </div>
+                                `;
+                                totalFields++;
+                                filledFields++;
+                            }
+                            continue;
+                        }
+                        
+                        // Handle different value types properly
+                        let displayValue;
+                        if (Array.isArray(value)) {
+                            // Handle arrays - check if array contains objects
+                            if (value.length > 0 && typeof value[0] === 'object') {
+                                // Array of objects - convert to JSON string
+                                displayValue = JSON.stringify(value, null, 2);
+                            } else {
+                                // Array of primitives - join with comma
+                                displayValue = value.join(', ');
+                            }
+                        } else if (typeof value === 'object' && value !== null) {
+                            // Handle objects - convert to formatted JSON
+                            displayValue = JSON.stringify(value, null, 2);
+                        } else {
+                            // Primitive value - use as is
+                            displayValue = value;
+                        }
                         
                         // Skip fields with no value
                         if (!displayValue || displayValue === 'N/A' || displayValue === '') {
@@ -1329,30 +1637,39 @@
                         totalFields++;
                         filledFields++;
                         
+                        // Prepare confidence badge with color
+                        let confidenceBadge = '';
+                        
+                        if (fieldConfidence[key]) {
+                            const conf = fieldConfidence[key];
+                            let confColor = '#6b7280'; // Default gray
+                            
+                            // Set color based on confidence
+                            if (conf >= 90) {
+                                confColor = '#10b981'; // Green
+                            } else if (conf >= 70) {
+                                confColor = '#f59e0b'; // Orange/Yellow
+                            } else {
+                                confColor = '#ef4444'; // Red
+                            }
+                            
+                            // Add confidence percentage badge with color
+                            confidenceBadge = ` <span style="color:${confColor};font-size:0.85em;font-weight:700;">(${conf}%)</span>`;
+                        }
+                        
                         html += `
                             <div class="field-item">
                                 <div class="field-label">${key.replace(/_/g, ' ')}</div>
-                                <div class="field-value" data-field="${key}">${displayValue}</div>
+                                <div class="field-value" data-field="${key}" style="white-space: pre-wrap; font-family: ${typeof value === 'object' ? 'monospace' : 'inherit'};">${displayValue}${confidenceBadge}</div>
                             </div>
                         `;
                     }
                     
-                    // Display signer groups
+                    // Display signer groups with clean design
                     const signerNumbers = Object.keys(signerGroups).sort((a, b) => a - b);
                     if (signerNumbers.length > 0) {
                         console.log('Displaying', signerNumbers.length, 'signer groups:', signerNumbers);
                         console.log('Signer groups data:', signerGroups);
-                        
-                        // Add section header for signers
-                        html += `
-                            <div style="margin-top:25px;margin-bottom:10px;padding:10px;background:#f8fafc;border-left:4px solid #667eea;border-radius:4px;">
-                                <div style="font-weight:700;font-size:1.2em;color:#334155;display:flex;align-items:center;gap:8px;">
-                                    <span style="font-size:1.3em;">👥</span>
-                                    Signers Information
-                                    <span style="background:#667eea;color:white;padding:2px 10px;border-radius:12px;font-size:0.75em;font-weight:600;">${signerNumbers.length} ${signerNumbers.length === 1 ? 'Signer' : 'Signers'}</span>
-                                </div>
-                            </div>
-                        `;
                     } else {
                         console.log('No signer groups found');
                     }
@@ -1365,7 +1682,34 @@
                         let signerFieldCount = 0;
                         
                         for (const [signerKey, signerValue] of Object.entries(signer)) {
-                            const displayValue = Array.isArray(signerValue) ? signerValue.join(', ') : signerValue;
+                            // Check if this is a confidence object first
+                            let actualValue = signerValue;
+                            const signerFieldKey = `Signer${signerNum}_${signerKey}`;
+                            
+                            if (signerValue && typeof signerValue === 'object' && !Array.isArray(signerValue) && 'value' in signerValue && 'confidence' in signerValue) {
+                                actualValue = signerValue.value;
+                                fieldConfidence[signerFieldKey] = signerValue.confidence;
+                                console.log(`✓ Signer confidence object: ${signerFieldKey} = ${actualValue} (${signerValue.confidence}% confidence)`);
+                            }
+                            
+                            // Handle different value types properly
+                            let displayValue;
+                            if (Array.isArray(actualValue)) {
+                                // Handle arrays - check if array contains objects
+                                if (actualValue.length > 0 && typeof actualValue[0] === 'object') {
+                                    // Array of objects - convert to JSON string
+                                    displayValue = JSON.stringify(actualValue, null, 2);
+                                } else {
+                                    // Array of primitives - join with comma
+                                    displayValue = actualValue.join(', ');
+                                }
+                            } else if (typeof actualValue === 'object' && actualValue !== null) {
+                                // Handle objects - convert to formatted JSON
+                                displayValue = JSON.stringify(actualValue, null, 2);
+                            } else {
+                                // Primitive value - use as is
+                                displayValue = actualValue;
+                            }
                             
                             // Skip fields with no value
                             if (!displayValue || displayValue === 'N/A' || displayValue === '') {
@@ -1376,42 +1720,66 @@
                             totalFields++;
                             filledFields++;
                             
+                            // Prepare confidence badge with color
+                            let confidenceBadge = '';
+                            
+                            if (fieldConfidence[signerFieldKey]) {
+                                const conf = fieldConfidence[signerFieldKey];
+                                let confColor = '#6b7280'; // Default gray
+                                
+                                // Set color based on confidence
+                                if (conf >= 90) {
+                                    confColor = '#10b981'; // Green
+                                } else if (conf >= 70) {
+                                    confColor = '#f59e0b'; // Orange/Yellow
+                                } else {
+                                    confColor = '#ef4444'; // Red
+                                }
+                                
+                                // Add confidence percentage badge with color
+                                confidenceBadge = ` <span style="color:${confColor};font-size:0.85em;font-weight:700;">(${conf}%)</span>`;
+                            }
+                            
+                            const isJson = typeof displayValue === 'string' && (displayValue.trim().startsWith('{') || displayValue.trim().startsWith('['));
+                            
                             signerFieldsHtml += `
-                                <div class="field-item">
-                                    <div class="field-label">${signerKey.replace(/_/g, ' ')}</div>
-                                    <div class="field-value" data-field="Signer${signerNum}_${signerKey}">${displayValue}</div>
+                                <div style="margin-bottom:12px;padding:12px;background:white;border-left:3px solid #667eea;border-radius:6px;">
+                                    <div style="font-weight:700;color:#667eea;margin-bottom:4px;font-size:0.85em;">${signerKey.replace(/_/g, ' ')}</div>
+                                    <div style="color:#1e293b;font-size:0.95em;font-family:${isJson ? 'monospace' : 'inherit'};white-space:${isJson ? 'pre-wrap' : 'normal'};">${displayValue}${confidenceBadge}</div>
                                 </div>
                             `;
                         }
                         
                         // Only show signer header if there are fields to display
                         if (signerFieldCount > 0) {
+                            const signerId = `signer-${signerNum}-${Date.now()}`;
                             html += `
-                                <div class="field-item" style="background:linear-gradient(135deg, #667eea 0%, #764ba2 100%);border:none;margin-top:20px;margin-bottom:0;cursor:pointer;box-shadow:0 4px 6px rgba(0,0,0,0.1);" onclick="toggleSignerSection(${signerNum})">
+                                <div class="field-item" style="background:linear-gradient(135deg, #f0f4ff 0%, #e5edff 100%);border-left-color:#667eea;cursor:pointer;margin-top:15px;" onclick="toggleSignerSection('${signerId}')">
                                     <div style="display:flex;justify-content:space-between;align-items:center;">
-                                        <div class="field-label" style="color:white;font-weight:700;font-size:1.15em;margin-bottom:0;display:flex;align-items:center;gap:8px;">
-                                            <span style="background:rgba(255,255,255,0.2);padding:4px 10px;border-radius:20px;font-size:0.9em;">👤</span>
-                                            Signer ${signerNum}
-                                            <span style="background:rgba(255,255,255,0.2);padding:2px 8px;border-radius:12px;font-size:0.85em;font-weight:500;">${signerFieldCount} fields</span>
-                                        </div>
-                                        <span class="expand-icon expanded" id="signer-icon-${signerNum}" style="color:white;font-size:1.3em;font-weight:bold;">▼</span>
+                                        <div class="field-label" style="color:#4338ca;font-weight:700;">👤 Signer ${signerNum} (${signerFieldCount} fields)</div>
+                                        <span id="${signerId}-icon" style="color:#4338ca;font-size:1.2em;font-weight:bold;transition:transform 0.3s;">▶</span>
                                     </div>
                                 </div>
-                                <div id="signer-fields-${signerNum}" class="signer-fields-container" style="max-height:2000px;overflow:hidden;transition:max-height 0.3s ease;border-left:3px solid #667eea;padding-left:10px;margin-left:5px;">
-                                    ${signerFieldsHtml}
+                                <div id="${signerId}" style="max-height:0;overflow:hidden;transition:max-height 0.4s ease;">
+                                    <div style="padding:10px 20px;background:#f8fafc;">
+                                        ${signerFieldsHtml}
+                                    </div>
                                 </div>
                             `;
                         }
                     });
                     
-                    // Calculate accuracy percentage
-                    const accuracy = totalFields > 0 ? Math.round((filledFields / totalFields) * 100) : 0;
-                    const accuracyColor = accuracy >= 80 ? '#10b981' : accuracy >= 60 ? '#f59e0b' : '#ef4444';
+                    // Calculate average confidence score for this page
+                    const confidenceScores = Object.values(fieldConfidence);
+                    const avgConfidence = confidenceScores.length > 0 
+                        ? Math.round(confidenceScores.reduce((sum, conf) => sum + conf, 0) / confidenceScores.length)
+                        : 0;
+                    const confidenceColor = avgConfidence >= 90 ? '#10b981' : avgConfidence >= 70 ? '#f59e0b' : '#ef4444';
                     
                     document.getElementById('dataMeta').innerHTML = `
                         Account ${account.accountNumber} - Page ${currentPageIndex + 1}
-                        <span style="display:inline-block;margin-left:10px;padding:4px 8px;background:${accuracyColor};color:white;border-radius:4px;font-size:0.85em;font-weight:600;">
-                            ${accuracy}% Complete (${filledFields}/${totalFields} fields)
+                        <span style="display:inline-block;margin-left:10px;padding:4px 8px;background:${confidenceColor};color:white;border-radius:4px;font-size:0.85em;font-weight:600;">
+                            ${avgConfidence}% Confidence (${filledFields} fields)
                         </span>
                     `;
                     
@@ -1425,7 +1793,7 @@
                     
                     // Update JSON view
                     if (currentView === 'json') {
-                        document.getElementById('jsonDisplay').textContent = JSON.stringify(fields, null, 2);
+                        document.getElementById('jsonDisplay').innerHTML = formatJsonWithConfidence(fields);
                     }
                 } else {
                     currentPageData = null;
@@ -1764,6 +2132,32 @@
             }
         }
 
+        function formatJsonWithConfidence(data) {
+            // Format JSON with syntax highlighting and colored confidence scores
+            let json = JSON.stringify(data, null, 2);
+            
+            // Syntax highlighting
+            json = json.replace(/(".*?"):/g, '<span style="color:#9cdcfe;">$1</span>:');
+            json = json.replace(/: (".*?")/g, ': <span style="color:#ce9178;">$1</span>');
+            json = json.replace(/: (\d+\.?\d*)/g, function(match, num) {
+                // Check if this is a confidence score (look for "confidence": pattern before it)
+                return ': <span style="color:#b5cea8;">' + num + '</span>';
+            });
+            json = json.replace(/: (true|false|null)/g, ': <span style="color:#569cd6;">$1</span>');
+            
+            // Highlight confidence scores with colors
+            json = json.replace(/"confidence":\s*<span style="color:#b5cea8;">(\d+)<\/span>/g, function(match, conf) {
+                const confNum = parseInt(conf);
+                let color = '#6b7280';
+                if (confNum >= 90) color = '#10b981';
+                else if (confNum >= 70) color = '#f59e0b';
+                else color = '#ef4444';
+                return `"confidence": <span style="color:${color};font-weight:700;">${conf}</span>`;
+            });
+            
+            return json;
+        }
+        
         function switchTab(view) {
             currentView = view;
             document.getElementById('reviewTab').classList.toggle('active', view === 'review');
@@ -1772,7 +2166,7 @@
             document.getElementById('jsonContent').style.display = view === 'json' ? 'block' : 'none';
             document.getElementById('fieldsSection').style.display = view === 'review' ? 'block' : 'none';
             if (view === 'json' && currentPageData) {
-                document.getElementById('jsonDisplay').textContent = JSON.stringify(currentPageData, null, 2);
+                document.getElementById('jsonDisplay').innerHTML = formatJsonWithConfidence(currentPageData);
             }
         }
         
@@ -2091,18 +2485,25 @@
                 modalContent.style.cssText = 'background: white; border-radius: 12px; width: 90%; max-width: 800px; max-height: 80vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3);';
                 
                 let changesHTML = `
-                    <div style="padding: 25px; border-bottom: 2px solid #e5e7eb;">
-                        <h2 style="font-size: 1.5em; color: #1f2937; margin-bottom: 10px;">Review Changes</h2>
-                        <p style="color: #6b7280; font-size: 0.95em;">Select the changes you want to apply to the document</p>
+                    <div style="padding: 30px 35px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px 12px 0 0;">
+                        <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 12px;">
+                            <div style="width: 48px; height: 48px; background: rgba(255,255,255,0.2); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 24px;">
+                                📝
+                            </div>
+                            <div>
+                                <h2 style="font-size: 1.75em; color: white; margin: 0; font-weight: 700; letter-spacing: -0.5px;">Review Changes</h2>
+                                <p style="color: rgba(255,255,255,0.9); font-size: 0.95em; margin: 4px 0 0 0;">Select which updates you want to apply</p>
+                            </div>
+                        </div>
                     </div>
-                    <div style="padding: 25px;">
-                        <div style="margin-bottom: 20px;">
-                            <label style="display: flex; align-items: center; gap: 10px; padding: 12px; background: #f3f4f6; border-radius: 8px; cursor: pointer;">
-                                <input type="checkbox" id="selectAll" onchange="toggleAllChanges(this.checked)" style="width: 18px; height: 18px; cursor: pointer;">
-                                <span style="font-weight: 600; color: #374151;">Select All Changes</span>
+                    <div style="padding: 30px 35px; background: #f9fafb;">
+                        <div style="margin-bottom: 25px;">
+                            <label style="display: flex; align-items: center; gap: 12px; padding: 16px 20px; background: white; border: 2px solid #e5e7eb; border-radius: 10px; cursor: pointer; transition: all 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.05);" onmouseover="this.style.borderColor='#667eea'; this.style.boxShadow='0 4px 12px rgba(102,126,234,0.15)'" onmouseout="this.style.borderColor='#e5e7eb'; this.style.boxShadow='0 1px 3px rgba(0,0,0,0.05)'">
+                                <input type="checkbox" id="selectAll" onchange="toggleAllChanges(this.checked)" style="width: 20px; height: 20px; cursor: pointer; accent-color: #667eea;">
+                                <span style="font-weight: 600; color: #1f2937; font-size: 1.05em;">Select All Changes (${changes.length})</span>
                             </label>
                         </div>
-                        <div style="display: flex; flex-direction: column; gap: 15px;">
+                        <div style="display: flex; flex-direction: column; gap: 16px;">
                 `;
                 
                 changes.forEach((change, index) => {
@@ -2112,29 +2513,40 @@
                     const oldValue = change.old_value || 'N/A';
                     const newValue = change.new_value || '(empty)';
                     
-                    const bgColor = changeType === 'added' ? '#ecfdf5' : '#fef3c7';
-                    const borderColor = changeType === 'added' ? '#10b981' : '#f59e0b';
-                    const icon = changeType === 'added' ? '➕' : '✏️';
+                    const isAdded = changeType === 'added';
+                    const bgColor = isAdded ? 'white' : 'white';
+                    const accentColor = isAdded ? '#10b981' : '#f59e0b';
+                    const accentBg = isAdded ? '#ecfdf5' : '#fef3c7';
+                    const icon = isAdded ? '➕' : '✏️';
+                    const badgeText = isAdded ? 'NEW' : 'UPDATED';
                     
                     changesHTML += `
-                        <label style="display: flex; gap: 15px; padding: 15px; background: ${bgColor}; border-left: 4px solid ${borderColor}; border-radius: 8px; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.transform='translateX(5px)'" onmouseout="this.style.transform='translateX(0)'">
-                            <input type="checkbox" class="change-checkbox" data-index="${index}" style="width: 18px; height: 18px; cursor: pointer; margin-top: 2px;">
-                            <div style="flex: 1;">
-                                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
-                                    <span style="font-size: 1.2em;">${icon}</span>
-                                    <span style="font-weight: 600; color: #1f2937;">${fieldDisplayName}</span>
-                                    <span style="padding: 2px 8px; background: white; border-radius: 12px; font-size: 0.75em; font-weight: 600; color: ${borderColor};">${changeType.toUpperCase()}</span>
+                        <label style="display: flex; gap: 18px; padding: 20px; background: ${bgColor}; border: 2px solid #e5e7eb; border-radius: 12px; cursor: pointer; transition: all 0.3s; box-shadow: 0 1px 3px rgba(0,0,0,0.05);" onmouseover="this.style.borderColor='${accentColor}'; this.style.boxShadow='0 4px 12px rgba(0,0,0,0.1)'; this.style.transform='translateY(-2px)'" onmouseout="this.style.borderColor='#e5e7eb'; this.style.boxShadow='0 1px 3px rgba(0,0,0,0.05)'; this.style.transform='translateY(0)'">
+                            <input type="checkbox" class="change-checkbox" data-index="${index}" style="width: 22px; height: 22px; cursor: pointer; margin-top: 4px; accent-color: ${accentColor}; flex-shrink: 0;">
+                            <div style="flex: 1; min-width: 0;">
+                                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap;">
+                                    <div style="width: 36px; height: 36px; background: ${accentBg}; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0;">
+                                        ${icon}
+                                    </div>
+                                    <span style="font-weight: 700; color: #111827; font-size: 1.1em; letter-spacing: -0.3px;">${fieldDisplayName}</span>
+                                    <span style="padding: 4px 12px; background: ${accentColor}; color: white; border-radius: 20px; font-size: 0.75em; font-weight: 700; letter-spacing: 0.5px;">${badgeText}</span>
                                 </div>
-                                <div style="font-size: 0.8em; color: #9ca3af; margin-bottom: 8px;">${field}</div>
+                                <div style="font-size: 0.8em; color: #9ca3af; margin-bottom: 14px; font-family: 'Courier New', monospace; background: #f9fafb; padding: 6px 10px; border-radius: 6px; display: inline-block;">${field}</div>
                                 ${changeType === 'updated' ? `
-                                    <div style="margin-bottom: 5px;">
-                                        <span style="font-size: 0.85em; color: #6b7280; font-weight: 600;">Old Value:</span>
-                                        <div style="padding: 8px 12px; background: #fee2e2; color: #991b1b; border-radius: 6px; font-size: 0.95em; margin-top: 4px; word-break: break-word;">${oldValue}</div>
+                                    <div style="margin-bottom: 12px;">
+                                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                                            <span style="font-size: 0.8em; color: #6b7280; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Previous Value</span>
+                                            <div style="flex: 1; height: 1px; background: #e5e7eb;"></div>
+                                        </div>
+                                        <div style="padding: 12px 16px; background: #fef2f2; border-left: 3px solid #ef4444; color: #991b1b; border-radius: 8px; font-size: 0.95em; line-height: 1.6; word-break: break-word; font-family: system-ui, -apple-system, sans-serif;">${oldValue}</div>
                                     </div>
                                 ` : ''}
                                 <div>
-                                    <span style="font-size: 0.85em; color: #6b7280; font-weight: 600;">New Value:</span>
-                                    <div style="padding: 8px 12px; background: #d1fae5; color: #065f46; border-radius: 6px; font-size: 0.95em; margin-top: 4px; word-break: break-word;">${newValue}</div>
+                                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                                        <span style="font-size: 0.8em; color: #6b7280; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">${isAdded ? 'Value' : 'New Value'}</span>
+                                        <div style="flex: 1; height: 1px; background: #e5e7eb;"></div>
+                                    </div>
+                                    <div style="padding: 12px 16px; background: #f0fdf4; border-left: 3px solid #10b981; color: #065f46; border-radius: 8px; font-size: 0.95em; line-height: 1.6; word-break: break-word; font-family: system-ui, -apple-system, sans-serif;">${newValue}</div>
                                 </div>
                             </div>
                         </label>
@@ -2144,13 +2556,18 @@
                 changesHTML += `
                         </div>
                     </div>
-                    <div style="padding: 20px 25px; background: #f9fafb; border-top: 1px solid #e5e7eb; display: flex; justify-content: flex-end; gap: 10px;">
-                        <button onclick="closeChangesModal()" style="padding: 10px 20px; background: white; color: #6b7280; border: 1px solid #d1d5db; border-radius: 6px; cursor: pointer; font-weight: 500; transition: all 0.3s;">
-                            Cancel
-                        </button>
-                        <button onclick="applySelectedChanges()" style="padding: 10px 20px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; transition: all 0.3s;">
-                            Apply Selected Changes
-                        </button>
+                    <div style="padding: 25px 35px; background: white; border-top: 2px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; border-radius: 0 0 12px 12px;">
+                        <div style="color: #6b7280; font-size: 0.9em;">
+                            <span style="font-weight: 600; color: #374151;">${changes.length}</span> change(s) detected
+                        </div>
+                        <div style="display: flex; gap: 12px;">
+                            <button onclick="closeChangesModal()" style="padding: 12px 24px; background: white; color: #6b7280; border: 2px solid #d1d5db; border-radius: 8px; cursor: pointer; font-weight: 600; transition: all 0.3s; font-size: 0.95em;" onmouseover="this.style.background='#f9fafb'; this.style.borderColor='#9ca3af'" onmouseout="this.style.background='white'; this.style.borderColor='#d1d5db'">
+                                Cancel
+                            </button>
+                            <button onclick="applySelectedChanges()" style="padding: 12px 28px; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; transition: all 0.3s; font-size: 0.95em; box-shadow: 0 4px 12px rgba(16,185,129,0.3);" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 16px rgba(16,185,129,0.4)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 12px rgba(16,185,129,0.3)'">
+                                ✓ Apply Selected Changes
+                            </button>
+                        </div>
                     </div>
                 `;
                 
