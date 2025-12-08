@@ -145,7 +145,7 @@
                 <thead>
                     <tr>
                         <th style="width:50px;"></th>
-                        <th class="sortable" onclick="sortTable('name')">Skill Name</th>
+                        <th class="sortable" onclick="sortTable('name')">Document Name</th>
                         <th class="sortable" onclick="sortTable('date')" style="width:150px;">Created Date</th>
                         <th class="sortable" onclick="sortTable('type')">Document Type</th>
                         <th style="width:120px;">Actions</th>
@@ -171,9 +171,7 @@
         <div class="modal-content">
             <div class="modal-header"><h2><span>📄</span><span>Process New Document</span></h2><button class="close-btn" onclick="closeCreateModal()">×</button></div>
             <div class="modal-body">
-                <div class="form-group"><label class="form-label"><span class="required">*</span>Document Name</label><input type="text" class="form-input" id="docName" placeholder="Enter document name" required></div>
-                <div class="form-group"><label class="form-label">Description</label><textarea class="form-input form-textarea" id="docDescription" placeholder="Optional"></textarea></div>
-                <div class="form-group"><label class="form-label"><span class="required">*</span>Upload Document</label><div class="file-upload" onclick="document.getElementById('fileInput').click()"><div style="font-size:3em;color:#cbd5e0;">📁</div><div>Click to upload or drag and drop</div><div style="font-size:0.85em;color:#adb5bd;">PDF, PNG, JPG, JPEG, TXT</div></div><input type="file" id="fileInput" class="file-input" accept=".pdf,.png,.jpg,.jpeg,.txt" onchange="handleFileSelect(event)"><div id="selectedFileInfo" style="display:none;"></div></div>
+                <div class="form-group"><label class="form-label"><span class="required">*</span>Upload Document</label><div class="file-upload" onclick="document.getElementById('fileInput').click()"><div style="font-size:3em;color:#cbd5e0;">📁</div><div>Click to upload or drag and drop</div><div style="font-size:0.85em;color:#adb5bd;">PDF, PNG, JPG, JPEG, TXT</div><div style="font-size:0.9em;color:#64748b;margin-top:8px;">The filename will be used as the document name</div></div><input type="file" id="fileInput" class="file-input" accept=".pdf,.png,.jpg,.jpeg,.txt" onchange="handleFileSelect(event)"><div id="selectedFileInfo" style="display:none;"></div></div>
             </div>
             <div class="modal-footer"><button class="btn btn-cancel" onclick="closeCreateModal()">Cancel</button><button class="btn btn-create" id="createBtn" onclick="processDocument()" disabled>Create</button></div>
         </div>
@@ -459,8 +457,7 @@
                 validateForm();
             }
         }
-        function validateForm(){const docName=document.getElementById('docName').value.trim();document.getElementById('createBtn').disabled=!(docName&&selectedFile);}
-        document.getElementById('docName').addEventListener('input',validateForm);
+        function validateForm(){document.getElementById('createBtn').disabled=!selectedFile;}
         async function processDocument(){
             if(!selectedFile)return;
             const createBtn=document.getElementById('createBtn');
@@ -468,10 +465,6 @@
             createBtn.textContent='Processing...';
             const formData=new FormData();
             formData.append('file',selectedFile);
-            const docName=document.getElementById('docName').value.trim();
-            if(docName){
-                formData.append('document_name',docName);
-            }
             
             try{
                 const response=await fetch('/process',{method:'POST',body:formData});

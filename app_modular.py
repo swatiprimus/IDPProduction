@@ -1,15 +1,26 @@
 #!/usr/bin/env python3
 """
-Universal IDP - Handles any document type dynamically
-AI determines document type and extracts relevant fields
+Universal IDP - Modular Version
+Uses clean modular services instead of monolithic code
 """
 
-from flask import Flask, render_template, request, jsonify
-import boto3, json, time, threading, hashlib, os, re
+from flask import Flask, render_template, request, jsonify, send_file
+import boto3
+import json
+import time
+import threading
+import hashlib
+import os
+import re
 from datetime import datetime
 import io
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import multiprocessing
+
+# Import modular services
+from app.services.textract_service import extract_text_with_textract, try_extract_pdf_with_pypdf
+from app.services.account_splitter import split_accounts_strict
+from app.services.document_detector import detect_document_type, SUPPORTED_DOCUMENT_TYPES
+from app.services.loan_processor import process_loan_document
 
 app = Flask(__name__)
 
@@ -28,97 +39,23 @@ job_status_map = {}
 OUTPUT_DIR = "ocr_results"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# ----------------------------------------------------------
-# Loan Document Account Splitting Logic (from loan_pipeline_ui.py)
-# ----------------------------------------------------------
-ACCOUNT_INLINE_RE = re.compile(r"^ACCOUNT NUMBER[:\s]*([0-9]{6,15})\b")
-ACCOUNT_LINE_RE = re.compile(r"^[0-9]{6,15}\b$")
-ACCOUNT_HEADER_RE = re.compile(r"^ACCOUNT NUMBER:?\s*$")
-ACCOUNT_HOLDER_RE = re.compile(r"^Account Holder Names:?\s*$")
+# Persistent storage for processed documents
+DOCUMENTS_DB_FILE = "processed_documents.json"
 
+def load_documents_db():
+    """Load processed documents from file"""
+    if os.path.exists(DOCUMENTS_DB_FILE):
+        with open(DOCUMENTS_DB_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return []
 
-def split_accounts_strict(text: str):
-    """
-    Smart splitter for loan documents:
-    - Handles both inline and multi-line 'ACCOUNT NUMBER' formats.
-    - Accumulates text for the same account number if repeated.
-    """
-    print(f"\n{'='*80}")
-    print(f"[SPLIT_ACCOUNTS] Starting account splitting...")
-    print(f"[SPLIT_ACCOUNTS] Input text length: {len(text)} characters")
-    
-    lines = text.splitlines()
-    print(f"[SPLIT_ACCOUNTS] Total lines: {len(lines)}")
-    
-    account_chunks = {}
-    current_account = None
-    buffer = []
+def save_documents_db(documents):
+    """Save processed documents to file"""
+    with open(DOCUMENTS_DB_FILE, 'w', encoding='utf-8') as f:
+        json.dump(documents, indent=2, fp=f)
 
-    i = 0
-    n = len(lines)
-    while i < n:
-        line = lines[i].strip()
-
-        # --- Case 1: Inline account number ---
-        inline_match = ACCOUNT_INLINE_RE.match(line)
-        if inline_match:
-            acc = inline_match.group(1)
-            print(f"[SPLIT_ACCOUNTS] Line {i+1}: Found inline account number: {acc}")
-            # Save previous buffer if moving to a new account
-            if current_account and buffer:
-                account_chunks[current_account] = (
-                    account_chunks.get(current_account, "") + "\n" + "\n".join(buffer)
-                )
-                buffer = []
-            current_account = acc
-            i += 1
-            continue
-
-        # --- Case 2: Multi-line header format ---
-        if ACCOUNT_HEADER_RE.match(line):
-            # Look ahead for "Account Holder Names:" then a number
-            j = i + 1
-            while j < n and lines[j].strip() == "":
-                j += 1
-            if j < n and ACCOUNT_HOLDER_RE.match(lines[j].strip()):
-                k = j + 1
-                while k < n and lines[k].strip() == "":
-                    k += 1
-                if k < n and ACCOUNT_LINE_RE.match(lines[k].strip()):
-                    acc = lines[k].strip()
-                    print(f"[SPLIT_ACCOUNTS] Line {i+1}: Found multi-line account number: {acc}")
-                    if current_account and buffer:
-                        account_chunks[current_account] = (
-                            account_chunks.get(current_account, "") + "\n" + "\n".join(buffer)
-                        )
-                        buffer = []
-                    current_account = acc
-                    i = k + 1
-                    continue
-
-        # --- Default: add to current account buffer ---
-        if current_account:
-            buffer.append(lines[i])
-        i += 1
-
-    # Save last buffer
-    if current_account and buffer:
-        account_chunks[current_account] = (
-            account_chunks.get(current_account, "") + "\n" + "\n".join(buffer)
-        )
-
-    # Convert to structured list
-    chunks = [{"accountNumber": acc, "text": txt.strip()} for acc, txt in account_chunks.items()]
-    
-    print(f"[SPLIT_ACCOUNTS] ✓ Found {len(chunks)} unique accounts")
-    for idx, chunk in enumerate(chunks):
-        acc_num = chunk.get("accountNumber", "")
-        text_len = len(chunk.get("text", ""))
-        print(f"[SPLIT_ACCOUNTS]   Account {idx+1}: {acc_num} ({text_len} chars)")
-    print(f"{'='*80}\n")
-    
-    return chunks
-
+# Load existing documents on startup
+processed_documents = load_documents_db()
 
 def _process_single_page_scan(args):
     """Helper function to process a single page (for parallel processing)"""
@@ -291,11 +228,6 @@ WHAT TO EXTRACT:
   - Card_Details, Abbreviations_Needed
   - Branch_Name, Associate_Name
   - ALL other form fields with labels
-  - **CRITICAL FOR ACCOUNT NUMBER**: 
-    * Extract ONLY the PRIMARY account number from the main form/header (usually labeled "ACCOUNT NUMBER:" at the top)
-    * DO NOT extract account numbers from summary lists, sidebars, or reference sections
-    * If you see a list of multiple account numbers (like "Account Numbers: 123, 456, 789"), IGNORE IT
-    * Only extract the single account number that this specific page is about
 ✓ **SIGNER INFORMATION (if applicable):**
   - If ONE signer: Signer1_Name, Signer1_SSN, Signer1_DateOfBirth, Signer1_Address, Signer1_Phone, Signer1_DriversLicense
   - If TWO signers: Add Signer2_Name, Signer2_SSN, Signer2_DateOfBirth, Signer2_Address, Signer2_Phone, Signer2_DriversLicense
@@ -518,12 +450,6 @@ EXTRACTION RULES:
 - **IMPORTANT: Extract ALL STAMP DATES** - Look for date stamps like "DEC 26 2014", "JAN 15 2023", etc.
 - **IMPORTANT: Extract REFERENCE NUMBERS** - Look for numbers like "#298", "Ref #123", etc.
 - Extract ALL identification numbers (SSN, Tax ID, License numbers, etc.)
-- **CRITICAL FOR ACCOUNT NUMBER**: 
-  * Extract ONLY the PRIMARY account number from the main form/header (usually labeled "ACCOUNT NUMBER:" at the top)
-  * DO NOT extract account numbers from summary lists, sidebars, or reference sections
-  * If you see a list of multiple account numbers (like "Account Numbers: 123, 456, 789"), IGNORE IT
-  * Only extract the single account number that this specific page is about
-  * The primary account number is typically at the top of the form in a field labeled "ACCOUNT NUMBER"
 - Include ALL financial information (balances, limits, rates, fees)
 - Extract ALL addresses (mailing, physical, business, home)
 - Include ALL contact information (phone, fax, email, website)
@@ -822,189 +748,6 @@ def call_bedrock(prompt: str, text: str, max_tokens: int = 8192):
     return json.loads(resp["body"].read())["content"][0]["text"]
 
 
-def extract_text_with_textract_async(s3_bucket: str, s3_key: str):
-    """Extract text from PDF using Textract async API (for scanned/multi-page PDFs)"""
-    try:
-        # Start async job
-        response = textract.start_document_text_detection(
-            DocumentLocation={'S3Object': {'Bucket': s3_bucket, 'Name': s3_key}}
-        )
-        
-        job_id = response['JobId']
-        
-        # Poll for completion (max 5 minutes)
-        max_attempts = 60
-        attempt = 0
-        
-        while attempt < max_attempts:
-            time.sleep(5)  # Wait 5 seconds between checks
-            
-            result = textract.get_document_text_detection(JobId=job_id)
-            status = result['JobStatus']
-            
-            if status == 'SUCCEEDED':
-                # Extract text from all pages
-                extracted_text = ""
-                for block in result.get('Blocks', []):
-                    if block['BlockType'] == 'LINE':
-                        extracted_text += block['Text'] + "\n"
-                
-                # Handle pagination if there are more results
-                next_token = result.get('NextToken')
-                while next_token:
-                    result = textract.get_document_text_detection(
-                        JobId=job_id,
-                        NextToken=next_token
-                    )
-                    for block in result.get('Blocks', []):
-                        if block['BlockType'] == 'LINE':
-                            extracted_text += block['Text'] + "\n"
-                    next_token = result.get('NextToken')
-                
-                return extracted_text
-            
-            elif status == 'FAILED':
-                raise Exception(f"Textract async job failed: {result.get('StatusMessage', 'Unknown error')}")
-            
-            attempt += 1
-        
-        raise Exception("Textract async job timed out after 5 minutes")
-        
-    except Exception as e:
-        raise Exception(f"Textract async processing failed: {str(e)}")
-
-
-def extract_text_with_textract(file_bytes: bytes, filename: str):
-    """Extract text from document using Amazon Textract"""
-    try:
-        print(f"\n{'='*80}")
-        print(f"[TEXTRACT] Starting OCR for: {filename}")
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        file_ext = filename.lower().split('.')[-1]
-        
-        # Validate file size (Textract limits: 5MB for sync, 500MB for async via S3)
-        file_size_mb = len(file_bytes) / (1024 * 1024)
-        print(f"[TEXTRACT] File size: {file_size_mb:.2f} MB")
-        print(f"[TEXTRACT] File type: {file_ext.upper()}")
-        
-        # For images (PNG, JPG, JPEG), use bytes directly
-        if file_ext in ['png', 'jpg', 'jpeg']:
-            print(f"[TEXTRACT] Processing image file...")
-            if file_size_mb > 5:
-                print(f"[TEXTRACT] Image > 5MB, uploading to S3...")
-                # If larger than 5MB, upload to S3
-                s3_key = f"uploads/{timestamp}_{filename}"
-                s3_client.put_object(
-                    Bucket=S3_BUCKET,
-                    Key=s3_key,
-                    Body=file_bytes,
-                    ContentType=f'image/{file_ext}'
-                )
-                print(f"[TEXTRACT] ✓ Uploaded to S3: {s3_key}")
-                print(f"[TEXTRACT] Calling Textract detect_document_text (S3)...")
-                response = textract.detect_document_text(
-                    Document={'S3Object': {'Bucket': S3_BUCKET, 'Name': s3_key}}
-                )
-            else:
-                # Process directly from bytes
-                print(f"[TEXTRACT] Calling Textract detect_document_text (bytes)...")
-                response = textract.detect_document_text(
-                    Document={'Bytes': file_bytes}
-                )
-            
-            # Extract text from blocks
-            print(f"[TEXTRACT] Extracting text from response blocks...")
-            extracted_text = ""
-            block_count = 0
-            for block in response.get('Blocks', []):
-                if block['BlockType'] == 'LINE':
-                    extracted_text += block['Text'] + "\n"
-                    block_count += 1
-            print(f"[TEXTRACT] ✓ Extracted {block_count} text lines, {len(extracted_text)} characters")
-        
-        # For PDF, must use S3
-        elif file_ext == 'pdf':
-            print(f"[TEXTRACT] Processing PDF file...")
-            # Validate PDF is not corrupted
-            if file_bytes[:4] != b'%PDF':
-                raise Exception("Invalid PDF file format. File may be corrupted.")
-            
-            if file_size_mb > 500:
-                raise Exception(f"PDF file too large ({file_size_mb:.1f}MB). Maximum size is 500MB.")
-            
-            s3_key = f"uploads/{timestamp}_{filename}"
-            
-            # Upload to S3 with proper content type
-            try:
-                print(f"[TEXTRACT] Uploading PDF to S3...")
-                s3_client.put_object(
-                    Bucket=S3_BUCKET,
-                    Key=s3_key,
-                    Body=file_bytes,
-                    ContentType='application/pdf'
-                )
-                print(f"[TEXTRACT] ✓ Uploaded to S3: {s3_key}")
-            except Exception as s3_error:
-                raise Exception(f"S3 upload failed: {str(s3_error)}")
-            
-            # Try sync API first (faster for simple PDFs)
-            try:
-                print(f"[TEXTRACT] Trying sync API (detect_document_text)...")
-                response = textract.detect_document_text(
-                    Document={'S3Object': {'Bucket': S3_BUCKET, 'Name': s3_key}}
-                )
-                
-                # Extract text from blocks
-                print(f"[TEXTRACT] Extracting text from response blocks...")
-                extracted_text = ""
-                block_count = 0
-                for block in response.get('Blocks', []):
-                    if block['BlockType'] == 'LINE':
-                        extracted_text += block['Text'] + "\n"
-                        block_count += 1
-                print(f"[TEXTRACT] ✓ Sync API succeeded: {block_count} lines, {len(extracted_text)} characters")
-                        
-            except Exception as sync_error:
-                error_msg = str(sync_error)
-                print(f"[TEXTRACT] Sync API failed: {error_msg}")
-                if "UnsupportedDocumentException" in error_msg or "InvalidParameterException" in error_msg:
-                    # PDF is scanned or multi-page, use async API
-                    print(f"[TEXTRACT] Switching to async API (start_document_text_detection)...")
-                    extracted_text = extract_text_with_textract_async(S3_BUCKET, s3_key)
-                    print(f"[TEXTRACT] ✓ Async API succeeded: {len(extracted_text)} characters")
-                else:
-                    raise Exception(f"Textract processing failed: {error_msg}")
-        
-        else:
-            raise Exception(f"Unsupported file format: {file_ext}. Supported: PDF, PNG, JPG, JPEG")
-        
-        if not extracted_text.strip():
-            print(f"[TEXTRACT] ⚠️ No text detected in document")
-            extracted_text = "[No text detected in document. Document may be blank or image quality too low.]"
-        
-        # Save extracted text to file
-        output_filename = f"{OUTPUT_DIR}/{timestamp}_{filename}.txt"
-        with open(output_filename, 'w', encoding='utf-8') as f:
-            f.write(extracted_text)
-        print(f"[TEXTRACT] ✓ Saved extracted text to: {output_filename}")
-        print(f"{'='*80}\n")
-        
-        return extracted_text, output_filename
-        
-    except Exception as e:
-        print(f"[TEXTRACT ERROR] ❌ OCR failed: {str(e)}")
-        print(f"{'='*80}\n")
-        # Save error info
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        error_file = f"{OUTPUT_DIR}/{timestamp}_{filename}_ERROR.txt"
-        with open(error_file, 'w', encoding='utf-8') as f:
-            f.write(f"OCR Error: {str(e)}\n")
-            f.write(f"File: {filename}\n")
-            f.write(f"Size: {len(file_bytes) / 1024:.2f} KB\n")
-        
-        raise Exception(f"Textract OCR failed: {str(e)}")
-
-
 def extract_basic_fields(text: str, num_fields: int = 100):
     """Extract ALL fields from any document (up to 100 fields) - BE THOROUGH"""
     prompt = f"""
@@ -1130,371 +873,6 @@ Example format for Death Certificate:
         return {
             "error": str(e),
             "note": "Failed to extract structured fields from document"
-        }
-
-
-def detect_document_type(text: str):
-    """
-    Detect document type using hierarchical decision tree
-    Based on specific visual and textual markers
-    """
-    print(f"\n{'='*80}")
-    print(f"[DETECT_TYPE] Starting document type detection...")
-    print(f"[DETECT_TYPE] Text length: {len(text)} characters")
-    
-    text_upper = text.upper()
-    text_lower = text.lower()
-    lines = text.split('\n')
-    
-    # Helper function to check for patterns
-    def contains_any(patterns):
-        return any(p.upper() in text_upper for p in patterns)
-    
-    def contains_all(patterns):
-        return all(p.upper() in text_upper for p in patterns)
-    
-    # ============================================================
-    # STEP 1: Check for BANK LOGO (WSFS Bank)
-    # ============================================================
-    if "WSFS BANK" in text_upper or "WSFS" in text_upper:
-        print(f"[DETECT_TYPE] WSFS Bank detected - checking form type...")
-        
-        # Business Card Order Form
-        if contains_any(["BUSINESS CARD ORDER FORM", "CARD ORDER FORM"]):
-            print(f"[DETECT_TYPE] ✓ Detected: Business Card Order Form")
-            print(f"{'='*80}\n")
-            return "business_card"
-        
-        # Account Withdrawal Form
-        if contains_any(["ACCOUNT WITHDRAWAL", "WITHDRAWAL FORM"]):
-            print(f"[DETECT_TYPE] ✓ Detected: Account Withdrawal Form")
-            print(f"{'='*80}\n")
-            return "invoice"  # Using invoice as withdrawal form
-        
-        # Name Change Request
-        if contains_any(["NAME CHANGE REQUEST", "NAME CHANGE FORM"]):
-            print(f"[DETECT_TYPE] ✓ Detected: Name Change Request")
-            print(f"{'='*80}\n")
-            return "contract"  # Using contract for name change
-        
-        # Tax ID Number Change
-        if contains_any(["TAX ID NUMBER CHANGE", "TAX ID CHANGE", "TIN CHANGE"]):
-            print(f"[DETECT_TYPE] ✓ Detected: Tax ID Change Form")
-            print(f"{'='*80}\n")
-            return "tax_form"
-        
-        # ATM/Debit Card Request
-        if contains_any(["ATM/POS/DEBIT CARD REQUEST", "CARD REQUEST", "DEBIT CARD REQUEST"]):
-            print(f"[DETECT_TYPE] ✓ Detected: Card Request Form")
-            print(f"{'='*80}\n")
-            return "business_card"
-        
-        # Check for Account Opening Document vs Signature Card
-        # Both have: ACCOUNT NUMBER, ACCOUNT HOLDER NAMES, OWNERSHIP TYPE
-        has_account_number = "ACCOUNT NUMBER" in text_upper
-        has_account_holder = "ACCOUNT HOLDER" in text_upper
-        has_ownership = "OWNERSHIP TYPE" in text_upper
-        
-        if has_account_number and has_account_holder and has_ownership:
-            print(f"[DEBUG] Found account document indicators - distinguishing type...")
-            
-            # Count signature lines (indicators of signature card)
-            signature_count = text_upper.count("SIGNATURE")
-            signature_line_count = text.count("___________")  # Signature lines
-            
-            # Check for signature card indicators
-            has_tin_withholding = "TIN" in text_upper and "BACKUP WITHHOLDING" in text_upper
-            has_multiple_signatures = signature_count >= 3 or signature_line_count >= 4
-            has_signature_card_title = "SIGNATURE CARD" in text_upper
-            
-            # Check for account opening indicators
-            has_date_opened = "DATE OPENED" in text_upper
-            has_account_product = any(prod in text_upper for prod in [
-                "CORE CHECKING", "RELATIONSHIP CHECKING", "MONEY MARKET", 
-                "SAVINGS", "PREMIER CHECKING", "PLATINUM"
-            ])
-            has_account_purpose = "ACCOUNT PURPOSE" in text_upper
-            has_consumer_business = "CONSUMER" in text_upper or "BUSINESS" in text_upper
-            
-            # Decision logic
-            if has_signature_card_title:
-                print(f"[INFO] Detected: Joint Account Signature Card (explicit title)")
-                return "loan_document"
-            
-            elif has_multiple_signatures and has_tin_withholding:
-                print(f"[INFO] Detected: Joint Account Signature Card (multiple signatures + TIN)")
-                return "loan_document"
-            
-            elif has_date_opened and has_account_product and has_account_purpose:
-                print(f"[INFO] Detected: Account Opening Document (has DATE OPENED + product + purpose)")
-                return "loan_document"
-            
-            elif has_date_opened and has_consumer_business:
-                print(f"[INFO] Detected: Account Opening Document (has DATE OPENED + consumer/business)")
-                return "loan_document"
-            
-            elif has_multiple_signatures:
-                print(f"[INFO] Detected: Joint Account Signature Card (multiple signatures)")
-                return "loan_document"
-            
-            else:
-                # Default to account opening document if unclear
-                print(f"[INFO] Detected: Account Opening Document (default)")
-                return "loan_document"
-    
-    # ============================================================
-    # STEP 2: Check for DEATH CERTIFICATE
-    # ============================================================
-    if contains_any(["CERTIFICATION OF VITAL RECORD", "CERTIFICATE OF DEATH"]) or \
-       (contains_any(["DEATH", "DECEASED", "DECEDENT"]) and contains_any(["CERTIFICATE", "CERTIFICATION"])):
-        print(f"[DEBUG] Death certificate detected - checking state...")
-        
-        # Delaware Death Certificate
-        if "DELAWARE" in text_upper or "STATE OF DELAWARE" in text_upper:
-            print(f"[INFO] Detected: Delaware Death Certificate")
-            return "death_certificate"
-        
-        # Pennsylvania Death Certificate
-        if "PENNSYLVANIA" in text_upper or "COMMONWEALTH OF PENNSYLVANIA" in text_upper or \
-           "LOCAL REGISTRAR" in text_upper:
-            print(f"[INFO] Detected: Pennsylvania Death Certificate")
-            return "death_certificate"
-        
-        # Generic death certificate
-        print(f"[INFO] Detected: Death Certificate (Generic)")
-        return "death_certificate"
-    
-    # ============================================================
-    # STEP 3: Check for REGISTER OF WILLS / Letters Testamentary
-    # ============================================================
-    if contains_any(["REGISTER OF WILLS", "LETTERS TESTAMENTARY", "LETTERS OF ADMINISTRATION"]):
-        print(f"[INFO] Detected: Letters Testamentary/Administration")
-        return "contract"  # Using contract for legal documents
-    
-    # ============================================================
-    # STEP 4: Check for AFFIDAVIT (Small Estates)
-    # ============================================================
-    if "AFFIDAVIT" in text_upper and contains_any(["SMALL ESTATE", "SMALL ESTATES"]):
-        print(f"[INFO] Detected: Small Estate Affidavit")
-        return "contract"
-    
-    # ============================================================
-    # STEP 5: Check for FUNERAL HOME INVOICE
-    # ============================================================
-    if contains_any(["FUNERAL HOME", "FUNERAL SERVICES", "STATEMENT OF FUNERAL EXPENSES"]) and \
-       contains_any(["INVOICE", "STATEMENT", "BILL", "CHARGES"]):
-        print(f"[INFO] Detected: Funeral Invoice")
-        return "invoice"
-    
-    # ============================================================
-    # STEP 6: Check for Loan/Account Documents FIRST (before ID cards)
-    # ============================================================
-    # Check for required account document fields
-    has_account_number = "ACCOUNT NUMBER" in text_upper
-    has_account_holder = "ACCOUNT HOLDER" in text_upper
-    has_account_purpose = "ACCOUNT PURPOSE" in text_upper
-    has_account_type = "ACCOUNT TYPE" in text_upper
-    has_ownership_type = "OWNERSHIP TYPE" in text_upper
-    
-    # Count how many required fields are present
-    required_fields_count = sum([
-        has_account_number,
-        has_account_holder,
-        has_account_purpose,
-        has_account_type,
-        has_ownership_type
-    ])
-    
-    # If 3 or more required fields present, it's likely a loan/account document
-    # This check happens BEFORE ID card check because loan docs often contain attached IDs
-    if required_fields_count >= 3:
-        print(f"[DEBUG] Found {required_fields_count}/5 account document fields")
-        
-        # Additional checks for account products
-        has_checking_savings = any(prod in text_upper for prod in [
-            "CHECKING", "SAVINGS", "MONEY MARKET", "CD", "CERTIFICATE OF DEPOSIT"
-        ])
-        
-        has_consumer_business = "CONSUMER" in text_upper or "BUSINESS" in text_upper
-        
-        if has_checking_savings or has_consumer_business:
-            print(f"[INFO] Detected: Loan/Account Document (field-based detection)")
-            return "loan_document"
-    
-    # ============================================================
-    # STEP 7: Check for ID CARD (Driver's License) - AFTER loan document check
-    # ============================================================
-    if contains_any(["DRIVER LICENSE", "DRIVER'S LICENSE", "DRIVERS LICENSE", "IDENTIFICATION CARD", "ID CARD"]):
-        print(f"[INFO] Detected: Driver's License/ID Card")
-        return "drivers_license"
-    
-    # ============================================================
-    # FALLBACK: Use keyword-based scoring for other document types
-    # ============================================================
-    print(f"[DEBUG] No specific pattern matched - using keyword scoring...")
-    
-    scores = {}
-    matched_keywords = {}
-    for doc_type, info in SUPPORTED_DOCUMENT_TYPES.items():
-        score = 0
-        matches = []
-        for keyword in info['keywords']:
-            if keyword.lower() in text_lower:
-                score += 1
-                matches.append(keyword)
-        scores[doc_type] = score
-        if matches:
-            matched_keywords[doc_type] = matches
-    
-    print(f"[DEBUG] Keyword scores: {scores}")
-    
-    # Special handling for loan documents
-    loan_score = scores.get('loan_document', 0)
-    if loan_score >= 5:
-        print(f"[INFO] Detected as loan_document (score: {loan_score})")
-        return 'loan_document'
-    
-    # Check for strong indicators
-    priority_types = ['marriage_certificate', 'passport', 'insurance_policy']
-    for priority_type in priority_types:
-        priority_score = scores.get(priority_type, 0)
-        if priority_score >= 2 and priority_score > loan_score:
-            print(f"[INFO] Detected as {priority_type} (score: {priority_score})")
-            return priority_type
-    
-    # Check loan document with lower threshold
-    if loan_score >= 2:
-        print(f"[INFO] Detected as loan_document (score: {loan_score})")
-        return 'loan_document'
-    
-    # If we have a clear winner (score >= 2), use it
-    max_score = max(scores.values()) if scores else 0
-    if max_score >= 2:
-        detected_type = max(scores, key=scores.get)
-        print(f"[INFO] Detected as {detected_type} (score: {max_score})")
-        return detected_type
-    
-    print(f"[DETECT_TYPE] ⚠️ Document type unknown")
-    print(f"{'='*80}\n")
-    return "unknown"
-
-
-def process_loan_document(text: str, job_id: str = None):
-    """
-    Special processing for loan/account documents with account splitting
-    Returns same format as loan_pipeline_ui.py
-    
-    OPTIMIZATION: We no longer call LLM for each account during upload.
-    Instead, we just identify accounts and their text chunks.
-    Page-level data extraction happens during pre-caching, which is more efficient.
-    """
-    try:
-        print(f"\n{'='*80}")
-        print(f"[LOAN_DOCUMENT] Starting loan document processing...")
-        print(f"{'='*80}\n")
-        
-        # Split into individual accounts
-        chunks = split_accounts_strict(text)
-        
-        if not chunks:
-            print(f"[LOAN_DOCUMENT] ⚠️ No accounts found, treating as single document")
-            # No accounts found, treat as single document
-            chunks = [{"accountNumber": "N/A", "text": text}]
-        
-        total = len(chunks)
-        accounts = []
-        
-        # Log processing start
-        print(f"[LOAN_DOCUMENT] Found {total} accounts to process")
-        print(f"[LOAN_DOCUMENT] OPTIMIZATION: Skipping account-level LLM calls")
-        print(f"[LOAN_DOCUMENT] Page-level data will be extracted during pre-caching\n")
-        
-        for idx, chunk in enumerate(chunks, start=1):
-            acc = chunk["accountNumber"] or f"Unknown_{idx}"
-            
-            # Update progress for each account
-            # Progress: 40% (basic fields) + 30% (account processing) = 40 + (30 * idx/total)
-            progress = 40 + int((30 * idx) / total)
-            
-            if job_id and job_id in job_status_map:
-                job_status_map[job_id].update({
-                    "status": f"Identifying account {idx}/{total}: {acc}",
-                    "progress": progress
-                })
-            
-            print(f"[LOAN_DOCUMENT] Account {idx}/{total}: {acc}")
-            
-            try:
-                # OPTIMIZATION: Skip LLM call here - we'll extract page-level data during pre-caching
-                # This saves significant processing time and LLM costs
-                
-                # Just create a placeholder with account info
-                parsed = {
-                    "AccountNumber": acc,
-                    "AccountHolderNames": [],
-                    "note": "Data will be extracted from individual pages during pre-caching"
-                }
-                    
-                # OPTIMIZATION: Set placeholder values - accuracy will be calculated from actual extracted data
-                accounts.append({
-                    "accountNumber": acc,
-                    "result": parsed,
-                    "accuracy_score": None,  # Will be calculated automatically from extracted data
-                    "filled_fields": 0,
-                    "total_fields": 0,
-                    "fields_needing_review": [],
-                    "needs_human_review": False,
-                    "optimized": True  # Flag to indicate this used optimized processing
-                })
-                    
-            except Exception as e:
-                print(f"[LOAN_DOCUMENT ERROR] Account {acc}: {str(e)}")
-                accounts.append({
-                    "accountNumber": acc,
-                    "error": str(e),
-                    "accuracy_score": 0
-                })
-        
-        print(f"\n[LOAN_DOCUMENT] ✓ Completed processing {len(accounts)} accounts")
-        print(f"{'='*80}\n")
-        
-        # Calculate overall status from actual account data
-        # Accuracy will be calculated automatically based on OCR and LLM extraction quality
-        overall_accuracy = None  # Let the system calculate this naturally
-        needs_review = False
-        all_fields_needing_review = []
-        
-        # Return in format compatible with universal IDP
-        return {
-            "documents": [{
-                "document_id": "loan_doc_001",
-                "document_type": "loan_document",
-                "document_type_display": "Loan/Account Document",
-                "document_icon": "🏦",
-                "document_description": "Banking or loan account information",
-                "extracted_fields": {
-                    "total_accounts": total,
-                    "accounts_processed": len(accounts)
-                },
-                "accounts": accounts,  # Special field for loan documents
-                "accuracy_score": overall_accuracy,
-                "total_fields": sum(a.get("total_fields", 0) for a in accounts),  # Sum of all fields across all accounts
-                "filled_fields": sum(a.get("filled_fields", 0) for a in accounts),
-                "needs_human_review": needs_review,
-                "fields_needing_review": all_fields_needing_review
-            }]
-        }
-        
-    except Exception as e:
-        return {
-            "documents": [{
-                "document_id": "loan_error_001",
-                "document_type": "loan_document",
-                "document_type_display": "Loan/Account Document (Error)",
-                "error": str(e),
-                "extracted_fields": {},
-                "accuracy_score": 0
-            }]
         }
 
 
@@ -1788,26 +1166,6 @@ Only extract fields where you can see a clear, definite value in the document.
         }
 
 
-def try_extract_pdf_with_pypdf(file_bytes: bytes, filename: str):
-    """Try to extract text from PDF using PyPDF2 as fallback"""
-    try:
-        import PyPDF2
-        pdf_reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
-        text = ""
-        for page in pdf_reader.pages:
-            text += page.extract_text() + "\n"
-        
-        if text.strip():
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_filename = f"{OUTPUT_DIR}/{timestamp}_{filename}_pypdf.txt"
-            with open(output_filename, 'w', encoding='utf-8') as f:
-                f.write(text)
-            return text, output_filename
-        return None, None
-    except:
-        return None, None
-
-
 def pre_cache_all_pages(job_id: str, pdf_path: str, accounts: list):
     """
     Pre-cache all page data during initial upload to avoid re-running OCR on every click.
@@ -2008,8 +1366,6 @@ def pre_cache_all_pages(job_id: str, pdf_path: str, accounts: list):
         print(f"[INFO] PARALLEL extraction: Processing {len(page_infos)} pages with {max_workers} workers")
         
         success_count = 0
-        total_pages = len(page_infos)
-        
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [executor.submit(_extract_page_data, page_info) for page_info in page_infos]
             
@@ -2017,16 +1373,6 @@ def pre_cache_all_pages(job_id: str, pdf_path: str, accounts: list):
                 try:
                     if future.result():
                         success_count += 1
-                    
-                    # Update progress as pages complete
-                    if job_id and job_id in job_status_map:
-                        # Progress from 85% to 95% during page scanning
-                        page_progress = 85 + int((10 * success_count) / total_pages)
-                        job_status_map[job_id].update({
-                            "status": f"Scanning pages: {success_count}/{total_pages} completed",
-                            "progress": page_progress
-                        })
-                        
                 except Exception as e:
                     print(f"[ERROR] Future failed: {str(e)}")
         
@@ -2094,56 +1440,44 @@ def process_job(job_id: str, file_bytes: bytes, filename: str, use_ocr: bool, do
         
         # Step 1: OCR if needed (skip for loan documents - we'll do page-level OCR instead)
         if use_ocr and not is_loan_document:
-            job_status_map[job_id].update({
-                "status": "Uploading document to S3...",
-                "progress": 10
-            })
+            # OPTIMIZATION #1: Try PyPDF2 FIRST (FREE) before expensive Textract
+            text = None
+            ocr_file = None
             
-            try:
-                # Progress update: Uploading
+            if filename.lower().endswith('.pdf'):
                 job_status_map[job_id].update({
-                    "status": "Document uploaded, starting OCR with Amazon Textract...",
+                    "status": "Trying FREE text extraction (PyPDF2)...",
+                    "progress": 10
+                })
+                
+                print(f"[OPTIMIZATION] Trying PyPDF2 first (FREE) before Textract...")
+                text, ocr_file = try_extract_pdf_with_pypdf(file_bytes, filename)
+                
+                if text and len(text.strip()) > 100:
+                    # PyPDF2 succeeded! Save money by not using Textract
+                    job_status_map[job_id]["ocr_file"] = ocr_file
+                    job_status_map[job_id]["ocr_method"] = "PyPDF2 (FREE)"
+                    print(f"[OPTIMIZATION] ✅ PyPDF2 succeeded! Saved Textract cost (~$0.04)")
+                else:
+                    # PyPDF2 failed or extracted too little text, use Textract
+                    print(f"[OPTIMIZATION] PyPDF2 failed or insufficient text, falling back to Textract...")
+                    text = None
+                    ocr_file = None
+            
+            # If PyPDF2 didn't work or not a PDF, use Textract
+            if not text:
+                job_status_map[job_id].update({
+                    "status": "Running OCR with Amazon Textract (this may take 1-2 minutes for scanned PDFs)...",
                     "progress": 15
                 })
                 
-                # Start OCR
-                text, ocr_file = extract_text_with_textract(file_bytes, filename)
-                
-                # Progress updates during OCR (simulated based on typical processing time)
-                job_status_map[job_id].update({
-                    "status": "OCR in progress - extracting text from document...",
-                    "progress": 25
-                })
-                
-                # OCR completed
-                job_status_map[job_id].update({
-                    "status": "OCR completed successfully",
-                    "progress": 35
-                })
-                
-                job_status_map[job_id]["ocr_file"] = ocr_file
-                job_status_map[job_id]["ocr_method"] = "Amazon Textract"
-            except Exception as textract_error:
-                # If Textract fails for PDF, try PyPDF2 as fallback
-                if filename.lower().endswith('.pdf'):
-                    job_status_map[job_id].update({
-                        "status": "Textract failed, trying PyPDF2 fallback...",
-                        "progress": 20
-                    })
-                    text, ocr_file = try_extract_pdf_with_pypdf(file_bytes, filename)
-                    
-                    if text and ocr_file:
-                        job_status_map[job_id].update({
-                            "status": "Text extracted using PyPDF2",
-                            "progress": 35
-                        })
-                        job_status_map[job_id]["ocr_file"] = ocr_file
-                        job_status_map[job_id]["ocr_method"] = "PyPDF2 (Fallback)"
-                        job_status_map[job_id]["textract_error"] = str(textract_error)
-                    else:
-                        raise Exception(f"Both Textract and PyPDF2 failed. Textract error: {str(textract_error)}")
-                else:
-                    raise textract_error
+                try:
+                    text, ocr_file = extract_text_with_textract(file_bytes, filename)
+                    job_status_map[job_id]["ocr_file"] = ocr_file
+                    job_status_map[job_id]["ocr_method"] = "Amazon Textract"
+                    print(f"[INFO] Textract succeeded")
+                except Exception as textract_error:
+                    raise Exception(f"Text extraction failed. Error: {str(textract_error)}")
         elif is_loan_document:
             # OPTIMIZATION: For loan documents, extract text quickly with PyMuPDF (no expensive OCR yet)
             print(f"[INFO] OPTIMIZATION: Skipping full document OCR for loan document - will do page-level OCR during pre-caching")
@@ -2195,20 +1529,10 @@ def process_job(job_id: str, file_bytes: bytes, filename: str, use_ocr: bool, do
         doc_type_preview = detect_document_type(text) if not is_loan_document else "loan_document"
         print(f"[INFO] Document type detected: {doc_type_preview}")
         
-        job_status_map[job_id].update({
-            "status": f"Document type identified: {doc_type_preview}",
-            "progress": 45
-        })
-        
         if doc_type_preview == "loan_document":
             # OPTIMIZATION: Skip basic_fields extraction for loan documents
             # We'll get all data from page-level pre-caching
             basic_fields = {}
-            
-            job_status_map[job_id].update({
-                "status": "Splitting document into accounts...",
-                "progress": 50
-            })
             
             # Quick check for number of accounts
             account_count = len(split_accounts_strict(text))
@@ -2216,45 +1540,29 @@ def process_job(job_id: str, file_bytes: bytes, filename: str, use_ocr: bool, do
             if account_count > 20:
                 print(f"[WARNING] Large document detected with {account_count} accounts. Processing may take 5-10 minutes.")
                 job_status_map[job_id].update({
-                    "status": f"Found {account_count} accounts - processing...",
-                    "progress": 55
+                    "status": f"Detected loan document with {account_count} accounts - will pre-cache page data...",
+                    "progress": 70
                 })
             else:
                 job_status_map[job_id].update({
-                    "status": f"Found {account_count} accounts - processing...",
-                    "progress": 55
+                    "status": "Detected loan document - identifying accounts...",
+                    "progress": 70
                 })
             
-            job_status_map[job_id].update({
-                "status": "Extracting account information...",
-                "progress": 60
-            })
-            
-            result = process_loan_document(text, job_id)
-            
-            job_status_map[job_id].update({
-                "status": "Account processing completed",
-                "progress": 70
-            })
+            result = process_loan_document(text, job_id, job_status_map)
         else:
             # For non-loan documents, extract basic fields
             job_status_map[job_id].update({
                 "status": "Extracting fields from document...",
-                "progress": 50
+                "progress": 60
             })
             basic_fields = extract_basic_fields(text, num_fields=20)
             
             job_status_map[job_id].update({
-                "status": "Analyzing document content...",
-                "progress": 60
-            })
-            result = detect_and_extract_documents(text)
-            
-            job_status_map[job_id].update({
-                "status": "Document analysis completed",
+                "status": "Processing document...",
                 "progress": 70
             })
-
+            result = detect_and_extract_documents(text)
         
         # Add basic fields to result
         result["basic_fields"] = basic_fields
@@ -2285,22 +1593,13 @@ def process_job(job_id: str, file_bytes: bytes, filename: str, use_ocr: bool, do
                     "is_supported": False
                 }
         
-        # Step 4: Keep original filename as document name
-        # DO NOT auto-generate - user wants to keep the original filename
+        # Step 4: Use filename as document name (don't auto-generate)
+        # The filename is what the user chose, so we should respect it
         if not document_name:
-            document_name = filename
-        
-        job_status_map[job_id].update({
-            "status": "Preparing document record...",
-            "progress": 75
-        })
+            # Remove file extension from filename for cleaner display
+            document_name = filename.rsplit('.', 1)[0] if '.' in filename else filename
         
         # Step 5: Save to persistent storage
-        job_status_map[job_id].update({
-            "status": "Saving document to database...",
-            "progress": 80
-        })
-        
         document_record = {
             "id": job_id,
             "filename": filename,
@@ -2322,31 +1621,40 @@ def process_job(job_id: str, file_bytes: bytes, filename: str, use_ocr: bool, do
         processed_documents.append(document_record)
         save_documents_db(processed_documents)
         
-        # Step 6: Pre-cache all page data for loan documents (to avoid re-running OCR on every click)
-        if doc_type_preview == "loan_document" and saved_pdf_path and result.get("documents"):
-            doc_data = result["documents"][0]
-            accounts = doc_data.get("accounts", [])
-            
-            if accounts and len(accounts) > 0:
-                job_status_map[job_id].update({
-                    "status": f"Scanning {len(accounts)} accounts across pages...",
-                    "progress": 85
-                })
-                
-                print(f"[INFO] Starting pre-cache for {len(accounts)} accounts")
-                pre_cache_all_pages(job_id, saved_pdf_path, accounts)
-                
-                job_status_map[job_id].update({
-                    "status": "Page scanning completed",
-                    "progress": 95
-                })
-        
+        # Step 6: Mark job as complete FIRST
         job_status_map[job_id] = {
             "status": "✅ Processing completed",
             "progress": 100,
             "result": result,
             "ocr_file": ocr_file
         }
+        
+        # OPTIMIZATION: Skip pre-caching entirely for now
+        # Pre-caching is expensive (OCR + AI extraction for every page)
+        # Instead, we'll extract data on-demand when user views a page
+        # This makes upload MUCH faster and only processes pages that are actually viewed
+        
+        # Pre-cache all page data for loan documents in BACKGROUND (non-blocking)
+        # DISABLED FOR PERFORMANCE - uncomment if you want to pre-cache all pages
+        # if doc_type_preview == "loan_document" and saved_pdf_path and result.get("documents"):
+        #     doc_data = result["documents"][0]
+        #     accounts = doc_data.get("accounts", [])
+        #     
+        #     if accounts and len(accounts) > 0:
+        #         print(f"[INFO] Starting BACKGROUND pre-cache for {len(accounts)} accounts")
+        #         
+        #         # Run pre-caching in a separate thread (non-blocking)
+        #         def background_precache():
+        #             try:
+        #                 pre_cache_all_pages(job_id, saved_pdf_path, accounts)
+        #                 print(f"[INFO] ✅ Background pre-caching completed for job {job_id}")
+        #             except Exception as cache_err:
+        #                 print(f"[WARNING] Background pre-caching failed for job {job_id}: {str(cache_err)}")
+        #         
+        #         cache_thread = threading.Thread(target=background_precache, daemon=True)
+        #         cache_thread.start()
+        
+        print(f"[INFO] ✅ Document processing completed - data will be extracted on-demand when pages are viewed")
     except Exception as e:
         import traceback
         error_details = traceback.format_exc()
