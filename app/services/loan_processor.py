@@ -55,8 +55,8 @@ def process_loan_document(text: str, job_id: str = None, job_status_map: dict = 
                 
                 # Just create a placeholder with account info
                 parsed = {
-                    "AccountNumber": acc,
-                    "AccountHolderNames": [],
+                    "Account_Number": acc,
+                    "Account_Holders": [],
                     "note": "Data will be extracted from individual pages during pre-caching"
                 }
                     

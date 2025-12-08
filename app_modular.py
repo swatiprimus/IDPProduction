@@ -186,6 +186,11 @@ def get_comprehensive_extraction_prompt():
     return """
 You are a data extraction expert. Extract ALL fields and their values from this document.
 
+IMPORTANT: Use SIMPLE, SHORT field names. Do NOT copy the entire label text from the document.
+- Example: "DATE PRONOUNCED DEAD" → use "Death_Date" (NOT "Date_Pronounced_Dead")
+- Example: "ACCOUNT HOLDER NAMES" → use "Account_Holders" (NOT "Account_Holder_Names")
+- Simplify all verbose labels to their core meaning
+
 PRIORITY ORDER (Extract in this order):
 1. **IDENTIFYING NUMBERS** - Certificate numbers, license numbers, file numbers, document numbers, reference numbers
 2. **NAMES** - All person names (full names, witness names, registrar names, etc.)
@@ -244,15 +249,39 @@ WHAT NOT TO EXTRACT:
 ✗ Headers and footers (unless they contain data)
 
 FIELD NAMING:
-- Use descriptive names based on the field label
+- Use SIMPLE, SHORT field names (not the full label text)
 - Replace spaces with underscores
 - Example: "License Number" → "License_Number"
-- Example: "Date of Birth" → "Date_of_Birth"
+- Example: "Date of Birth" → "Date_Of_Birth"
+- Example: "DATE PRONOUNCED DEAD" → "Death_Date"
+- Example: "ACTUAL OR PRESUMED DATE OF DEATH" → "Death_Date"
+- Simplify verbose labels to their core meaning
 
 RETURN FORMAT:
-- Valid JSON only
-- One field per label-value pair
+Return a JSON object where each field has both a value and a confidence score (0-100):
+
+{
+  "Field_Name": {
+    "value": "extracted value",
+    "confidence": 95
+  },
+  "Another_Field": {
+    "value": "another value",
+    "confidence": 80
+  }
+}
+
+CONFIDENCE SCORE GUIDELINES:
+- 90-100: Text is clear, printed, and easily readable
+- 70-89: Text is readable but slightly unclear (handwritten, faded, or small)
+- 50-69: Text is partially unclear or ambiguous
+- 30-49: Text is difficult to read or uncertain
+- 0-29: Very uncertain or guessed
+
+IMPORTANT:
 - Only include fields with actual values (omit empty fields)
+- Every field MUST have both "value" and "confidence"
+- Be honest about confidence - if text is unclear, use a lower score
 
 EXTRACT EVERYTHING - BE THOROUGH AND COMPLETE!
 """
@@ -362,32 +391,38 @@ def get_loan_document_prompt():
     return """
 You are an AI assistant that extracts ALL structured data from loan account documents.
 
+CRITICAL: Use SIMPLE, SHORT field names. Do NOT copy verbose labels from the document.
+- Example: "ACCOUNT HOLDER NAMES" → use "Account_Holders" (NOT "AccountHolderNames")
+- Example: "DATE OF BIRTH" → use "DOB" or "Birth_Date" (NOT "DateOfBirth")
+- Example: "SOCIAL SECURITY NUMBER" → use "SSN" (NOT "SocialSecurityNumber")
+- Keep field names concise and readable
+
 Extract EVERY piece of information from the document and return it as valid JSON.
 
 REQUIRED FIELDS (extract if present):
 
 For documents with ONE signer:
 {
-  "AccountNumber": "string",
-  "AccountHolderNames": ["name1", "name2"],
-  "AccountType": "string",
-  "OwnershipType": "string",
-  "WSFSAccountType": "string",
-  "AccountPurpose": "string",
+  "Account_Number": "string",
+  "Account_Holders": ["name1", "name2"],
+  "Account_Type": "string",
+  "Ownership_Type": "string",
+  "WSFS_Account_Type": "string",
+  "Account_Purpose": "string",
   "SSN": "string or list of SSNs",
-  "StampDate": "string (e.g., DEC 26 2014, JAN 15 2023)",
-  "ReferenceNumber": "string (e.g., #298, Ref #123)",
-  "ProcessedDate": "string",
-  "ReceivedDate": "string",
+  "Stamp_Date": "string (e.g., DEC 26 2014, JAN 15 2023)",
+  "Reference_Number": "string (e.g., #298, Ref #123)",
+  "Processed_Date": "string",
+  "Received_Date": "string",
   "Signer1_Name": "string",
   "Signer1_SSN": "string",
-  "Signer1_DateOfBirth": "string",
+  "Signer1_DOB": "string",
   "Signer1_Address": "string",
   "Signer1_Phone": "string",
   "Signer1_Email": "string",
-  "SupportingDocuments": [
+  "Supporting_Documents": [
     {
-      "DocumentType": "string",
+      "Type": "string",
       "Details": "string"
     }
   ]
@@ -395,18 +430,18 @@ For documents with ONE signer:
 
 For documents with MULTIPLE signers, add Signer2_, Signer3_, etc.:
 {
-  "AccountNumber": "string",
+  "Account_Number": "string",
   "Signer1_Name": "string",
   "Signer1_SSN": "string",
-  "Signer1_DateOfBirth": "string",
+  "Signer1_DOB": "string",
   "Signer2_Name": "string",
   "Signer2_SSN": "string",
-  "Signer2_DateOfBirth": "string"
+  "Signer2_DOB": "string"
 }
 
 FIELD DEFINITIONS - READ CAREFULLY:
 
-1. AccountType: The USAGE TYPE or WHO uses the account. Look for these terms:
+1. Account_Type: The USAGE TYPE or WHO uses the account. Look for these terms:
    - "Personal" (for individual/family use)
    - "Business" (for business operations)
    - "Commercial" (for commercial purposes)
@@ -415,14 +450,14 @@ FIELD DEFINITIONS - READ CAREFULLY:
    - "Estate" (estate account)
    Extract whether it's for personal or business use.
 
-2. WSFSAccountType: The SPECIFIC internal bank account type code or classification. Look for:
+2. WSFS_Account_Type: The SPECIFIC internal bank account type code or classification. Look for:
    - Specific product names like "Premier Checking", "Platinum Savings", "Gold CD"
    - Internal codes or account classifications
    - Branded account names unique to the bank
-   - If the document shows "Account Type: Premier Checking", then AccountType="Personal" (if for personal use) and WSFSAccountType="Premier Checking"
-   - If only one type is mentioned, use it for WSFSAccountType and infer AccountType from context
+   - If the document shows "Account Type: Premier Checking", then Account_Type="Personal" (if for personal use) and WSFS_Account_Type="Premier Checking"
+   - If only one type is mentioned, use it for WSFS_Account_Type and infer Account_Type from context
 
-3. AccountPurpose: The CATEGORY or CLASSIFICATION of the account. Look for:
+3. Account_Purpose: The CATEGORY or CLASSIFICATION of the account. Look for:
    - "Consumer" (consumer banking)
    - "Checking" (checking account)
    - "Savings" (savings account)
@@ -433,7 +468,7 @@ FIELD DEFINITIONS - READ CAREFULLY:
    - "Mortgage" (mortgage account)
    Extract the banking product category or account classification.
 
-4. OwnershipType: WHO owns the account legally. Common values:
+4. Ownership_Type: WHO owns the account legally. Common values:
    - "Individual" or "Single Owner" (single owner)
    - "Joint" or "Joint Owners" (multiple owners with equal rights)
    - "Joint with Rights of Survivorship"
@@ -470,15 +505,15 @@ EXTRACTION RULES:
 - **CRITICAL: DO NOT include fields that are NOT present in the document**
 - **CRITICAL: DO NOT use "N/A" or empty strings - ONLY include fields with actual values found in the document**
 - **CRITICAL: If a field is not visible in the document, DO NOT include it in the JSON response**
-- For AccountHolderNames: Return as array even if single name, e.g., ["John Doe"]
+- For Account_Holders: Return as array even if single name, e.g., ["John Doe"]
 - **CRITICAL FOR SIGNERS - DO NOT USE NESTED OBJECTS**:
   * WRONG: "Signer1": {"Name": "John", "SSN": "123"}
   * CORRECT: "Signer1_Name": "John", "Signer1_SSN": "123"
-  * Use FLAT fields with underscore naming: Signer1_Name, Signer1_SSN, Signer1_DateOfBirth, Signer1_Address, Signer1_Phone, Signer1_DriversLicense
-  * For second signer: Signer2_Name, Signer2_SSN, Signer2_DateOfBirth, Signer2_Address, Signer2_Phone, Signer2_DriversLicense
+  * Use FLAT fields with underscore naming: Signer1_Name, Signer1_SSN, Signer1_DOB, Signer1_Address, Signer1_Phone, Signer1_Drivers_License
+  * For second signer: Signer2_Name, Signer2_SSN, Signer2_DOB, Signer2_Address, Signer2_Phone, Signer2_Drivers_License
   * For third signer: Signer3_Name, Signer3_SSN, etc.
   * NEVER nest signer data - always use flat top-level fields
-- For SupportingDocuments: Create separate objects for EACH document type found
+- For Supporting_Documents: Create separate objects for EACH document type found
 - Preserve exact account numbers and SSNs as they appear
 - If you see multiple account types mentioned, use the most specific one
 - Look carefully at the entire document text for ALL fields
@@ -488,42 +523,42 @@ EXTRACTION RULES:
 EXAMPLES:
 Example 1: Document says "Premier Checking Account for Business Operations, Consumer Banking"
 {
-  "AccountType": "Business",
-  "WSFSAccountType": "Premier Checking",
-  "AccountPurpose": "Consumer"
+  "Account_Type": "Business",
+  "WSFS_Account_Type": "Premier Checking",
+  "Account_Purpose": "Consumer"
 }
 
 Example 2: Document says "Personal IRA Savings Account"
 {
-  "AccountType": "Personal",
-  "WSFSAccountType": "IRA Savings",
-  "AccountPurpose": "Retirement"
+  "Account_Type": "Personal",
+  "WSFS_Account_Type": "IRA Savings",
+  "Account_Purpose": "Retirement"
 }
 
 Example 3: Document says "Personal Checking Account, Consumer"
 {
-  "AccountType": "Personal",
-  "WSFSAccountType": "Personal Checking",
-  "AccountPurpose": "Consumer"
+  "Account_Type": "Personal",
+  "WSFS_Account_Type": "Personal Checking",
+  "Account_Purpose": "Consumer"
 }
 
-Example 4: SupportingDocuments with OFAC check and verification
+Example 4: Supporting_Documents with OFAC check and verification
 {
-  "SupportingDocuments": [
+  "Supporting_Documents": [
     {
-      "DocumentType": "Driver's License",
+      "Type": "Driver's License",
       "Details": "DE #1234567, Expires: 12/03/2020"
     },
     {
-      "DocumentType": "OFAC Check",
+      "Type": "OFAC Check",
       "Details": "Completed on 3/18/2016 - No match found"
     },
     {
-      "DocumentType": "Background Check",
+      "Type": "Background Check",
       "Details": "Verified by Sara Halttunen on 12/24/2014"
     },
     {
-      "DocumentType": "ID Verification",
+      "Type": "ID Verification",
       "Details": "Drivers License #9243231 verified"
     }
   ]
@@ -531,13 +566,13 @@ Example 4: SupportingDocuments with OFAC check and verification
 
 Example 5: Multiple supporting documents
 {
-  "SupportingDocuments": [
+  "Supporting_Documents": [
     {
-      "DocumentType": "Driver's License",
+      "Type": "Driver's License",
       "Details": "State: DE, Number: 719077, Issued: 12-03-2012, Expires: 12-03-2020"
     },
     {
-      "DocumentType": "OFAC Screening",
+      "Type": "OFAC Screening",
       "Details": "Date: 12/24/2014, Result: No match found, Verified by: System"
     },
     {
@@ -580,11 +615,37 @@ CORRECT FORMAT (USE THIS):
   "Signer1_SSN": "222-50-2263"
 }
 
+RETURN FORMAT WITH CONFIDENCE SCORES:
+Return JSON where each field has both a value and confidence score (0-100):
+
+{
+  "Account_Number": {
+    "value": "0210630620",
+    "confidence": 95
+  },
+  "Signer1_Name": {
+    "value": "John Doe",
+    "confidence": 90
+  },
+  "Signer1_SSN": {
+    "value": "123-45-6789",
+    "confidence": 85
+  }
+}
+
+CONFIDENCE SCORE GUIDELINES:
+- 90-100: Text is clear, printed, and easily readable
+- 70-89: Text is readable but slightly unclear (handwritten, faded, or small)
+- 50-69: Text is partially unclear or ambiguous
+- 30-49: Text is difficult to read or uncertain
+- 0-29: Very uncertain or guessed
+
 CRITICAL RULES:
 1. ONLY extract fields that are VISIBLE in the document
 2. DO NOT include fields with "N/A" or empty values
 3. For multiple signers, use Signer1_, Signer2_, Signer3_ prefixes
 4. Each signer's information should be separate fields, not nested objects
+5. Every field MUST have both "value" and "confidence"
 """
 
 # Supported Document Types with Expected Fields
@@ -694,6 +755,35 @@ def save_documents_db(documents):
 processed_documents = load_documents_db()
 
 
+def normalize_confidence_format(data):
+    """
+    Normalize data to separate values and confidence scores.
+    Input: {"Field": {"value": "text", "confidence": 95}}
+    Output: ({"Field": "text"}, {"Field": 95})
+    """
+    if not isinstance(data, dict):
+        return data, {}
+    
+    values = {}
+    confidences = {}
+    
+    for key, value in data.items():
+        if isinstance(value, dict) and "value" in value and "confidence" in value:
+            # New format with confidence scores
+            values[key] = value["value"]
+            confidences[key] = value["confidence"]
+        elif isinstance(value, dict) and "value" in value:
+            # Has value but no confidence
+            values[key] = value["value"]
+            confidences[key] = 100  # Default to 100 if not specified
+        else:
+            # Old format without confidence scores
+            values[key] = value
+            confidences[key] = 100  # Default to 100 for backward compatibility
+    
+    return values, confidences
+
+
 def flatten_nested_objects(data):
     """
     Flatten nested objects like Signer1: {Name: "John"} to Signer1_Name: "John"
@@ -721,7 +811,7 @@ def flatten_nested_objects(data):
         # Recursively flatten other nested dicts (but not arrays of dicts)
         elif isinstance(value, dict):
             # Check if it's a special structure like SupportingDocuments
-            if key in ["SupportingDocuments", "AccountHolderNames"]:
+            if key in ["SupportingDocuments", "AccountHolderNames", "Supporting_Documents", "Account_Holders"]:
                 flattened[key] = value
             else:
                 # Flatten other nested objects
@@ -752,6 +842,11 @@ def extract_basic_fields(text: str, num_fields: int = 100):
     """Extract ALL fields from any document (up to 100 fields) - BE THOROUGH"""
     prompt = f"""
 YOU ARE A METICULOUS DATA EXTRACTION EXPERT. Extract EVERY SINGLE field from this document.
+
+CRITICAL: Use SIMPLE, SHORT field names. Do NOT copy the entire label text from the document.
+- Example: "DATE PRONOUNCED DEAD" → use "Death_Date" (NOT "Date_Pronounced_Dead")
+- Example: "ACCOUNT HOLDER NAMES" → use "Account_Holders" (NOT "Account_Holder_Names")
+- Simplify all verbose labels to their core meaning
 
 YOUR MISSION: Find and extract up to {num_fields} fields. Do NOT stop until you've extracted EVERYTHING.
 
@@ -918,6 +1013,12 @@ Extract all relevant fields you can identify from the document.
 
 YOU ARE A METICULOUS DATA EXTRACTION EXPERT. YOUR GOAL IS TO EXTRACT ABSOLUTELY EVERYTHING FROM THIS DOCUMENT.
 
+CRITICAL: Use SIMPLE, SHORT field names. Do NOT copy the entire label text from the document.
+- Example: "DATE PRONOUNCED DEAD" → use "Death_Date" (NOT "Date_Pronounced_Dead")
+- Example: "ACCOUNT HOLDER NAMES" → use "Account_Holders" (NOT "Account_Holder_Names")
+- Example: "DATE OF ISSUE" → use "Issue_Date" (NOT "Date_Of_Issue")
+- Simplify all verbose labels to their core meaning
+
 CRITICAL EXTRACTION RULES - EXTRACT EVERYTHING:
 1. ALL IDENTIFYING NUMBERS:
    - Certificate numbers, file numbers, case numbers, reference numbers
@@ -988,14 +1089,17 @@ EXTRACTION STRATEGY:
 - Include fields even if the value is unclear (mark as "Illegible" or "Unclear")
 
 FIELD NAMING:
-- Use descriptive names based on the exact label in the document
+- Use SIMPLE, SHORT field names (not the full label text from the document)
 - Replace spaces with underscores
+- Simplify verbose labels to their core meaning
 - Examples:
-  * "LICENSE NUMBER FOR" → "License_Number_For"
-  * "DATE PRONOUNCED DEAD" → "Date_Pronounced_Dead"
-  * "ACTUAL OR PRESUMED DATE OF DEATH" → "Actual_Or_Presumed_Date_Of_Death"
+  * "LICENSE NUMBER FOR" → "License_Number"
+  * "DATE PRONOUNCED DEAD" → "Death_Date"
+  * "ACTUAL OR PRESUMED DATE OF DEATH" → "Death_Date"
   * "CAUSE OF DEATH" → "Cause_Of_Death"
   * "K1-0011267" → "Case_Number" or "File_Number"
+  * "ACCOUNT HOLDER NAMES" → "Account_Holders"
+  * "DATE OF ISSUE" → "Issue_Date"
 
 CRITICAL NAMING FOR DEATH CERTIFICATES:
 - The main certificate number (often handwritten, like "468431466" or "K1-0011267") MUST be extracted as "Account_Number"
@@ -1331,7 +1435,7 @@ def pre_cache_all_pages(job_id: str, pdf_path: str, accounts: list):
                     # CRITICAL: Flatten nested objects
                     parsed = flatten_nested_objects(parsed)
                     
-                    parsed["AccountNumber"] = account_number
+                    parsed["Account_Number"] = account_number
                     
                     # Cache to S3
                     cache_key = f"page_data/{job_id}/account_{account_index}/page_{page_num}.json"
@@ -1453,14 +1557,33 @@ def process_job(job_id: str, file_bytes: bytes, filename: str, use_ocr: bool, do
                 print(f"[OPTIMIZATION] Trying PyPDF2 first (FREE) before Textract...")
                 text, ocr_file = try_extract_pdf_with_pypdf(file_bytes, filename)
                 
-                if text and len(text.strip()) > 100:
+                # Check if text is meaningful (not just watermarks/demo text)
+                is_watermark = False
+                if text:
+                    text_lower = text.lower()
+                    # Check for common watermark/demo patterns
+                    watermark_indicators = [
+                        "pdf-xchange", "click to buy", "demo", "trial version",
+                        "unregistered", "evaluation copy", "watermark"
+                    ]
+                    # If text is mostly watermark content
+                    if any(indicator in text_lower for indicator in watermark_indicators):
+                        # Count how many lines are watermark vs real content
+                        lines = text.split('\n')
+                        watermark_lines = sum(1 for line in lines if any(ind in line.lower() for ind in watermark_indicators))
+                        if watermark_lines > len(lines) * 0.5:  # More than 50% watermark
+                            is_watermark = True
+                            print(f"[OPTIMIZATION] ⚠️ PyPDF2 extracted mostly watermark text, falling back to Textract...")
+                
+                if text and len(text.strip()) > 100 and not is_watermark:
                     # PyPDF2 succeeded! Save money by not using Textract
                     job_status_map[job_id]["ocr_file"] = ocr_file
                     job_status_map[job_id]["ocr_method"] = "PyPDF2 (FREE)"
                     print(f"[OPTIMIZATION] ✅ PyPDF2 succeeded! Saved Textract cost (~$0.04)")
                 else:
                     # PyPDF2 failed or extracted too little text, use Textract
-                    print(f"[OPTIMIZATION] PyPDF2 failed or insufficient text, falling back to Textract...")
+                    if not is_watermark:
+                        print(f"[OPTIMIZATION] PyPDF2 failed or insufficient text, falling back to Textract...")
                     text = None
                     ocr_file = None
             
@@ -2070,7 +2193,7 @@ def get_account_page_data(doc_id, account_index, page_num):
             print(f"[DEBUG] Flattened nested objects in parsed data")
             
             # Add account number to the result
-            parsed["AccountNumber"] = account_number
+            parsed["Account_Number"] = account_number
             
             # Cache the result in S3
             cache_data = {
@@ -2292,6 +2415,10 @@ def extract_page_data(doc_id, page_num):
                     else:
                         parsed = doc_data
             
+            # Normalize confidence format
+            parsed, confidences = normalize_confidence_format(parsed)
+            print(f"[DEBUG] Normalized confidence scores for {len(confidences)} fields")
+            
             # POST-PROCESSING: For death certificates, rename certificate_number to account_number
             if doc.get("document_type") == "death_certificate" or "death" in doc.get("document_name", "").lower():
                 if "certificate_number" in parsed and "account_number" not in parsed:
@@ -2304,6 +2431,7 @@ def extract_page_data(doc_id, page_num):
             # Cache the result in S3
             cache_data = {
                 "data": parsed,
+                "confidences": confidences,
                 "extracted_at": datetime.now().isoformat()
             }
             
@@ -2322,6 +2450,7 @@ def extract_page_data(doc_id, page_num):
                 "success": True,
                 "page_number": page_num + 1,
                 "data": parsed,
+                "confidences": confidences,
                 "cached": False
             })
         else:
@@ -2404,6 +2533,70 @@ def update_page_data(doc_id, page_num):
             
     except Exception as e:
         print(f"[ERROR] Failed to update page data: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/document/<doc_id>/account/<int:account_index>/page/<int:page_num>/update", methods=["POST"])
+def update_account_page_data(doc_id, account_index, page_num):
+    """Update page data for account-based documents and save to S3 cache"""
+    import json
+    
+    try:
+        data = request.get_json()
+        page_data = data.get("page_data")
+        
+        if not page_data:
+            return jsonify({"success": False, "message": "No page data provided"}), 400
+        
+        doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+        if not doc:
+            return jsonify({"success": False, "message": "Document not found"}), 404
+        
+        # Get account info
+        doc_data = doc.get("documents", [{}])[0]
+        accounts = doc_data.get("accounts", [])
+        
+        if account_index >= len(accounts):
+            return jsonify({"success": False, "message": "Account index out of range"}), 400
+        
+        account = accounts[account_index]
+        account_number = account.get("accountNumber", "Unknown")
+        
+        # Cache key for account-based page
+        cache_key = f"page_data/{doc_id}/account_{account_index}/page_{page_num}.json"
+        print(f"[INFO] Updating account page cache: {cache_key}")
+        
+        cache_data = {
+            "account_number": account_number,
+            "data": page_data,
+            "extracted_at": datetime.now().isoformat(),
+            "edited": True,
+            "edited_at": datetime.now().isoformat()
+        }
+        
+        try:
+            s3_client.put_object(
+                Bucket=S3_BUCKET,
+                Key=cache_key,
+                Body=json.dumps(cache_data),
+                ContentType='application/json'
+            )
+            print(f"[INFO] Updated S3 cache for account {account_number}: {cache_key}")
+            print(f"[INFO] Updated fields: {list(page_data.keys())}")
+            
+            return jsonify({
+                "success": True,
+                "message": "Page data updated successfully",
+                "cache_key": cache_key
+            })
+        except Exception as s3_error:
+            print(f"[ERROR] Failed to update S3 cache: {str(s3_error)}")
+            return jsonify({"success": False, "message": f"Failed to save: {str(s3_error)}"}), 500
+            
+    except Exception as e:
+        print(f"[ERROR] Failed to update account page data: {str(e)}")
         import traceback
         traceback.print_exc()
         return jsonify({"success": False, "message": str(e)}), 500

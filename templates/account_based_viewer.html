@@ -511,9 +511,25 @@
             background: rgba(255,255,255,0.15);
         }
 
+        .control-section {
+            background: rgba(255,255,255,0.1);
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        .section-title {
+            font-size: 0.85em;
+            font-weight: 700;
+            color: rgba(255,255,255,0.9);
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
         .data-controls {
             display: flex;
-            gap: 10px;
+            gap: 8px;
             flex-wrap: wrap;
         }
 
@@ -570,6 +586,27 @@
             background: #f9fafb;
             border-radius: 8px;
             border-left: 3px solid var(--primary);
+            position: relative;
+        }
+        
+        .field-item.delete-mode {
+            padding-left: 45px;
+        }
+        
+        .field-checkbox {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            accent-color: var(--danger);
+        }
+        
+        .field-item.selected-for-delete {
+            background: #fee2e2;
+            border-left-color: var(--danger);
         }
 
         .field-label {
@@ -738,28 +775,48 @@
                         <input type="text" class="search-box" id="searchBox" placeholder="🔍 Search fields..." oninput="filterFields()">
                     </div>
                     
-                    <div class="data-controls">
-                        <button class="control-btn btn-edit" id="editBtn" onclick="toggleEditMode()" style="display:none;">
-                            📝 Edit Page
-                        </button>
-                        <button class="control-btn btn-save" id="saveBtn" onclick="savePage()" style="display:none;">
-                            ✓ Save Page
-                        </button>
-                        <button class="control-btn btn-cancel" id="cancelBtn" onclick="cancelEdit()" style="display:none;">
-                            ✕ Cancel
-                        </button>
-                        <button class="control-btn btn-download" id="downloadPageBtn" onclick="downloadPageJSON()" style="display:none;">
-                            📄 Page JSON
-                        </button>
-                        <button class="control-btn btn-download" id="downloadAccountBtn" onclick="downloadAccountJSON()" style="display:none;">
-                            💾 Account JSON
-                        </button>
-                        <button class="control-btn" id="addFieldBtnMain" onclick="showAddFieldDialog()" style="display:none;background:#10b981;color:white;">
-                            ➕ Add Field
-                        </button>
-                        <button class="control-btn" id="clearCacheBtn" onclick="clearDocumentCache()" style="display:none;background:#f59e0b;color:white;">
-                            🔄 Clear Cache
-                        </button>
+                    <!-- Field Actions Section -->
+                    <div class="control-section" style="margin-bottom:15px;">
+                        <div class="section-title">Field Actions</div>
+                        <div class="data-controls">
+                            <button class="control-btn" id="addFieldBtnMain" onclick="showAddFieldDialog()" style="display:none;background:#10b981;color:white;">
+                                ➕ Add
+                            </button>
+                            <button class="control-btn btn-edit" id="editBtn" onclick="toggleEditMode()" style="display:none;">
+                                📝 Edit
+                            </button>
+                            <button class="control-btn btn-save" id="saveBtn" onclick="savePage()" style="display:none;">
+                                ✓ Save
+                            </button>
+                            <button class="control-btn btn-cancel" id="cancelBtn" onclick="cancelEdit()" style="display:none;">
+                                ✕ Cancel
+                            </button>
+                            <button class="control-btn" id="deleteFieldBtn" onclick="toggleDeleteMode()" style="display:none;background:#ef4444;color:white;">
+                                🗑️ Delete
+                            </button>
+                            <button class="control-btn btn-save" id="confirmDeleteBtn" onclick="confirmDeleteFields()" style="display:none;background:#dc2626;color:white;">
+                                ✓ Confirm
+                            </button>
+                            <button class="control-btn btn-cancel" id="cancelDeleteBtn" onclick="cancelDeleteMode()" style="display:none;">
+                                ✕ Cancel
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Data Actions Section -->
+                    <div class="control-section">
+                        <div class="section-title">Data Actions</div>
+                        <div class="data-controls">
+                            <button class="control-btn" id="clearCacheBtn" onclick="clearDocumentCache()" style="background:#f59e0b;color:white;">
+                                🔄 Refresh
+                            </button>
+                            <button class="control-btn btn-download" id="downloadPageBtn" onclick="downloadPageJSON()" style="display:none;">
+                                📄 Page JSON
+                            </button>
+                            <button class="control-btn btn-download" id="downloadAccountBtn" onclick="downloadAccountJSON()" style="display:none;">
+                                💾 Account JSON
+                            </button>
+                        </div>
                     </div>
                 </div>
                 <div class="data-content" id="dataContent">
@@ -1059,6 +1116,7 @@
             document.getElementById('downloadPageBtn').style.display = 'flex';
             document.getElementById('downloadAccountBtn').style.display = 'flex';
             document.getElementById('addFieldBtnMain').style.display = 'flex';
+            document.getElementById('deleteFieldBtn').style.display = 'flex';
             document.getElementById('clearCacheBtn').style.display = 'flex';
         }
 
@@ -1486,6 +1544,17 @@
         }
 
         function showAddFieldDialog() {
+            // Check if an account and page are selected
+            if (currentAccountIndex === -1 || currentAccountIndex === null) {
+                showNotification('Please select an account first', 'error');
+                return;
+            }
+            
+            if (currentPageIndex === null || currentPageIndex === undefined) {
+                showNotification('Please select a page first', 'error');
+                return;
+            }
+            
             const modal = document.getElementById('addFieldModal');
             modal.style.display = 'flex';
             document.getElementById('newFieldName').value = '';
@@ -1539,7 +1608,9 @@
                 
                 // Save to backend and update S3 cache
                 const account = accounts[currentAccountIndex];
-                const response = await fetch(`/api/document/${documentId}/account/${currentAccountIndex}/page/${currentPageIndex}/update`, {
+                // Use the actual PDF page number, not the index
+                const actualPageNum = accountPageNumbers[currentPageIndex] || currentPageIndex;
+                const response = await fetch(`/api/document/${documentId}/account/${currentAccountIndex}/page/${actualPageNum}/update`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -1552,9 +1623,14 @@
                     throw new Error(result.message);
                 }
                 
+                console.log('Field added successfully, cache updated:', result);
                 showNotification(`Field "${fieldName}" added successfully!`, 'success');
                 closeAddFieldDialog();
-                renderPageData();
+                
+                // Reload the current page to show the updated data
+                setTimeout(() => {
+                    showPage(currentPageIndex);
+                }, 300);
             } catch (error) {
                 showNotification('Failed to add field: ' + error.message, 'error');
             }
@@ -1747,6 +1823,126 @@
             document.getElementById('zoomLevel').textContent = '100%';
         }
         
+        // Delete mode functionality
+        let deleteMode = false;
+        let selectedFieldsForDelete = new Set();
+        
+        function toggleDeleteMode() {
+            deleteMode = !deleteMode;
+            selectedFieldsForDelete.clear();
+            
+            const deleteBtn = document.getElementById('deleteFieldBtn');
+            const confirmBtn = document.getElementById('confirmDeleteBtn');
+            const cancelBtn = document.getElementById('cancelDeleteBtn');
+            const addBtn = document.getElementById('addFieldBtnMain');
+            const editBtn = document.getElementById('editBtn');
+            
+            if (deleteMode) {
+                // Enter delete mode
+                deleteBtn.style.display = 'none';
+                confirmBtn.style.display = 'flex';
+                cancelBtn.style.display = 'flex';
+                addBtn.style.display = 'none';
+                editBtn.style.display = 'none';
+                
+                // Add checkboxes to all field items
+                document.querySelectorAll('.field-item').forEach(item => {
+                    const fieldValue = item.querySelector('.field-value');
+                    if (fieldValue && fieldValue.dataset.field) {
+                        item.classList.add('delete-mode');
+                        
+                        const checkbox = document.createElement('input');
+                        checkbox.type = 'checkbox';
+                        checkbox.className = 'field-checkbox';
+                        checkbox.dataset.field = fieldValue.dataset.field;
+                        checkbox.onchange = (e) => {
+                            if (e.target.checked) {
+                                selectedFieldsForDelete.add(e.target.dataset.field);
+                                item.classList.add('selected-for-delete');
+                            } else {
+                                selectedFieldsForDelete.delete(e.target.dataset.field);
+                                item.classList.remove('selected-for-delete');
+                            }
+                        };
+                        
+                        item.insertBefore(checkbox, item.firstChild);
+                    }
+                });
+                
+                showNotification('Select fields to delete', 'success');
+            } else {
+                cancelDeleteMode();
+            }
+        }
+        
+        function cancelDeleteMode() {
+            deleteMode = false;
+            selectedFieldsForDelete.clear();
+            
+            const deleteBtn = document.getElementById('deleteFieldBtn');
+            const confirmBtn = document.getElementById('confirmDeleteBtn');
+            const cancelBtn = document.getElementById('cancelDeleteBtn');
+            const addBtn = document.getElementById('addFieldBtnMain');
+            const editBtn = document.getElementById('editBtn');
+            
+            deleteBtn.style.display = 'flex';
+            confirmBtn.style.display = 'none';
+            cancelBtn.style.display = 'none';
+            addBtn.style.display = 'flex';
+            editBtn.style.display = 'flex';
+            
+            // Remove checkboxes and classes
+            document.querySelectorAll('.field-checkbox').forEach(cb => cb.remove());
+            document.querySelectorAll('.field-item').forEach(item => {
+                item.classList.remove('delete-mode', 'selected-for-delete');
+            });
+        }
+        
+        async function confirmDeleteFields() {
+            if (selectedFieldsForDelete.size === 0) {
+                showNotification('No fields selected', 'error');
+                return;
+            }
+            
+            const count = selectedFieldsForDelete.size;
+            if (!confirm(`Delete ${count} selected field${count > 1 ? 's' : ''}?`)) {
+                return;
+            }
+            
+            try {
+                // Remove selected fields from currentPageData
+                selectedFieldsForDelete.forEach(fieldName => {
+                    delete currentPageData[fieldName];
+                });
+                
+                // Save updated data to backend
+                const actualPageNum = accountPageNumbers[currentPageIndex] || currentPageIndex;
+                const response = await fetch(`/api/document/${documentId}/account/${currentAccountIndex}/page/${actualPageNum}/update`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        page_data: currentPageData
+                    })
+                });
+                
+                const result = await response.json();
+                if (!result.success) {
+                    throw new Error(result.message);
+                }
+                
+                showNotification(`${count} field${count > 1 ? 's' : ''} deleted successfully!`, 'success');
+                cancelDeleteMode();
+                
+                // Reload the page to show updated data
+                setTimeout(() => {
+                    showPage(currentPageIndex);
+                }, 300);
+                
+            } catch (error) {
+                showNotification('Failed to delete fields: ' + error.message, 'error');
+            }
+        }
+
         function showNotification(message, type = 'success') {
             const notification = document.getElementById('notification');
             notification.textContent = message;
@@ -1755,6 +1951,35 @@
             setTimeout(() => {
                 notification.classList.remove('show');
             }, 3000);
+        }
+
+        async function clearDocumentCache() {
+            if (!confirm('Clear cache and re-extract all data with updated prompts?\n\nThis will delete cached data and you\'ll need to click on pages again to re-extract.')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/document/{{ document.id }}/clear-cache`, {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showNotification('✓ Cache cleared! Click on pages to re-extract with new prompts.', 'success');
+                    // Reload the current page data
+                    if (currentAccountIndex !== null && currentPageIndex !== null) {
+                        setTimeout(() => {
+                            loadPageData(currentAccountIndex, currentPageIndex, true);
+                        }, 1000);
+                    }
+                } else {
+                    showNotification('Failed to clear cache: ' + result.message, 'error');
+                }
+            } catch (error) {
+                console.error('Error clearing cache:', error);
+                showNotification('Error clearing cache', 'error');
+            }
         }
 
         // Load accounts on page load
