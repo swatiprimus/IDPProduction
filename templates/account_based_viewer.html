@@ -754,6 +754,9 @@
                         <button class="control-btn btn-download" id="downloadAccountBtn" onclick="downloadAccountJSON()" style="display:none;">
                             💾 Account JSON
                         </button>
+                        <button class="control-btn" id="addFieldBtnMain" onclick="showAddFieldDialog()" style="display:none;background:#10b981;color:white;">
+                            ➕ Add Field
+                        </button>
                         <button class="control-btn" id="clearCacheBtn" onclick="clearDocumentCache()" style="display:none;background:#f59e0b;color:white;">
                             🔄 Clear Cache
                         </button>
@@ -773,6 +776,37 @@
     </div>
 
     <div class="notification" id="notification"></div>
+
+    <!-- Add Field Modal -->
+    <div id="addFieldModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:10000;align-items:center;justify-content:center;">
+        <div style="background:white;border-radius:12px;width:90%;max-width:500px;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+            <div style="padding:20px 30px;background:#f8f9fa;border-bottom:1px solid #e9ecef;border-radius:12px 12px 0 0;">
+                <h2 style="margin:0;font-size:1.3em;color:#2c3e50;display:flex;align-items:center;gap:10px;">
+                    <span>➕</span>
+                    <span>Add New Field</span>
+                </h2>
+            </div>
+            <div style="padding:30px;">
+                <div style="margin-bottom:20px;">
+                    <label style="display:block;margin-bottom:8px;font-weight:500;color:#495057;">
+                        <span style="color:#e74c3c;margin-right:4px;">*</span>Field Name
+                    </label>
+                    <input type="text" id="newFieldName" placeholder="e.g., Email_Address, Phone_Number" style="width:100%;padding:12px 15px;border:2px solid #e9ecef;border-radius:6px;font-size:1em;">
+                    <div style="font-size:0.85em;color:#7f8c8d;margin-top:5px;">Use underscores instead of spaces (e.g., Date_of_Birth)</div>
+                </div>
+                <div style="margin-bottom:20px;">
+                    <label style="display:block;margin-bottom:8px;font-weight:500;color:#495057;">
+                        <span style="color:#e74c3c;margin-right:4px;">*</span>Field Value
+                    </label>
+                    <input type="text" id="newFieldValue" placeholder="Enter the value" style="width:100%;padding:12px 15px;border:2px solid #e9ecef;border-radius:6px;font-size:1em;">
+                </div>
+            </div>
+            <div style="padding:20px 30px;background:#f8f9fa;border-top:1px solid #e9ecef;display:flex;justify-content:flex-end;gap:10px;border-radius:0 0 12px 12px;">
+                <button onclick="closeAddFieldDialog()" style="padding:10px 20px;border:1px solid #ddd;background:white;color:#7f8c8d;border-radius:6px;cursor:pointer;font-weight:500;">Cancel</button>
+                <button onclick="addNewField()" style="padding:10px 20px;border:none;background:#10b981;color:white;border-radius:6px;cursor:pointer;font-weight:500;">Add Field</button>
+            </div>
+        </div>
+    </div>
 
     <script>
         const documentId = '{{ document.id }}';
@@ -1024,6 +1058,7 @@
             document.getElementById('editBtn').style.display = 'flex';
             document.getElementById('downloadPageBtn').style.display = 'flex';
             document.getElementById('downloadAccountBtn').style.display = 'flex';
+            document.getElementById('addFieldBtnMain').style.display = 'flex';
             document.getElementById('clearCacheBtn').style.display = 'flex';
         }
 
@@ -1450,6 +1485,81 @@
             }
         }
 
+        function showAddFieldDialog() {
+            const modal = document.getElementById('addFieldModal');
+            modal.style.display = 'flex';
+            document.getElementById('newFieldName').value = '';
+            document.getElementById('newFieldValue').value = '';
+            document.getElementById('newFieldName').focus();
+            
+            // Add keyboard support
+            const handleKeyPress = (e) => {
+                if (e.key === 'Enter') {
+                    addNewField();
+                } else if (e.key === 'Escape') {
+                    closeAddFieldDialog();
+                }
+            };
+            
+            document.getElementById('newFieldName').onkeydown = handleKeyPress;
+            document.getElementById('newFieldValue').onkeydown = handleKeyPress;
+        }
+
+        function closeAddFieldDialog() {
+            document.getElementById('addFieldModal').style.display = 'none';
+        }
+
+        async function addNewField() {
+            const fieldName = document.getElementById('newFieldName').value.trim();
+            const fieldValue = document.getElementById('newFieldValue').value.trim();
+            
+            if (!fieldName) {
+                showNotification('Please enter a field name', 'error');
+                return;
+            }
+            
+            if (!fieldValue) {
+                showNotification('Please enter a field value', 'error');
+                return;
+            }
+            
+            // Check if field already exists
+            if (currentPageData && currentPageData[fieldName]) {
+                if (!confirm(`Field "${fieldName}" already exists. Do you want to overwrite it?`)) {
+                    return;
+                }
+            }
+            
+            try {
+                // Add to current page data
+                if (!currentPageData) {
+                    currentPageData = {};
+                }
+                currentPageData[fieldName] = fieldValue;
+                
+                // Save to backend and update S3 cache
+                const account = accounts[currentAccountIndex];
+                const response = await fetch(`/api/document/${documentId}/account/${currentAccountIndex}/page/${currentPageIndex}/update`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        page_data: currentPageData
+                    })
+                });
+                
+                const result = await response.json();
+                if (!result.success) {
+                    throw new Error(result.message);
+                }
+                
+                showNotification(`Field "${fieldName}" added successfully!`, 'success');
+                closeAddFieldDialog();
+                renderPageData();
+            } catch (error) {
+                showNotification('Failed to add field: ' + error.message, 'error');
+            }
+        }
+
         let currentPageData = null; // Store current page data
         
         function downloadPageJSON() {
@@ -1520,21 +1630,24 @@
         }
 
         async function clearDocumentCache() {
-            if (!confirm('Clear cache and re-extract all pages with updated prompts?\n\nThis will:\n- Delete all cached page data\n- Force fresh extraction on next page click\n- Extract stamp dates and other new fields')) {
+            const account = accounts[currentAccountIndex];
+            const accountNumber = account.accountNumber;
+            
+            if (!confirm(`Clear cache for Account ${accountNumber}?\n\nThis will:\n- Delete cached data for all pages of this account\n- Force fresh extraction on next page click\n- Extract updated fields with current prompts\n\nOther accounts will NOT be affected.`)) {
                 return;
             }
             
             try {
-                showNotification('Clearing cache...', 'success');
+                showNotification(`Clearing cache for Account ${accountNumber}...`, 'success');
                 
-                const response = await fetch(`/api/document/${documentId}/clear-cache`, {
+                const response = await fetch(`/api/document/${documentId}/account/${currentAccountIndex}/clear-cache`, {
                     method: 'POST'
                 });
                 
                 const result = await response.json();
                 
                 if (result.success) {
-                    showNotification(`✅ ${result.message}`, 'success');
+                    showNotification(`✅ Cache cleared for Account ${accountNumber}. ${result.pages_cleared} pages affected.`, 'success');
                     
                     // Reload current page to get fresh data
                     setTimeout(() => {

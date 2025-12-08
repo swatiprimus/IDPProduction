@@ -3502,6 +3502,55 @@ def clear_document_cache(doc_id):
         return jsonify({"success": False, "message": f"Failed to clear cache: {str(e)}"}), 500
 
 
+@app.route("/api/document/<doc_id>/account/<int:account_index>/clear-cache", methods=["POST"])
+def clear_account_cache(doc_id, account_index):
+    """Clear S3 cache for a specific account only"""
+    try:
+        doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+        if not doc:
+            return jsonify({"success": False, "message": "Document not found"}), 404
+        
+        # Get the account
+        doc_data = doc.get("documents", [{}])[0]
+        accounts = doc_data.get("accounts", [])
+        
+        if account_index >= len(accounts):
+            return jsonify({"success": False, "message": "Account not found"}), 404
+        
+        account = accounts[account_index]
+        account_number = account.get("accountNumber", "Unknown")
+        
+        deleted_count = 0
+        
+        # Delete page data cache for this account only (try up to 100 pages)
+        for page_num in range(100):
+            try:
+                cache_key = f"page_data/{doc_id}/account_{account_index}/page_{page_num}.json"
+                s3_client.delete_object(Bucket=S3_BUCKET, Key=cache_key)
+                deleted_count += 1
+                print(f"[INFO] Deleted cache for account {account_number}: {cache_key}")
+            except s3_client.exceptions.NoSuchKey:
+                # No more pages for this account
+                break
+            except Exception as e:
+                print(f"[WARNING] Failed to delete {cache_key}: {str(e)}")
+                pass
+        
+        print(f"[INFO] Cleared {deleted_count} cache entries for account {account_number} (index {account_index})")
+        
+        return jsonify({
+            "success": True,
+            "message": f"Cache cleared for Account {account_number}",
+            "pages_cleared": deleted_count,
+            "account_number": account_number,
+            "note": "Click on pages again to re-extract with updated prompts"
+        })
+        
+    except Exception as e:
+        print(f"[ERROR] Failed to clear account cache: {str(e)}")
+        return jsonify({"success": False, "message": f"Failed to clear cache: {str(e)}"}), 500
+
+
 @app.route("/process", methods=["POST"])
 def process_document():
     """Upload and process document"""
