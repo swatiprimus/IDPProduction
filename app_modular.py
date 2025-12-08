@@ -57,6 +57,143 @@ def save_documents_db(documents):
 # Load existing documents on startup
 processed_documents = load_documents_db()
 
+def find_existing_document_by_account(account_number):
+    """Find existing document by account number"""
+    if not account_number:
+        return None
+    
+    # Normalize account number for comparison (remove spaces, dashes)
+    normalized_search = re.sub(r'[\s\-]', '', str(account_number))
+    
+    for doc in processed_documents:
+        # Check in basic_fields
+        if doc.get("basic_fields", {}).get("account_number"):
+            existing_acc = re.sub(r'[\s\-]', '', str(doc["basic_fields"]["account_number"]))
+            if existing_acc == normalized_search:
+                return doc
+        
+        # Check in documents array (for loan documents with accounts)
+        for sub_doc in doc.get("documents", []):
+            # Check extracted_fields
+            if sub_doc.get("extracted_fields", {}).get("account_number"):
+                existing_acc = re.sub(r'[\s\-]', '', str(sub_doc["extracted_fields"]["account_number"]))
+                if existing_acc == normalized_search:
+                    return doc
+            
+            # Check accounts array (for loan documents)
+            for account in sub_doc.get("accounts", []):
+                if account.get("accountNumber"):
+                    existing_acc = re.sub(r'[\s\-]', '', str(account["accountNumber"]))
+                    if existing_acc == normalized_search:
+                        return doc
+    
+    return None
+
+def merge_document_fields(existing_doc, new_doc):
+    """Merge new document fields into existing document, tracking changes"""
+    changes = []
+    
+    # Helper function to compare and merge fields
+    def merge_fields(existing_fields, new_fields, path=""):
+        field_changes = []
+        for key, new_value in new_fields.items():
+            # Skip empty values and metadata fields
+            if new_value == "" or new_value is None:
+                continue
+            if key in ["total_accounts", "accounts_processed", "account_numbers"]:
+                continue
+                
+            if key not in existing_fields:
+                # New field added
+                existing_fields[key] = new_value
+                field_changes.append({
+                    "field": f"{path}{key}",
+                    "change_type": "added",
+                    "new_value": new_value
+                })
+            elif existing_fields[key] != new_value:
+                # Field value changed (skip if both are empty)
+                old_value = existing_fields[key]
+                if old_value == "" and new_value == "":
+                    continue
+                existing_fields[key] = new_value
+                field_changes.append({
+                    "field": f"{path}{key}",
+                    "change_type": "updated",
+                    "old_value": old_value,
+                    "new_value": new_value
+                })
+        return field_changes
+    
+    # Merge basic_fields
+    if new_doc.get("basic_fields"):
+        if not existing_doc.get("basic_fields"):
+            existing_doc["basic_fields"] = {}
+        changes.extend(merge_fields(existing_doc["basic_fields"], new_doc["basic_fields"], "basic_fields."))
+    
+    # Merge documents array
+    if new_doc.get("documents"):
+        if not existing_doc.get("documents"):
+            existing_doc["documents"] = []
+        
+        for new_sub_doc in new_doc["documents"]:
+            # Find matching document by type
+            doc_type = new_sub_doc.get("document_type")
+            existing_sub_doc = next((d for d in existing_doc["documents"] if d.get("document_type") == doc_type), None)
+            
+            if existing_sub_doc:
+                # Merge extracted_fields
+                if new_sub_doc.get("extracted_fields"):
+                    if not existing_sub_doc.get("extracted_fields"):
+                        existing_sub_doc["extracted_fields"] = {}
+                    changes.extend(merge_fields(existing_sub_doc["extracted_fields"], new_sub_doc["extracted_fields"], f"documents[{doc_type}].extracted_fields."))
+                
+                # Merge accounts array (for loan documents)
+                if new_sub_doc.get("accounts"):
+                    if not existing_sub_doc.get("accounts"):
+                        existing_sub_doc["accounts"] = []
+                    
+                    for new_account in new_sub_doc["accounts"]:
+                        acc_num = new_account.get("accountNumber")
+                        existing_account = next((a for a in existing_sub_doc["accounts"] if a.get("accountNumber") == acc_num), None)
+                        
+                        if existing_account:
+                            # Merge account result fields
+                            if new_account.get("result"):
+                                if not existing_account.get("result"):
+                                    existing_account["result"] = {}
+                                changes.extend(merge_fields(existing_account["result"], new_account["result"], f"accounts[{acc_num}].result."))
+                        else:
+                            # New account added
+                            existing_sub_doc["accounts"].append(new_account)
+                            changes.append({
+                                "field": f"accounts[{acc_num}]",
+                                "change_type": "added",
+                                "new_value": acc_num
+                            })
+            else:
+                # New document type added - add it to the existing document
+                existing_doc["documents"].append(new_sub_doc)
+                
+                # Track all fields from the new document type as changes
+                if new_sub_doc.get("extracted_fields"):
+                    for field_name, field_value in new_sub_doc["extracted_fields"].items():
+                        # Skip metadata fields
+                        if field_name not in ["total_accounts", "accounts_processed", "account_numbers"]:
+                            changes.append({
+                                "field": f"documents[{doc_type}].extracted_fields.{field_name}",
+                                "change_type": "added",
+                                "new_value": field_value
+                            })
+    
+    # Update metadata
+    existing_doc["last_updated"] = datetime.now().isoformat()
+    existing_doc["update_source_filename"] = new_doc.get("filename")
+    existing_doc["needs_review"] = True
+    existing_doc["changes"] = changes
+    
+    return existing_doc, changes
+
 def _process_single_page_scan(args):
     """Helper function to process a single page (for parallel processing)"""
     page_num, pdf_path, doc_id, accounts = args
@@ -1536,9 +1673,28 @@ def process_job(job_id: str, file_bytes: bytes, filename: str, use_ocr: bool, do
                     pdf_doc.close()
                     
                     # Quick detection based on first page
-                    if "ACCOUNT NUMBER" in first_page_text.upper() and "ACCOUNT HOLDER" in first_page_text.upper():
+                    # IMPORTANT: Check for business card FIRST before assuming loan document
+                    first_page_upper = first_page_text.upper()
+                    
+                    # Exclude business card order forms and other specific forms
+                    is_business_card = "BUSINESS CARD ORDER FORM" in first_page_upper or "CARD ORDER FORM" in first_page_upper
+                    is_card_request = "CARD REQUEST" in first_page_upper or "ATM" in first_page_upper or "DEBIT CARD" in first_page_upper
+                    is_withdrawal = "WITHDRAWAL FORM" in first_page_upper or "ACCOUNT WITHDRAWAL" in first_page_upper
+                    
+                    # Only treat as loan document if it has loan-specific indicators AND is not a form
+                    has_loan_indicators = (
+                        "ACCOUNT NUMBER" in first_page_upper and 
+                        "ACCOUNT HOLDER" in first_page_upper and
+                        not is_business_card and
+                        not is_card_request and
+                        not is_withdrawal
+                    )
+                    
+                    if has_loan_indicators:
                         is_loan_document = True
                         print(f"[INFO] OPTIMIZATION: Detected loan document - will skip full OCR and use page-level processing")
+                    elif is_business_card or is_card_request:
+                        print(f"[INFO] Detected business card/form - will use normal processing")
             except Exception as quick_scan_err:
                 print(f"[WARNING] Quick scan failed: {str(quick_scan_err)}, will proceed with normal OCR")
         
@@ -1722,7 +1878,7 @@ def process_job(job_id: str, file_bytes: bytes, filename: str, use_ocr: bool, do
             # Remove file extension from filename for cleaner display
             document_name = filename.rsplit('.', 1)[0] if '.' in filename else filename
         
-        # Step 5: Save to persistent storage
+        # Step 5: Check for existing account and merge if found
         document_record = {
             "id": job_id,
             "filename": filename,
@@ -1741,7 +1897,48 @@ def process_job(job_id: str, file_bytes: bytes, filename: str, use_ocr: bool, do
         if "textract_error" in job_status_map[job_id]:
             document_record["textract_error"] = job_status_map[job_id]["textract_error"]
         
-        processed_documents.append(document_record)
+        # Check if account number exists in the new document
+        account_number = None
+        if basic_fields.get("account_number"):
+            account_number = basic_fields["account_number"]
+        elif result.get("documents"):
+            for doc in result["documents"]:
+                if doc.get("extracted_fields", {}).get("account_number"):
+                    account_number = doc["extracted_fields"]["account_number"]
+                    break
+                if doc.get("accounts") and len(doc["accounts"]) > 0:
+                    account_number = doc["accounts"][0].get("accountNumber")
+                    break
+        
+        # Check if this account already exists
+        existing_doc = find_existing_document_by_account(account_number) if account_number else None
+        
+        if existing_doc:
+            # Account exists - merge the changes
+            print(f"[INFO] Account {account_number} already exists in document {existing_doc['id']} - merging changes")
+            merged_doc, changes = merge_document_fields(existing_doc, document_record)
+            
+            # Update the existing document in the list
+            for i, doc in enumerate(processed_documents):
+                if doc["id"] == existing_doc["id"]:
+                    processed_documents[i] = merged_doc
+                    break
+            
+            # Update job status to indicate merge
+            job_status_map[job_id]["merge_info"] = {
+                "merged_with_doc_id": existing_doc["id"],
+                "merged_with_doc_name": existing_doc.get("document_name", "Unknown"),
+                "account_number": account_number,
+                "changes_count": len(changes),
+                "changes": changes
+            }
+            
+            print(f"[INFO] ✅ Merged {len(changes)} changes into existing document")
+        else:
+            # New account - add as new document
+            processed_documents.append(document_record)
+            print(f"[INFO] ✅ Added new document with account {account_number if account_number else 'N/A'}")
+        
         save_documents_db(processed_documents)
         
         # Step 6: Mark job as complete FIRST
@@ -1848,6 +2045,134 @@ def view_account_based(doc_id):
     if doc:
         return render_template("account_based_viewer.html", document=doc)
     return "Document not found", 404
+
+
+@app.route("/api/document/<doc_id>/changes", methods=["GET"])
+def get_document_changes(doc_id):
+    """Get the list of changes for a document"""
+    doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+    if not doc:
+        return jsonify({"success": False, "message": "Document not found"}), 404
+    
+    changes = doc.get("changes", [])
+    return jsonify({
+        "success": True,
+        "changes": changes,
+        "needs_review": doc.get("needs_review", False),
+        "update_source": doc.get("update_source_filename", "Unknown")
+    })
+
+
+@app.route("/api/document/<doc_id>/apply-changes", methods=["POST"])
+def apply_selected_changes(doc_id):
+    """Apply only the selected changes to the document"""
+    global processed_documents
+    
+    doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+    if not doc:
+        return jsonify({"success": False, "message": "Document not found"}), 404
+    
+    try:
+        data = request.get_json()
+        selected_indices = data.get("selected_changes", [])
+        
+        if not selected_indices:
+            return jsonify({"success": False, "message": "No changes selected"}), 400
+        
+        changes = doc.get("changes", [])
+        applied_changes = []
+        
+        # Apply only selected changes
+        for idx in selected_indices:
+            if 0 <= idx < len(changes):
+                change = changes[idx]
+                applied_changes.append(change)
+                
+                # Apply the change to the document
+                field_path = change["field"].split(".")
+                
+                # Navigate to the field and update it
+                current = doc
+                for i, key in enumerate(field_path[:-1]):
+                    # Handle array indices like "accounts[468869904]"
+                    if "[" in key and "]" in key:
+                        base_key = key.split("[")[0]
+                        array_key = key.split("[")[1].split("]")[0]
+                        
+                        if base_key not in current:
+                            current[base_key] = []
+                        
+                        # Find the item in array
+                        if base_key == "accounts":
+                            item = next((a for a in current[base_key] if a.get("accountNumber") == array_key), None)
+                            if item:
+                                current = item
+                    else:
+                        if key not in current:
+                            current[key] = {}
+                        current = current[key]
+                
+                # Set the final value
+                final_key = field_path[-1]
+                if change["change_type"] == "added" or change["change_type"] == "updated":
+                    current[final_key] = change["new_value"]
+        
+        # Mark as reviewed and move to history
+        doc["needs_review"] = False
+        doc["reviewed_at"] = datetime.now().isoformat()
+        doc["changes_history"] = doc.get("changes_history", [])
+        doc["changes_history"].append({
+            "applied_changes": applied_changes,
+            "rejected_changes": [c for i, c in enumerate(changes) if i not in selected_indices],
+            "reviewed_at": doc["reviewed_at"]
+        })
+        doc["changes"] = []
+        
+        save_documents_db(processed_documents)
+        
+        return jsonify({
+            "success": True,
+            "message": f"Applied {len(applied_changes)} changes",
+            "applied_count": len(applied_changes)
+        })
+    
+    except Exception as e:
+        print(f"[ERROR] Failed to apply changes: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "message": f"Failed: {str(e)}"}), 500
+
+
+@app.route("/api/document/<doc_id>/mark-reviewed", methods=["POST"])
+def mark_document_reviewed(doc_id):
+    """Mark a document as reviewed without applying changes (reject all)"""
+    global processed_documents
+    
+    doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+    if not doc:
+        return jsonify({"success": False, "message": "Document not found"}), 404
+    
+    try:
+        # Clear review flags
+        doc["needs_review"] = False
+        doc["reviewed_at"] = datetime.now().isoformat()
+        
+        # Keep changes history but mark as reviewed
+        if "changes" in doc:
+            doc["changes_history"] = doc.get("changes_history", [])
+            doc["changes_history"].append({
+                "rejected_changes": doc["changes"],
+                "reviewed_at": doc["reviewed_at"]
+            })
+            doc["changes"] = []
+        
+        save_documents_db(processed_documents)
+        
+        return jsonify({"success": True, "message": "Document marked as reviewed (all changes rejected)"})
+    
+    except Exception as e:
+        print(f"[ERROR] Failed to mark document as reviewed: {str(e)}")
+        return jsonify({"success": False, "message": f"Failed: {str(e)}"}), 500
 
 
 @app.route("/api/document/<doc_id>/account/<int:account_index>/pages")
@@ -3035,6 +3360,13 @@ def process_document():
 def get_status(job_id):
     """Get processing status"""
     status = job_status_map.get(job_id, {"status": "Unknown job", "progress": 0})
+    
+    # Add merge information if available
+    if "merge_info" in status:
+        merge_info = status["merge_info"]
+        status["status"] = f"✅ Document merged with existing account {merge_info['account_number']} - {merge_info['changes_count']} changes detected"
+        status["is_merged"] = True
+    
     return jsonify(status)
 
 

@@ -82,6 +82,12 @@
         .btn-cancel { background: white; color: #7f8c8d; border: 1px solid #ddd; }
         .btn-create { background: #3498db; color: white; }
         .btn-create:disabled { background: #cbd5e0; cursor: not-allowed; }
+        .needs-review-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: #fef3c7; color: #92400e; border-radius: 12px; font-size: 0.75em; font-weight: 600; border: 1px solid #fbbf24; }
+        .needs-review-badge .icon { font-size: 1.1em; }
+        .updated-row { background: #fffbeb !important; border-left: 4px solid #f59e0b; }
+        .updated-row:hover { background: #fef3c7 !important; }
+        .changes-tooltip { position: relative; cursor: help; }
+        .changes-tooltip:hover::after { content: attr(data-changes); position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: #1e293b; color: white; padding: 8px 12px; border-radius: 6px; font-size: 0.85em; white-space: nowrap; z-index: 1000; margin-bottom: 5px; }
     </style>
 </head>
 <body>
@@ -308,6 +314,15 @@
                 const row=document.createElement('tr');
                 row.style.cursor='pointer';
                 
+                // Check if document needs review (was updated)
+                const needsReview = skill.needs_review === true;
+                const changes = skill.changes || [];
+                const changesCount = changes.length;
+                
+                if (needsReview) {
+                    row.classList.add('updated-row');
+                }
+                
                 // Check if PDF is available
                 const hasPDF = skill.filename && skill.filename.toLowerCase().endsWith('.pdf');
                 
@@ -330,15 +345,25 @@
                 // PDF view button
                 const pdfButton = hasPDF ? `<button onclick="event.stopPropagation();viewPDF('${skill.id}','${skill.filename}')" style="padding:6px 10px;background:transparent;color:#667eea;border:none;cursor:pointer;transition:all 0.3s;display:inline-flex;align-items:center;justify-content:center;" title="View PDF"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><path d="M10 12h4"></path><path d="M10 16h4"></path></svg></button>` : '';
                 
+                // Build review badge if needed
+                const reviewBadge = needsReview ? `
+                    <span class="needs-review-badge changes-tooltip" data-changes="${changesCount} field(s) updated - Click to review">
+                        <span class="icon">⚠️</span>
+                        Needs Review (${changesCount} changes)
+                    </span>
+                ` : `
+                    <span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;background:#d1fae5;color:#065f46;border-radius:12px;font-size:0.75em;font-weight:600;">
+                        <span style="width:6px;height:6px;background:#10b981;border-radius:50%;animation:blink 1.5s ease-in-out infinite;"></span>
+                        Ready
+                    </span>
+                `;
+                
                 row.innerHTML=`
                     <td><span style="font-size:1.5em;">${icon}</span></td>
                     <td>
                         <div style="display:flex;align-items:center;gap:10px;">
                             <span class="skill-name">${skill.document_name || skill.filename}</span>
-                            <span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;background:#d1fae5;color:#065f46;border-radius:12px;font-size:0.75em;font-weight:600;">
-                                <span style="width:6px;height:6px;background:#10b981;border-radius:50%;animation:blink 1.5s ease-in-out infinite;"></span>
-                                Ready
-                            </span>
+                            ${reviewBadge}
                             ${pdfButton}
                         </div>
                     </td>

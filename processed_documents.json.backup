@@ -1,0 +1,1967 @@
+[
+    {
+        "id":  "41226aaf58",
+        "filename":  "BP70C55-K6535_20250805_092226 - 001.pdf",
+        "document_name":  "Sign1",
+        "timestamp":  "20251205_151436",
+        "processed_date":  "2025-12-05T15:14:57.507800",
+        "ocr_file":  "ocr_results/20251205_151436_BP70C55-K6535_20250805_092226 - 001.pdf.txt",
+        "ocr_method":  "Amazon Textract",
+        "basic_fields":  {
+                             "document_type":  "Business Card Order Form",
+                             "business_name":  "lk Construction, Inc",
+                             "account_number":  "0208856641",
+                             "authorized_signer_name":  "II K Kim",
+                             "branch_name":  "Plymouth Meeting LPO",
+                             "associate_name":  "Amy Hwang",
+                             "request_date":  "03/02/2016",
+                             "mail_to_branch":  "Yes",
+                             "abbreviations_needed":  "No",
+                             "associate_signature":  "Ang BHway",
+                             "customer_signature":  "Jan",
+                             "form_revision":  "9/2014",
+                             "form_id":  "BusCardOrder"
+                         },
+        "documents":  [
+                          {
+                              "document_id":  "doc_001",
+                              "document_type":  "business_card",
+                              "document_type_display":  "Business Card / Card Order Form",
+                              "document_icon":  "??",
+                              "document_description":  "Professional contact information or card order form",
+                              "extracted_fields":  {
+                                                       "company_name":  "WSFS bank",
+                                                       "business_name":  "lk Construction, Inc",
+                                                       "account_number":  "0208856641",
+                                                       "contact_name":  "II K Kim",
+                                                       "branch_name":  "Plymouth Meeting LPO",
+                                                       "associate_name":  "Amy Hwang",
+                                                       "request_date":  "03/02/2016",
+                                                       "form_details":  {
+                                                                            "abbreviations_needed":  "No",
+                                                                            "mail_to_branch":  "Yes",
+                                                                            "form_revision":  "Rev 9/2014",
+                                                                            "form_id":  "BusCardOrder"
+                                                                        },
+                                                       "authorization":  {
+                                                                             "associate_signature":  "Ang BHway",
+                                                                             "customer_signature":  "Jan"
+                                                                         },
+                                                       "card_details":  "Cards have a limit of 26 characters per line. Business Name will always be on line one of the card and the Authorized Signer\u0027s name will go on line two of the card."
+                                                   },
+                              "accuracy_score":  100.0,
+                              "total_fields":  10,
+                              "filled_fields":  10,
+                              "fields_needing_review":  [
+
+                                                        ],
+                              "needs_human_review":  false
+                          }
+                      ],
+        "document_type_info":  {
+                                   "type":  "business_card",
+                                   "name":  "Business Card / Card Order Form",
+                                   "icon":  "??",
+                                   "description":  "Professional contact information or card order form",
+                                   "expected_fields":  [
+                                                           "company_name",
+                                                           "contact_name",
+                                                           "job_title",
+                                                           "phone",
+                                                           "email",
+                                                           "address",
+                                                           "website",
+                                                           "card_details",
+                                                           "authorization"
+                                                       ],
+                                   "is_supported":  true
+                               },
+        "use_ocr":  true,
+        "pdf_path":  "ocr_results/20251205_151436_BP70C55-K6535_20250805_092226 - 001.pdf"
+    },
+    {
+        "id":  "a65af008ea",
+        "filename":  "BP70C55-K6535_20250805_102541.pdf",
+        "document_name":  "loan 1",
+        "timestamp":  "20251205_153305",
+        "processed_date":  "2025-12-05T15:33:29.010127",
+        "ocr_file":  "ocr_results/20251205_153305_BP70C55-K6535_20250805_102541.pdf.txt",
+        "ocr_method":  "Amazon Textract",
+        "basic_fields":  {
+
+                         },
+        "documents":  [
+                          {
+                              "document_id":  "loan_doc_001",
+                              "document_type":  "loan_document",
+                              "document_type_display":  "Loan/Account Document",
+                              "document_icon":  "??",
+                              "document_description":  "Banking or loan account information",
+                              "extracted_fields":  {
+                                                       "total_accounts":  1,
+                                                       "accounts_processed":  1
+                                                   },
+                              "accounts":  [
+                                               {
+                                                   "accountNumber":  "0210630620",
+                                                   "result":  {
+                                                                  "AccountNumber":  "0210630620",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  0,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  true,
+                                                   "optimized":  true
+                                               }
+                                           ],
+                              "accuracy_score":  0.0,
+                              "total_fields":  0,
+                              "filled_fields":  0,
+                              "needs_human_review":  true,
+                              "fields_needing_review":  [
+
+                                                        ]
+                          }
+                      ],
+        "document_type_info":  {
+                                   "type":  "loan_document",
+                                   "name":  "Loan/Account Document",
+                                   "icon":  "??",
+                                   "description":  "Banking or loan account information",
+                                   "expected_fields":  [
+                                                           "account_number",
+                                                           "account_holder_names",
+                                                           "account_type",
+                                                           "ownership_type",
+                                                           "ssn",
+                                                           "signers",
+                                                           "balance",
+                                                           "interest_rate"
+                                                       ],
+                                   "is_supported":  true
+                               },
+        "use_ocr":  true,
+        "pdf_path":  "ocr_results/20251205_153305_BP70C55-K6535_20250805_102541.pdf"
+    },
+    {
+        "id":  "93ecf79ede",
+        "filename":  "BP70C55-K6535_20250805_102510.pdf",
+        "document_name":  "loan2",
+        "timestamp":  "20251205_153853",
+        "processed_date":  "2025-12-05T15:39:13.136011",
+        "ocr_file":  "ocr_results/20251205_153853_BP70C55-K6535_20250805_102510.pdf.txt",
+        "ocr_method":  "Amazon Textract",
+        "basic_fields":  {
+                             "business_name":  "Ik Construction, Inc",
+                             "account_number":  "468869904",
+                             "authorized_signers":  "OLD VALUE - John Smith",
+                             "needs_abbreviation":  "No",
+                             "mail_to_branch":  "Yes",
+                             "branch_name":  "Plymouth Meeting LPO",
+                             "associate_name":  "Amy Hwang",
+                             "request_date":  "03/02/2016",
+                             "form_revision":  "Rev 9/2014",
+                             "form_id":  "BusCardOrder",
+                             "timestamp":  "2:46 PM",
+                             "date_stamp":  "12/8/25",
+                             "abbreviations_needed":  "No",
+                             "date_in_footer":  "12/8/25",
+                             "business_name_abbreviated":  "",
+                             "signer_name_abbreviated":  "",
+                             "mail_to_signer":  "",
+                             "mail_to_business":  "",
+                             "associate_signature":  "field_present",
+                             "customer_signature":  "field_present"
+                         },
+        "documents":  [
+                          {
+                              "document_id":  "loan_doc_001",
+                              "document_type":  "loan_document",
+                              "document_type_display":  "Loan/Account Document",
+                              "document_icon":  "??",
+                              "document_description":  "Banking or loan account information",
+                              "extracted_fields":  {
+                                                       "total_accounts":  2,
+                                                       "accounts_processed":  2
+                                                   },
+                              "accounts":  [
+                                               {
+                                                   "accountNumber":  "468869904",
+                                                   "result":  {
+                                                                  "AccountNumber":  "468869904",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching",
+                                                                  "Account_Type":  "Personal"
+                                                              },
+                                                   "accuracy_score":  0,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  true,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "210701488",
+                                                   "result":  {
+                                                                  "AccountNumber":  "210701488",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching",
+                                                                  "Account_Purpose":  "Consume"
+                                                              },
+                                                   "accuracy_score":  0,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  true,
+                                                   "optimized":  true
+                                               }
+                                           ],
+                              "accuracy_score":  0.0,
+                              "total_fields":  0,
+                              "filled_fields":  0,
+                              "needs_human_review":  true,
+                              "fields_needing_review":  [
+
+                                                        ]
+                          },
+                          {
+                              "document_id":  "doc_001",
+                              "document_type":  "business_card",
+                              "document_type_display":  "Business Card / Card Order Form",
+                              "document_icon":  "??",
+                              "document_description":  "Professional contact information or card order form",
+                              "extracted_fields":  {
+                                                       "company_name":  "WSFS Bank",
+                                                       "business_name":  "Ik Construction, Inc",
+                                                       "account_number":  "468869904",
+                                                       "authorized_signers":  "Danette Eberly Eberly OR R Bruce Eberly Eberly",
+                                                       "branch_name":  "Plymouth Meeting LPO",
+                                                       "mail_to_branch":  "Yes",
+                                                       "abbreviations_needed":  "No",
+                                                       "associate_name":  "Amy Hwang",
+                                                       "request_date":  "03/02/2016",
+                                                       "form_revision":  "Rev 9/2014",
+                                                       "form_id":  "BusCardOrder",
+                                                       "timestamp":  "2:46 PM",
+                                                       "slogan":  "We Stand For Service®",
+                                                       "trademark":  "We Stand For Service®"
+                                                   },
+                              "accuracy_score":  100.0,
+                              "total_fields":  13,
+                              "filled_fields":  13,
+                              "fields_needing_review":  [
+
+                                                        ],
+                              "needs_human_review":  false
+                          }
+                      ],
+        "document_type_info":  {
+                                   "type":  "loan_document",
+                                   "name":  "Loan/Account Document",
+                                   "icon":  "??",
+                                   "description":  "Banking or loan account information",
+                                   "expected_fields":  [
+                                                           "account_number",
+                                                           "account_holder_names",
+                                                           "account_type",
+                                                           "ownership_type",
+                                                           "ssn",
+                                                           "signers",
+                                                           "balance",
+                                                           "interest_rate"
+                                                       ],
+                                   "is_supported":  true
+                               },
+        "use_ocr":  true,
+        "pdf_path":  "ocr_results/20251205_153853_BP70C55-K6535_20250805_102510.pdf",
+        "last_updated":  "2025-12-08T14:57:36.450769",
+        "update_source_filename":  "BP70C55-K6535_20250805_092226 - 007.pdf",
+        "needs_review":  true,
+        "changes":  [
+                        {
+                            "field":  "basic_fields.authorized_signers",
+                            "new_value":  "Danette Eberly Eberly OR R Bruce Eberly Eberly",
+                            "old_value":  "OLD VALUE - John Smith",
+                            "change_type":  "updated"
+                        }
+                    ],
+        "reviewed_at":  "2025-12-08T14:57:10.475852",
+        "changes_history":  [
+                                {
+                                    "changes":  [
+                                                    {
+                                                        "field":  "basic_fields.business_name",
+                                                        "change_type":  "added",
+                                                        "new_value":  "Ik Construction, Inc"
+                                                    },
+                                                    {
+                                                        "field":  "basic_fields.account_number",
+                                                        "change_type":  "added",
+                                                        "new_value":  "468869904"
+                                                    },
+                                                    {
+                                                        "field":  "basic_fields.authorized_signers",
+                                                        "change_type":  "added",
+                                                        "new_value":  "Danette Eberly Eberly OR R Bruce Eberly Eberly"
+                                                    },
+                                                    {
+                                                        "field":  "basic_fields.needs_abbreviation",
+                                                        "change_type":  "added",
+                                                        "new_value":  "No"
+                                                    },
+                                                    {
+                                                        "field":  "basic_fields.mail_to_branch",
+                                                        "change_type":  "added",
+                                                        "new_value":  "Yes"
+                                                    },
+                                                    {
+                                                        "field":  "basic_fields.branch_name",
+                                                        "change_type":  "added",
+                                                        "new_value":  "Plymouth Meeting LPO"
+                                                    },
+                                                    {
+                                                        "field":  "basic_fields.associate_name",
+                                                        "change_type":  "added",
+                                                        "new_value":  "Amy Hwang"
+                                                    },
+                                                    {
+                                                        "field":  "basic_fields.request_date",
+                                                        "change_type":  "added",
+                                                        "new_value":  "03/02/2016"
+                                                    },
+                                                    {
+                                                        "field":  "basic_fields.form_revision",
+                                                        "change_type":  "added",
+                                                        "new_value":  "Rev 9/2014"
+                                                    },
+                                                    {
+                                                        "field":  "basic_fields.form_id",
+                                                        "change_type":  "added",
+                                                        "new_value":  "BusCardOrder"
+                                                    },
+                                                    {
+                                                        "field":  "basic_fields.timestamp",
+                                                        "change_type":  "added",
+                                                        "new_value":  "2:46 PM"
+                                                    },
+                                                    {
+                                                        "field":  "basic_fields.date_stamp",
+                                                        "change_type":  "added",
+                                                        "new_value":  "12/8/25"
+                                                    },
+                                                    {
+                                                        "field":  "documents[business_card]",
+                                                        "change_type":  "added",
+                                                        "new_value":  "business_card"
+                                                    }
+                                                ],
+                                    "reviewed_at":  "2025-12-08T14:47:35.643205"
+                                },
+                                {
+                                    "rejected_changes":  [
+                                                             {
+                                                                 "field":  "basic_fields.abbreviations_needed",
+                                                                 "change_type":  "added",
+                                                                 "new_value":  "No"
+                                                             },
+                                                             {
+                                                                 "field":  "basic_fields.date_in_footer",
+                                                                 "change_type":  "added",
+                                                                 "new_value":  "12/8/25"
+                                                             }
+                                                         ],
+                                    "reviewed_at":  "2025-12-08T14:57:10.475852"
+                                }
+                            ]
+    },
+    {
+        "id":  "ff92380af1",
+        "filename":  "BP70C55-K6535_20250805_102837.pdf",
+        "document_name":  "DeathCertoficate1",
+        "timestamp":  "20251205_193957",
+        "processed_date":  "2025-12-05T19:41:06.631379",
+        "ocr_file":  "ocr_results/20251205_193957_BP70C55-K6535_20250805_102837.pdf.txt",
+        "ocr_method":  "Amazon Textract",
+        "basic_fields":  {
+                             "account_number":  "468431466",
+                             "state_file_number":  "K1-0000608",
+                             "deceased_name":  "Mary J. Carbaugh",
+                             "sex":  "Female",
+                             "social_security_number":  "221-28-5988",
+                             "date_of_birth":  "03/08/1944",
+                             "birthplace":  "Wilmington, DE",
+                             "residence_address":  "9 West Bellamy Drive",
+                             "residence_city":  "New Castle",
+                             "residence_state":  "Delaware",
+                             "residence_zip":  "19720",
+                             "informant_name":  "Marian Kowalski",
+                             "informant_relationship":  "Friend/Executrix",
+                             "informant_address":  "222 Gordy Place New Castle, DE 19720",
+                             "place_of_death":  "Christiana Hospital",
+                             "death_location":  "Newark, DE 19718",
+                             "date_pronounced_dead":  "01/09/2016",
+                             "time_pronounced_dead":  "22:29",
+                             "actual_date_of_death":  "January 9, 2016",
+                             "actual_time_of_death":  "22:29",
+                             "cause_of_death":  "Coronary Artery Disease",
+                             "manner_of_death":  "Natural",
+                             "certifying_physician":  "Dr. Misael Marquez, MD",
+                             "physician_license":  "C1-0005236",
+                             "date_certified":  "01/12/2016",
+                             "funeral_home":  "Spicer-Mullikin Funeral Homes \u0026 Crematory",
+                             "funeral_home_address":  "1000 N. DuPont Parkway New Castle, DE 19720",
+                             "place_of_disposition":  "Delaware Veteran\u0027s Memorial Cemetery",
+                             "disposition_location":  "Bear, DE"
+                         },
+        "documents":  [
+                          {
+                              "document_id":  "doc_001",
+                              "document_type":  "death_certificate",
+                              "document_type_display":  "Death Certificate",
+                              "document_icon":  "??",
+                              "document_description":  "Official death registration document",
+                              "extracted_fields":  {
+                                                       "deceased_name":  "Mary J. Carbaugh",
+                                                       "date_of_death":  "January 9, 2016",
+                                                       "place_of_death":  "Christiana Hospital, Newark, DE 19718",
+                                                       "cause_of_death":  "Coronary Artery Disease",
+                                                       "account_number":  "468431466",
+                                                       "state_file_number":  "107",
+                                                       "age":  "71",
+                                                       "date_of_birth":  "03/08/1944",
+                                                       "social_security_number":  "221-28-5988",
+                                                       "date_pronounced_dead":  "01/09/2016",
+                                                       "time_of_death":  "22:29",
+                                                       "manner_of_death":  "Natural",
+                                                       "license_number_for":  "K1-0000608",
+                                                       "birthplace":  "Wilmington, DE",
+                                                       "residence_address":  "9 West Bellamy Drive",
+                                                       "residence_city":  "New Castle",
+                                                       "residence_state":  "Delaware",
+                                                       "residence_county":  "New Castle",
+                                                       "residence_zip":  "19720",
+                                                       "informant_name":  "Marian Kowalski",
+                                                       "informant_relationship":  "Friend/Executrix",
+                                                       "informant_address":  "222 Gordy Place New Castle, DE 19720",
+                                                       "funeral_home":  "Spicer-Mullikin Funeral Homes \u0026 Crematory, 1000 N. DuPont Parkway New Castle, DE 19720",
+                                                       "disposition_method":  "Burial",
+                                                       "disposition_place":  "Delaware Veteran\u0027s Memorial Cemetery",
+                                                       "disposition_location":  "Bear, DE",
+                                                       "certifying_physician":  "Dr. Misael Marquez, MD",
+                                                       "physician_address":  "2601 Annand Dr. Suite 13 Wilmington, DE 19808",
+                                                       "physician_license":  "C1-0005236",
+                                                       "date_certified":  "01/12/2016",
+                                                       "contributing_conditions":  "Myocardial Infarction, Kidney Disease, Chronic Diabetes Mellitus",
+                                                       "pronouncer_name":  "RENDA VERIFIED HALLSTEAD",
+                                                       "pronouncer_license":  "C1-00/1267",
+                                                       "marital_status":  "Married",
+                                                       "county_of_death":  "New Castle"
+                                                   },
+                              "SupportingDocuments":  [
+                                                          {
+                                                              "DocumentType":  "Letters of Administration",
+                                                              "Details":  "Issued on March 15, 2016 to Marian Kowalski, File #163432"
+                                                          },
+                                                          {
+                                                              "DocumentType":  "Driver\u0027s License",
+                                                              "Details":  "DE DL #774494 for Billie Marian Kowalski, expiring 03-31-2019"
+                                                          }
+                                                      ],
+                              "accuracy_score":  100.0,
+                              "total_fields":  35,
+                              "filled_fields":  35,
+                              "fields_needing_review":  [
+
+                                                        ],
+                              "needs_human_review":  false
+                          }
+                      ],
+        "document_type_info":  {
+                                   "type":  "death_certificate",
+                                   "name":  "Death Certificate",
+                                   "icon":  "??",
+                                   "description":  "Official death registration document",
+                                   "expected_fields":  [
+                                                           "deceased_name",
+                                                           "date_of_death",
+                                                           "place_of_death",
+                                                           "cause_of_death",
+                                                           "certificate_number",
+                                                           "account_number",
+                                                           "age",
+                                                           "date_of_birth",
+                                                           "social_security_number",
+                                                           "state_file_number",
+                                                           "registrar",
+                                                           "date_pronounced_dead",
+                                                           "time_of_death",
+                                                           "manner_of_death",
+                                                           "license_number_for"
+                                                       ],
+                                   "is_supported":  true
+                               },
+        "use_ocr":  true,
+        "pdf_path":  "ocr_results/20251205_193957_BP70C55-K6535_20250805_102837.pdf",
+        "cache_cleared":  true,
+        "cache_cleared_at":  "2025-12-05T23:21:47.350645"
+    },
+    {
+        "id":  "175652526d",
+        "filename":  "BP70C55-K6535_20250805_092226 - 0002.pdf",
+        "document_name":  "DeathCertificate1",
+        "timestamp":  "20251205_223410",
+        "processed_date":  "2025-12-05T22:34:37.899724",
+        "ocr_file":  "ocr_results/20251205_223410_BP70C55-K6535_20250805_092226 - 0002.pdf.txt",
+        "ocr_method":  "Amazon Textract",
+        "basic_fields":  {
+                             "business_name":  "FULL GOSPEL CHURCH ON THE ROCK",
+                             "account_number":  "illegible",
+                             "authorized_signer_name":  "EARL WORD",
+                             "abbreviations_needed":  "No",
+                             "business_name_abbreviated":  "",
+                             "signer_name_abbreviated":  "",
+                             "mail_to_branch":  "No",
+                             "branch_name":  "Select Location",
+                             "mail_to_authorized_signer":  "Yes",
+                             "mail_to_business":  "No",
+                             "associate_name":  "Yogi Patel",
+                             "date_of_request":  "03/08/2016",
+                             "customer_signature":  "Earl ward",
+                             "form_revision":  "Rev 9/2014",
+                             "form_name":  "Business Card Order Form",
+                             "form_id":  "BusCardOrder",
+                             "bank_name":  "WSFS bank",
+                             "bank_motto":  "We Stand For Service"
+                         },
+        "documents":  [
+                          {
+                              "document_id":  "doc_001",
+                              "document_type":  "business_card",
+                              "document_type_display":  "Business Card / Card Order Form",
+                              "document_icon":  "??",
+                              "document_description":  "Professional contact information or card order form",
+                              "extracted_fields":  {
+                                                       "company_name":  "FULL GOSPEL CHURCH ON THE ROCK",
+                                                       "contact_name":  "EARL WORD",
+                                                       "authorization_signature":  "Earl ward",
+                                                       "associate_name":  "Yogi Patel",
+                                                       "date_of_request":  "03/08/2016",
+                                                       "form_version":  "Rev 9/2014",
+                                                       "form_id":  "BusCardOrder",
+                                                       "bank_name":  "WSFS bank",
+                                                       "bank_slogan":  "We Stand For Service",
+                                                       "mailing_preferences":  {
+                                                                                   "mail_to_authorized_signer":  "Yes",
+                                                                                   "mail_to_branch":  "Select Location"
+                                                                               },
+                                                       "card_customization":  {
+                                                                                  "abbreviations_needed":  "No",
+                                                                                  "character_limit_per_line":  "26"
+                                                                              }
+                                                   },
+                              "accuracy_score":  100.0,
+                              "total_fields":  11,
+                              "filled_fields":  11,
+                              "fields_needing_review":  [
+
+                                                        ],
+                              "needs_human_review":  false
+                          }
+                      ],
+        "document_type_info":  {
+                                   "type":  "business_card",
+                                   "name":  "Business Card / Card Order Form",
+                                   "icon":  "??",
+                                   "description":  "Professional contact information or card order form",
+                                   "expected_fields":  [
+                                                           "company_name",
+                                                           "contact_name",
+                                                           "job_title",
+                                                           "phone",
+                                                           "email",
+                                                           "address",
+                                                           "website",
+                                                           "card_details",
+                                                           "authorization"
+                                                       ],
+                                   "is_supported":  true
+                               },
+        "use_ocr":  true,
+        "pdf_path":  "ocr_results/20251205_223410_BP70C55-K6535_20250805_092226 - 0002.pdf"
+    },
+    {
+        "id":  "47c7698ffa",
+        "filename":  "BP70C55-K6535_20250805_103847.pdf",
+        "document_name":  "DeathCertoficate11",
+        "timestamp":  "20251205_232337",
+        "processed_date":  "2025-12-05T23:24:01.859955",
+        "ocr_file":  "ocr_results/20251205_232337_BP70C55-K6535_20250805_103847.pdf.txt",
+        "ocr_method":  "Amazon Textract",
+        "basic_fields":  {
+
+                         },
+        "documents":  [
+                          {
+                              "document_id":  "loan_doc_001",
+                              "document_type":  "loan_document",
+                              "document_type_display":  "Loan/Account Document",
+                              "document_icon":  "??",
+                              "document_description":  "Banking or loan account information",
+                              "extracted_fields":  {
+                                                       "total_accounts":  1,
+                                                       "accounts_processed":  1
+                                                   },
+                              "accounts":  [
+                                               {
+                                                   "accountNumber":  "211000179",
+                                                   "result":  {
+                                                                  "AccountNumber":  "211000179",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               }
+                                           ],
+                              "accuracy_score":  null,
+                              "total_fields":  0,
+                              "filled_fields":  0,
+                              "needs_human_review":  false,
+                              "fields_needing_review":  [
+
+                                                        ]
+                          }
+                      ],
+        "document_type_info":  {
+                                   "type":  "loan_document",
+                                   "name":  "Loan/Account Document",
+                                   "icon":  "??",
+                                   "description":  "Banking or loan account information",
+                                   "expected_fields":  [
+                                                           "account_number",
+                                                           "account_holder_names",
+                                                           "account_type",
+                                                           "ownership_type",
+                                                           "ssn",
+                                                           "signers",
+                                                           "balance",
+                                                           "interest_rate"
+                                                       ],
+                                   "is_supported":  true
+                               },
+        "use_ocr":  true,
+        "pdf_path":  "ocr_results/20251205_232337_BP70C55-K6535_20250805_103847.pdf"
+    },
+    {
+        "id":  "057b2a1fdd",
+        "filename":  "BP70C55-K6535_20250805_102837.pdf",
+        "document_name":  "837",
+        "timestamp":  "20251206_125512",
+        "processed_date":  "2025-12-06T12:56:43.291421",
+        "ocr_file":  "ocr_results/20251206_125512_BP70C55-K6535_20250805_102837.pdf.txt",
+        "ocr_method":  "Amazon Textract",
+        "basic_fields":  {
+                             "account_number":  "468431466",
+                             "state_file_number":  "K1-0000608",
+                             "deceased_name":  "Mary J. Carbaugh",
+                             "sex":  "Female",
+                             "social_security_number":  "221-28-5988",
+                             "date_of_birth":  "03/08/1944",
+                             "birthplace":  "Wilmington, DE",
+                             "residence_address":  "9 West Bellamy Drive",
+                             "residence_city":  "New Castle",
+                             "residence_state":  "Delaware",
+                             "residence_zip":  "19720",
+                             "informant_name":  "Marian Kowalski",
+                             "informant_relationship":  "Friend/Executrix",
+                             "informant_address":  "222 Gordy Place New Castle, DE 19720",
+                             "place_of_death":  "Christiana Hospital",
+                             "death_location":  "Newark, DE 19718",
+                             "date_pronounced_dead":  "01/09/2016",
+                             "time_pronounced_dead":  "22:29",
+                             "actual_date_of_death":  "January 9, 2016",
+                             "time_of_death":  "22:29",
+                             "certifying_physician":  "Dr. Misael Marquez, MD",
+                             "physician_license":  "C1-0005236",
+                             "cause_of_death":  "Coronary Artery Disease",
+                             "contributing_conditions":  "Myocardial Infarction, Kidney Disease, Chronic Diabetes Mellitus",
+                             "manner_of_death":  "Natural",
+                             "funeral_home":  "Spicer-Mullikin Funeral Homes \u0026 Crematory",
+                             "funeral_home_address":  "1000 N. DuPont Parkway New Castle, DE 19720",
+                             "place_of_disposition":  "Delaware Veteran\u0027s Memorial Cemetery",
+                             "disposition_location":  "Bear, DE",
+                             "date_certified":  "01/12/2016",
+                             "letters_of_administration_date":  "March 15, 2016",
+                             "personal_representative":  "Marian Kowalski",
+                             "file_number":  "163432"
+                         },
+        "documents":  [
+                          {
+                              "document_id":  "doc_001",
+                              "document_type":  "death_certificate",
+                              "document_type_display":  "Death Certificate",
+                              "document_icon":  "??",
+                              "document_description":  "Official death registration document",
+                              "extracted_fields":  {
+                                                       "deceased_name":  "Mary J. Carbaugh",
+                                                       "date_of_death":  "January 9, 2016",
+                                                       "place_of_death":  "Christiana Hospital, Newark, DE 19718",
+                                                       "cause_of_death":  "Coronary Artery Disease",
+                                                       "account_number":  "468431466",
+                                                       "state_file_number":  "107",
+                                                       "age":  "71",
+                                                       "date_of_birth":  "03/08/1944",
+                                                       "social_security_number":  "221-28-5988",
+                                                       "date_pronounced_dead":  "01/09/2016",
+                                                       "time_of_death":  "22:29",
+                                                       "manner_of_death":  "Natural",
+                                                       "license_number_for":  "K1-0000608",
+                                                       "gender":  "Female",
+                                                       "birthplace":  "Wilmington, DE",
+                                                       "residence_address":  "9 West Bellamy Drive",
+                                                       "residence_city":  "New Castle",
+                                                       "residence_state":  "Delaware",
+                                                       "residence_county":  "New Castle",
+                                                       "residence_zip":  "19720",
+                                                       "marital_status":  "Married",
+                                                       "informant_name":  "Marian Kowalski",
+                                                       "informant_relationship":  "Friend/Executrix",
+                                                       "informant_address":  "222 Gordy Place New Castle, DE 19720",
+                                                       "place_of_disposition":  "Delaware Veteran\u0027s Memorial Cemetery",
+                                                       "disposition_location":  "Bear, DE",
+                                                       "funeral_home":  "Spicer-Mullikin Funeral Homes \u0026 Crematory, 1000 N. DuPont Parkway New Castle, DE 19720",
+                                                       "pronouncer_name":  "RENDA VERIFIED HALLSTEAD",
+                                                       "pronouncer_license":  "C1-00/1267",
+                                                       "certifying_physician":  "Dr. Misael Marquez, MD",
+                                                       "physician_address":  "2601 Annand Dr. Suite 13 Wilmington, DE 19808",
+                                                       "physician_license":  "C1-0005236",
+                                                       "date_certified":  "01/12/2016",
+                                                       "contributing_conditions":  "Myocardial Infarction, Kidney Disease, Chronic Diabetes Mellitus",
+                                                       "county_of_death":  "New Castle"
+                                                   },
+                              "SupportingDocuments":  [
+                                                          {
+                                                              "DocumentType":  "Driver\u0027s License",
+                                                              "Details":  "Delaware Driver\u0027s License #774494 for Billie Marian Kowalski, expiring 03-31-2019"
+                                                          },
+                                                          {
+                                                              "DocumentType":  "Letters of Administration",
+                                                              "Details":  "File #163432, issued March 15, 2016 to Marian Kowalski as Personal Representative"
+                                                          }
+                                                      ],
+                              "accuracy_score":  100.0,
+                              "total_fields":  35,
+                              "filled_fields":  35,
+                              "fields_needing_review":  [
+
+                                                        ],
+                              "needs_human_review":  false
+                          }
+                      ],
+        "document_type_info":  {
+                                   "type":  "death_certificate",
+                                   "name":  "Death Certificate",
+                                   "icon":  "??",
+                                   "description":  "Official death registration document",
+                                   "expected_fields":  [
+                                                           "deceased_name",
+                                                           "date_of_death",
+                                                           "place_of_death",
+                                                           "cause_of_death",
+                                                           "certificate_number",
+                                                           "account_number",
+                                                           "age",
+                                                           "date_of_birth",
+                                                           "social_security_number",
+                                                           "state_file_number",
+                                                           "registrar",
+                                                           "date_pronounced_dead",
+                                                           "time_of_death",
+                                                           "manner_of_death",
+                                                           "license_number_for"
+                                                       ],
+                                   "is_supported":  true
+                               },
+        "use_ocr":  true,
+        "pdf_path":  "ocr_results/20251206_125512_BP70C55-K6535_20250805_102837.pdf",
+        "cache_cleared":  true,
+        "cache_cleared_at":  "2025-12-06T13:07:28.031387"
+    },
+    {
+        "id":  "6e87635600",
+        "filename":  "combinePdf - Copy.pdf",
+        "document_name":  "LatestLLoan1",
+        "timestamp":  "20251206_131337",
+        "processed_date":  "2025-12-06T13:14:11.949587",
+        "ocr_file":  "ocr_results/20251206_131337_combinePdf - Copy.pdf.txt",
+        "ocr_method":  "Amazon Textract",
+        "basic_fields":  {
+
+                         },
+        "documents":  [
+                          {
+                              "document_id":  "loan_doc_001",
+                              "document_type":  "loan_document",
+                              "document_type_display":  "Loan/Account Document",
+                              "document_icon":  "??",
+                              "document_description":  "Banking or loan account information",
+                              "extracted_fields":  {
+                                                       "total_accounts":  2,
+                                                       "accounts_processed":  2
+                                                   },
+                              "accounts":  [
+                                               {
+                                                   "accountNumber":  "211035019",
+                                                   "result":  {
+                                                                  "AccountNumber":  "211035019",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "210912259",
+                                                   "result":  {
+                                                                  "AccountNumber":  "210912259",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               }
+                                           ],
+                              "accuracy_score":  null,
+                              "total_fields":  0,
+                              "filled_fields":  0,
+                              "needs_human_review":  false,
+                              "fields_needing_review":  [
+
+                                                        ]
+                          }
+                      ],
+        "document_type_info":  {
+                                   "type":  "loan_document",
+                                   "name":  "Loan/Account Document",
+                                   "icon":  "??",
+                                   "description":  "Banking or loan account information",
+                                   "expected_fields":  [
+                                                           "account_number",
+                                                           "account_holder_names",
+                                                           "account_type",
+                                                           "ownership_type",
+                                                           "ssn",
+                                                           "signers",
+                                                           "balance",
+                                                           "interest_rate"
+                                                       ],
+                                   "is_supported":  true
+                               },
+        "use_ocr":  true,
+        "pdf_path":  "ocr_results/20251206_131337_combinePdf - Copy.pdf"
+    },
+    {
+        "id":  "34ffcb3f74",
+        "filename":  "BP70C55-K6535_20250805_102510.pdf",
+        "document_name":  "LatestLoan2",
+        "timestamp":  "20251206_131658",
+        "processed_date":  "2025-12-06T13:17:24.415470",
+        "ocr_file":  "ocr_results/20251206_131658_BP70C55-K6535_20250805_102510.pdf.txt",
+        "ocr_method":  "Amazon Textract",
+        "basic_fields":  {
+
+                         },
+        "documents":  [
+                          {
+                              "document_id":  "loan_doc_001",
+                              "document_type":  "loan_document",
+                              "document_type_display":  "Loan/Account Document",
+                              "document_icon":  "??",
+                              "document_description":  "Banking or loan account information",
+                              "extracted_fields":  {
+                                                       "total_accounts":  2,
+                                                       "accounts_processed":  2
+                                                   },
+                              "accounts":  [
+                                               {
+                                                   "accountNumber":  "468869904",
+                                                   "result":  {
+                                                                  "AccountNumber":  "468869904",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "210701488",
+                                                   "result":  {
+                                                                  "AccountNumber":  "210701488",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               }
+                                           ],
+                              "accuracy_score":  null,
+                              "total_fields":  0,
+                              "filled_fields":  0,
+                              "needs_human_review":  false,
+                              "fields_needing_review":  [
+
+                                                        ]
+                          }
+                      ],
+        "document_type_info":  {
+                                   "type":  "loan_document",
+                                   "name":  "Loan/Account Document",
+                                   "icon":  "??",
+                                   "description":  "Banking or loan account information",
+                                   "expected_fields":  [
+                                                           "account_number",
+                                                           "account_holder_names",
+                                                           "account_type",
+                                                           "ownership_type",
+                                                           "ssn",
+                                                           "signers",
+                                                           "balance",
+                                                           "interest_rate"
+                                                       ],
+                                   "is_supported":  true
+                               },
+        "use_ocr":  true,
+        "pdf_path":  "ocr_results/20251206_131658_BP70C55-K6535_20250805_102510.pdf"
+    },
+    {
+        "id":  "68b0675bc2",
+        "filename":  "BP70C55-K6535_20250805_102837.pdf",
+        "document_name":  "1DeathCertifiacte",
+        "timestamp":  "20251206_133734",
+        "processed_date":  "2025-12-06T13:38:31.708370",
+        "ocr_file":  "ocr_results/20251206_133734_BP70C55-K6535_20250805_102837.pdf.txt",
+        "ocr_method":  "Amazon Textract",
+        "basic_fields":  {
+                             "account_number":  "468431466",
+                             "state_file_number":  "K1-0000608",
+                             "deceased_name":  "Mary J. Carbaugh",
+                             "sex":  "Female",
+                             "social_security_number":  "221-28-5988",
+                             "date_of_birth":  "03/08/1944",
+                             "birthplace":  "Wilmington, DE",
+                             "residence_address":  "9 West Bellamy Drive",
+                             "residence_city":  "New Castle",
+                             "residence_state":  "Delaware",
+                             "residence_zip":  "19720",
+                             "informant_name":  "Marian Kowalski",
+                             "informant_relationship":  "Friend/Executrix",
+                             "informant_address":  "222 Gordy Place New Castle, DE 19720",
+                             "place_of_death":  "Christiana Hospital",
+                             "death_location":  "Newark, DE 19718",
+                             "date_pronounced_dead":  "01/09/2016",
+                             "time_pronounced_dead":  "22:29",
+                             "actual_date_of_death":  "January 9, 2016",
+                             "actual_time_of_death":  "22:29",
+                             "certifier_license_number":  "C1-0005236",
+                             "funeral_home":  "Spicer-Mullikin Funeral Homes \u0026 Crematory, 1000 N. DuPont Parkway New Castle, DE 19720",
+                             "cause_of_death":  "Coronary Artery Disease",
+                             "manner_of_death":  "Natural",
+                             "certifying_physician":  "Dr. Misael Marquez, MD",
+                             "physician_address":  "2601 Annand Dr. Suite 13 Wilmington, DE 19808",
+                             "date_certified":  "01/12/2016",
+                             "place_of_disposition":  "Delaware Veteran\u0027s Memorial Cemetery",
+                             "disposition_location":  "Bear, DE",
+                             "person_pronouncing_death":  "RENDA VERIFIED HALLSTEAD",
+                             "pronouncer_license_number":  "C1-00/1267",
+                             "file_number":  "163432"
+                         },
+        "documents":  [
+                          {
+                              "document_id":  "doc_001",
+                              "document_type":  "death_certificate",
+                              "document_type_display":  "Death Certificate",
+                              "document_icon":  "??",
+                              "document_description":  "Official death registration document",
+                              "extracted_fields":  {
+                                                       "deceased_name":  "Mary J. Carbaugh",
+                                                       "date_of_death":  "January 9, 2016",
+                                                       "time_of_death":  "22:29",
+                                                       "place_of_death":  "Christiana Hospital, Newark, DE 19718",
+                                                       "cause_of_death":  "Coronary Artery Disease",
+                                                       "account_number":  "468431466",
+                                                       "state_file_number":  "107",
+                                                       "age":  "71",
+                                                       "date_of_birth":  "03/08/1944",
+                                                       "social_security_number":  "221-28-5988",
+                                                       "date_pronounced_dead":  "01/09/2016",
+                                                       "manner_of_death":  "Natural",
+                                                       "gender":  "Female",
+                                                       "birthplace":  "Wilmington, DE",
+                                                       "residence_address":  "9 West Bellamy Drive",
+                                                       "residence_city":  "New Castle",
+                                                       "residence_state":  "Delaware",
+                                                       "residence_county":  "New Castle",
+                                                       "residence_zip":  "19720",
+                                                       "marital_status":  "Married",
+                                                       "informant_name":  "Marian Kowalski",
+                                                       "informant_relationship":  "Friend/Executrix",
+                                                       "informant_address":  "222 Gordy Place New Castle, DE 19720",
+                                                       "disposition_method":  "Burial",
+                                                       "disposition_place":  "Delaware Veteran\u0027s Memorial Cemetery",
+                                                       "disposition_location":  "Bear, DE",
+                                                       "funeral_home":  "Spicer-Mullikin Funeral Homes \u0026 Crematory",
+                                                       "funeral_home_address":  "1000 N. DuPont Parkway New Castle, DE 19720",
+                                                       "funeral_license_number":  "K1-0000608",
+                                                       "pronouncer_name":  "RENDA VERIFIED HALLSTEAD",
+                                                       "pronouncer_license":  "C1-00/1267",
+                                                       "certifying_physician":  "Dr. Misael Marquez, MD",
+                                                       "physician_address":  "2601 Annand Dr. Suite 13 Wilmington, DE 19808",
+                                                       "physician_license":  "C1-0005236",
+                                                       "date_certified":  "01/12/2016",
+                                                       "contributing_conditions":  "Myocardial Infarction, Kidney Disease, Chronic Diabetes Mellitus",
+                                                       "letters_of_administration_date":  "March 15, 2016",
+                                                       "personal_representative":  "MARIAN KOWALSKI",
+                                                       "file_number":  "163432"
+                                                   },
+                              "SupportingDocuments":  [
+                                                          {
+                                                              "DocumentType":  "Driver\u0027s License",
+                                                              "Details":  "Driver\u0027s License for Billie Marian Kowalski, License #774494, Exp 03-31-2019"
+                                                          }
+                                                      ],
+                              "accuracy_score":  100.0,
+                              "total_fields":  39,
+                              "filled_fields":  39,
+                              "fields_needing_review":  [
+
+                                                        ],
+                              "needs_human_review":  false
+                          }
+                      ],
+        "document_type_info":  {
+                                   "type":  "death_certificate",
+                                   "name":  "Death Certificate",
+                                   "icon":  "??",
+                                   "description":  "Official death registration document",
+                                   "expected_fields":  [
+                                                           "deceased_name",
+                                                           "date_of_death",
+                                                           "place_of_death",
+                                                           "cause_of_death",
+                                                           "certificate_number",
+                                                           "account_number",
+                                                           "age",
+                                                           "date_of_birth",
+                                                           "social_security_number",
+                                                           "state_file_number",
+                                                           "registrar",
+                                                           "date_pronounced_dead",
+                                                           "time_of_death",
+                                                           "manner_of_death",
+                                                           "license_number_for"
+                                                       ],
+                                   "is_supported":  true
+                               },
+        "use_ocr":  true,
+        "pdf_path":  "ocr_results/20251206_133734_BP70C55-K6535_20250805_102837.pdf"
+    },
+    {
+        "id":  "9da9dc8328",
+        "filename":  "BP70C55-K6535_20250805_102510.pdf",
+        "document_name":  "1loan1",
+        "timestamp":  "20251206_134653",
+        "processed_date":  "2025-12-06T13:47:32.964748",
+        "ocr_file":  "ocr_results/20251206_134653_BP70C55-K6535_20250805_102510.pdf.txt",
+        "ocr_method":  "Amazon Textract",
+        "basic_fields":  {
+
+                         },
+        "documents":  [
+                          {
+                              "document_id":  "loan_doc_001",
+                              "document_type":  "loan_document",
+                              "document_type_display":  "Loan/Account Document",
+                              "document_icon":  "??",
+                              "document_description":  "Banking or loan account information",
+                              "extracted_fields":  {
+                                                       "total_accounts":  2,
+                                                       "accounts_processed":  2
+                                                   },
+                              "accounts":  [
+                                               {
+                                                   "accountNumber":  "468869904",
+                                                   "result":  {
+                                                                  "AccountNumber":  "468869904",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "210701488",
+                                                   "result":  {
+                                                                  "AccountNumber":  "210701488",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               }
+                                           ],
+                              "accuracy_score":  null,
+                              "total_fields":  0,
+                              "filled_fields":  0,
+                              "needs_human_review":  false,
+                              "fields_needing_review":  [
+
+                                                        ]
+                          }
+                      ],
+        "document_type_info":  {
+                                   "type":  "loan_document",
+                                   "name":  "Loan/Account Document",
+                                   "icon":  "??",
+                                   "description":  "Banking or loan account information",
+                                   "expected_fields":  [
+                                                           "account_number",
+                                                           "account_holder_names",
+                                                           "account_type",
+                                                           "ownership_type",
+                                                           "ssn",
+                                                           "signers",
+                                                           "balance",
+                                                           "interest_rate"
+                                                       ],
+                                   "is_supported":  true
+                               },
+        "use_ocr":  true,
+        "pdf_path":  "ocr_results/20251206_134653_BP70C55-K6535_20250805_102510.pdf"
+    },
+    {
+        "id":  "0aeb517fa7",
+        "filename":  "BP70C55-K6535_20250807_091716.pdf",
+        "document_name":  "signature 1",
+        "timestamp":  "20251206_192337",
+        "processed_date":  "2025-12-06T19:25:35.336377",
+        "ocr_file":  "ocr_results/20251206_192337_BP70C55-K6535_20250807_091716.pdf.txt",
+        "ocr_method":  "Amazon Textract",
+        "basic_fields":  {
+
+                         },
+        "documents":  [
+                          {
+                              "document_id":  "loan_doc_001",
+                              "document_type":  "loan_document",
+                              "document_type_display":  "Loan/Account Document",
+                              "document_icon":  "??",
+                              "document_description":  "Banking or loan account information",
+                              "extracted_fields":  {
+                                                       "total_accounts":  34,
+                                                       "accounts_processed":  34
+                                                   },
+                              "accounts":  [
+                                               {
+                                                   "accountNumber":  "211035019",
+                                                   "result":  {
+                                                                  "AccountNumber":  "211035019",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "210912259",
+                                                   "result":  {
+                                                                  "AccountNumber":  "210912259",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "210963518",
+                                                   "result":  {
+                                                                  "AccountNumber":  "210963518",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "210947735",
+                                                   "result":  {
+                                                                  "AccountNumber":  "210947735",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "210923157",
+                                                   "result":  {
+                                                                  "AccountNumber":  "210923157",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "211004163",
+                                                   "result":  {
+                                                                  "AccountNumber":  "211004163",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "210949061",
+                                                   "result":  {
+                                                                  "AccountNumber":  "210949061",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "211003173",
+                                                   "result":  {
+                                                                  "AccountNumber":  "211003173",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "210917175",
+                                                   "result":  {
+                                                                  "AccountNumber":  "210917175",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "211028808",
+                                                   "result":  {
+                                                                  "AccountNumber":  "211028808",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "210945721",
+                                                   "result":  {
+                                                                  "AccountNumber":  "210945721",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "210904132",
+                                                   "result":  {
+                                                                  "AccountNumber":  "210904132",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "210902730",
+                                                   "result":  {
+                                                                  "AccountNumber":  "210902730",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "210910683",
+                                                   "result":  {
+                                                                  "AccountNumber":  "210910683",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "211021076",
+                                                   "result":  {
+                                                                  "AccountNumber":  "211021076",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "208856633",
+                                                   "result":  {
+                                                                  "AccountNumber":  "208856633",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "210963542",
+                                                   "result":  {
+                                                                  "AccountNumber":  "210963542",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "211043849",
+                                                   "result":  {
+                                                                  "AccountNumber":  "211043849",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "211093828",
+                                                   "result":  {
+                                                                  "AccountNumber":  "211093828",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "211062773",
+                                                   "result":  {
+                                                                  "AccountNumber":  "211062773",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "211080056",
+                                                   "result":  {
+                                                                  "AccountNumber":  "211080056",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "210901765",
+                                                   "result":  {
+                                                                  "AccountNumber":  "210901765",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "211011101",
+                                                   "result":  {
+                                                                  "AccountNumber":  "211011101",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "210903357",
+                                                   "result":  {
+                                                                  "AccountNumber":  "210903357",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "211071956",
+                                                   "result":  {
+                                                                  "AccountNumber":  "211071956",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "211044318",
+                                                   "result":  {
+                                                                  "AccountNumber":  "211044318",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "211036140",
+                                                   "result":  {
+                                                                  "AccountNumber":  "211036140",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "211057021",
+                                                   "result":  {
+                                                                  "AccountNumber":  "211057021",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "210911889",
+                                                   "result":  {
+                                                                  "AccountNumber":  "210911889",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "211008982",
+                                                   "result":  {
+                                                                  "AccountNumber":  "211008982",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "466441045",
+                                                   "result":  {
+                                                                  "AccountNumber":  "466441045",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "466312949",
+                                                   "result":  {
+                                                                  "AccountNumber":  "466312949",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "469159040",
+                                                   "result":  {
+                                                                  "AccountNumber":  "469159040",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "469099345",
+                                                   "result":  {
+                                                                  "AccountNumber":  "469099345",
+                                                                  "AccountHolderNames":  [
+
+                                                                                         ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               }
+                                           ],
+                              "accuracy_score":  null,
+                              "total_fields":  0,
+                              "filled_fields":  0,
+                              "needs_human_review":  false,
+                              "fields_needing_review":  [
+
+                                                        ]
+                          }
+                      ],
+        "document_type_info":  {
+                                   "type":  "loan_document",
+                                   "name":  "Loan/Account Document",
+                                   "icon":  "??",
+                                   "description":  "Banking or loan account information",
+                                   "expected_fields":  [
+                                                           "account_number",
+                                                           "account_holder_names",
+                                                           "account_type",
+                                                           "ownership_type",
+                                                           "ssn",
+                                                           "signers",
+                                                           "balance",
+                                                           "interest_rate"
+                                                       ],
+                                   "is_supported":  true
+                               },
+        "use_ocr":  true,
+        "pdf_path":  "ocr_results/20251206_192337_BP70C55-K6535_20250807_091716.pdf"
+    },
+    {
+        "id":  "8f4f7a4926",
+        "filename":  "BP70C55-K6535_20250805_102510.pdf",
+        "document_name":  "BP70C55-K6535_20250805_102510.pdf",
+        "timestamp":  "20251208_140122",
+        "processed_date":  "2025-12-08T14:01:48.003786",
+        "ocr_file":  "ocr_results/20251208_140123_BP70C55-K6535_20250805_102510.pdf.txt",
+        "ocr_method":  "Amazon Textract",
+        "basic_fields":  {
+
+                         },
+        "documents":  [
+                          {
+                              "document_id":  "loan_doc_001",
+                              "document_type":  "loan_document",
+                              "document_type_display":  "Loan/Account Document",
+                              "document_icon":  "??",
+                              "document_description":  "Banking or loan account information",
+                              "extracted_fields":  {
+                                                       "total_accounts":  2,
+                                                       "account_numbers":  [
+                                                                               "468869904",
+                                                                               "210701488"
+                                                                           ]
+                                                   },
+                              "accounts":  [
+                                               {
+                                                   "accountNumber":  "468869904",
+                                                   "result":  {
+                                                                  "Account_Number":  "468869904",
+                                                                  "Account_Holders":  [
+
+                                                                                      ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               },
+                                               {
+                                                   "accountNumber":  "210701488",
+                                                   "result":  {
+                                                                  "Account_Number":  "210701488",
+                                                                  "Account_Holders":  [
+
+                                                                                      ],
+                                                                  "note":  "Data will be extracted from individual pages during pre-caching"
+                                                              },
+                                                   "accuracy_score":  null,
+                                                   "filled_fields":  0,
+                                                   "total_fields":  0,
+                                                   "fields_needing_review":  [
+
+                                                                             ],
+                                                   "needs_human_review":  false,
+                                                   "optimized":  true
+                                               }
+                                           ],
+                              "accuracy_score":  null,
+                              "needs_human_review":  false,
+                              "fields_needing_review":  [
+
+                                                        ]
+                          }
+                      ],
+        "document_type_info":  {
+                                   "type":  "loan_document",
+                                   "name":  "Loan/Account Document",
+                                   "icon":  "??",
+                                   "description":  "Banking or loan account information",
+                                   "expected_fields":  [
+                                                           "account_number",
+                                                           "account_holder_names",
+                                                           "account_type",
+                                                           "ownership_type",
+                                                           "ssn",
+                                                           "signers",
+                                                           "balance",
+                                                           "interest_rate"
+                                                       ],
+                                   "is_supported":  true
+                               },
+        "use_ocr":  true,
+        "pdf_path":  "ocr_results/20251208_140122_BP70C55-K6535_20250805_102510.pdf"
+    }
+]

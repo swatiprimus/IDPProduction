@@ -112,40 +112,38 @@ def detect_document_type(text: str):
         return all(p.upper() in text_upper for p in patterns)
     
     # ============================================================
-    # STEP 1: Check for BANK LOGO (WSFS Bank)
+    # STEP 1: Check for SPECIFIC FORM TYPES FIRST (highest priority)
     # ============================================================
-    if "WSFS BANK" in text_upper or "WSFS" in text_upper:
-        print(f"[DETECT_TYPE] WSFS Bank detected - checking form type...")
-        
-        # Business Card Order Form
-        if contains_any(["BUSINESS CARD ORDER FORM", "CARD ORDER FORM"]):
-            print(f"[DETECT_TYPE] ✓ Detected: Business Card Order Form")
-            print(f"{'='*80}\n")
-            return "business_card"
-        
-        # Account Withdrawal Form
-        if contains_any(["ACCOUNT WITHDRAWAL", "WITHDRAWAL FORM"]):
-            print(f"[DETECT_TYPE] ✓ Detected: Account Withdrawal Form")
-            print(f"{'='*80}\n")
-            return "invoice"
-        
-        # Name Change Request
-        if contains_any(["NAME CHANGE REQUEST", "NAME CHANGE FORM"]):
-            print(f"[DETECT_TYPE] ✓ Detected: Name Change Request")
-            print(f"{'='*80}\n")
-            return "contract"
-        
-        # Tax ID Number Change
-        if contains_any(["TAX ID NUMBER CHANGE", "TAX ID CHANGE", "TIN CHANGE"]):
-            print(f"[DETECT_TYPE] ✓ Detected: Tax ID Change Form")
-            print(f"{'='*80}\n")
-            return "tax_form"
-        
-        # ATM/Debit Card Request
-        if contains_any(["ATM/POS/DEBIT CARD REQUEST", "CARD REQUEST", "DEBIT CARD REQUEST"]):
-            print(f"[DETECT_TYPE] ✓ Detected: Card Request Form")
-            print(f"{'='*80}\n")
-            return "business_card"
+    
+    # Business Card Order Form (check BEFORE loan document)
+    if contains_any(["BUSINESS CARD ORDER FORM", "CARD ORDER FORM", "BUSINESS CARD ORDER"]):
+        print(f"[DETECT_TYPE] ✓ Detected: Business Card Order Form")
+        print(f"{'='*80}\n")
+        return "business_card"
+    
+    # ATM/Debit Card Request
+    if contains_any(["ATM/POS/DEBIT CARD REQUEST", "CARD REQUEST", "DEBIT CARD REQUEST", "ATM CARD"]):
+        print(f"[DETECT_TYPE] ✓ Detected: Card Request Form")
+        print(f"{'='*80}\n")
+        return "business_card"
+    
+    # Account Withdrawal Form
+    if contains_any(["ACCOUNT WITHDRAWAL", "WITHDRAWAL FORM"]):
+        print(f"[DETECT_TYPE] ✓ Detected: Account Withdrawal Form")
+        print(f"{'='*80}\n")
+        return "invoice"
+    
+    # Name Change Request
+    if contains_any(["NAME CHANGE REQUEST", "NAME CHANGE FORM"]):
+        print(f"[DETECT_TYPE] ✓ Detected: Name Change Request")
+        print(f"{'='*80}\n")
+        return "contract"
+    
+    # Tax ID Number Change
+    if contains_any(["TAX ID NUMBER CHANGE", "TAX ID CHANGE", "TIN CHANGE"]):
+        print(f"[DETECT_TYPE] ✓ Detected: Tax ID Change Form")
+        print(f"{'='*80}\n")
+        return "tax_form"
     
     # ============================================================
     # STEP 2: Check for Loan/Account Document Indicators
