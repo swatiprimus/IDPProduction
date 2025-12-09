@@ -3101,6 +3101,72 @@ def update_page_data(doc_id, page_num):
         return jsonify({"success": False, "message": str(e)}), 500
 
 
+@app.route("/api/document/<doc_id>/account/<int:account_index>/page/<int:page_num>/update", methods=["POST"])
+def update_account_page_data(doc_id, account_index, page_num):
+    """Update page data for a specific account and save to S3 cache"""
+    import json
+    
+    try:
+        data = request.get_json()
+        page_data = data.get("page_data")
+        
+        if not page_data:
+            return jsonify({"success": False, "message": "No page data provided"}), 400
+        
+        doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+        if not doc:
+            return jsonify({"success": False, "message": "Document not found"}), 404
+        
+        # Get account info
+        doc_data = doc.get("documents", [{}])[0]
+        accounts = doc_data.get("accounts", [])
+        
+        if account_index >= len(accounts):
+            return jsonify({"success": False, "message": "Account not found"}), 404
+        
+        account = accounts[account_index]
+        account_number = account.get("accountNumber", "Unknown")
+        
+        # Account-based cache key
+        cache_key = f"page_data/{doc_id}/account_{account_index}/page_{page_num}.json"
+        print(f"[INFO] Updating account page cache: {cache_key}")
+        print(f"[INFO] Account: {account_number}, Page: {page_num}")
+        
+        cache_data = {
+            "account_number": account_number,
+            "data": page_data,
+            "extracted_at": datetime.now().isoformat(),
+            "edited": True,
+            "edited_at": datetime.now().isoformat()
+        }
+        
+        try:
+            s3_client.put_object(
+                Bucket=S3_BUCKET,
+                Key=cache_key,
+                Body=json.dumps(cache_data),
+                ContentType='application/json'
+            )
+            print(f"[INFO] Updated S3 cache with edited data")
+            print(f"[INFO] Updated fields: {list(page_data.keys())}")
+            
+            return jsonify({
+                "success": True,
+                "message": f"Page data updated for Account {account_number}",
+                "cache_key": cache_key,
+                "account_number": account_number
+            })
+        except Exception as s3_error:
+            print(f"[ERROR] Failed to update S3 cache: {str(s3_error)}")
+            return jsonify({"success": False, "message": f"Failed to save: {str(s3_error)}"}), 500
+            
+    except Exception as e:
+        print(f"[ERROR] Failed to update account page data: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
 @app.route("/api/document/<doc_id>/update", methods=["POST"])
 def update_document_field(doc_id):
     """Update a specific field in the document and S3 cache"""

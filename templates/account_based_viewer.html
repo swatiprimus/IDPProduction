@@ -26,9 +26,10 @@
         body {
             font-family: 'Inter', sans-serif;
             background: #f5f7fa;
-            min-height: 100vh;
+            height: 100vh;
             display: flex;
             flex-direction: column;
+            overflow: hidden;
         }
 
         .header {
@@ -36,6 +37,7 @@
             color: white;
             padding: 20px 30px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            flex-shrink: 0;
         }
 
         .header h1 {
@@ -63,6 +65,7 @@
             flex: 1;
             overflow: hidden;
             position: relative;
+            min-height: 0;
         }
 
         /* Left Sidebar - Account List (Collapsible) */
@@ -285,10 +288,11 @@
 
         /* Right Content - Split View */
         .content-area {
-            flex: 1 1 auto;
+            flex: 1;
             display: flex;
             overflow: hidden;
             min-width: 0;
+            min-height: 0;
         }
 
         /* Document Viewer - 70% */
@@ -299,6 +303,7 @@
             background: white;
             border-right: 1px solid #e5e7eb;
             min-width: 0;
+            min-height: 0;
         }
 
         .viewer-header {
@@ -394,17 +399,36 @@
         }
 
         .viewer-content {
-            overflow: auto;
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
             padding: 20px;
             background: #525659;
-            height: 100%;
             text-align: center;
+            min-height: 0;
+        }
+        
+        /* Custom scrollbar for viewer */
+        .viewer-content::-webkit-scrollbar {
+            width: 10px;
+        }
+        
+        .viewer-content::-webkit-scrollbar-track {
+            background: #3f4447;
+        }
+        
+        .viewer-content::-webkit-scrollbar-thumb {
+            background: #667eea;
+            border-radius: 5px;
+        }
+        
+        .viewer-content::-webkit-scrollbar-thumb:hover {
+            background: #764ba2;
         }
 
         .viewer-content img {
             width: 100%;
             height: auto;
-            max-height: 100%;
             object-fit: contain;
             border-radius: 8px;
             box-shadow: 0 4px 20px rgba(0,0,0,0.3);
@@ -417,6 +441,33 @@
             flex-direction: column;
             background: white;
             overflow: hidden;
+            min-height: 0;
+        }
+        
+        .data-content {
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding: 20px;
+            min-height: 0;
+        }
+        
+        /* Custom scrollbar for data panel */
+        .data-content::-webkit-scrollbar {
+            width: 10px;
+        }
+        
+        .data-content::-webkit-scrollbar-track {
+            background: #f3f4f6;
+        }
+        
+        .data-content::-webkit-scrollbar-thumb {
+            background: #667eea;
+            border-radius: 5px;
+        }
+        
+        .data-content::-webkit-scrollbar-thumb:hover {
+            background: #764ba2;
         }
 
         .data-header {
@@ -1788,7 +1839,7 @@
                     const confidenceScores = Object.values(fieldConfidence);
                     const avgConfidence = confidenceScores.length > 0 
                         ? Math.round(confidenceScores.reduce((sum, conf) => sum + conf, 0) / confidenceScores.length)
-                        : 0;
+                        : (filledFields > 0 ? 100 : 0); // If no confidence scores but have fields, assume 100%
                     const confidenceColor = avgConfidence >= 90 ? '#10b981' : avgConfidence >= 70 ? '#f59e0b' : '#ef4444';
                     
                     document.getElementById('dataMeta').innerHTML = `
@@ -1926,13 +1977,24 @@
         }
 
         async function savePage() {
-            if (Object.keys(editedFields).length === 0) {
+            if (Object.keys(editedFields).length === 0 && Object.keys(renamedFields).length === 0) {
                 showNotification('No changes to save', 'error');
                 return;
             }
             
             try {
-                // Prepare the data to save - preserve existing field formats
+                // Handle field renames first
+                for (const [oldName, newName] of Object.entries(renamedFields)) {
+                    if (currentPageData[oldName] !== undefined) {
+                        // Copy value to new field name (preserving confidence if it exists)
+                        currentPageData[newName] = currentPageData[oldName];
+                        // Delete old field name
+                        delete currentPageData[oldName];
+                        console.log(`Renamed field: ${oldName} → ${newName}`);
+                    }
+                }
+                
+                // Prepare the data to save - preserve existing field formats and confidence scores
                 const dataToSave = {};
                 
                 // Copy all existing fields as-is (preserving their confidence scores)
@@ -1940,14 +2002,13 @@
                     dataToSave[key] = value;
                 }
                 
-                // Update only the edited fields with human-verified format
+                // Update only the edited fields as simple values
                 for (const [fieldName, fieldValue] of Object.entries(editedFields)) {
-                    // Human-edited fields get 100% confidence and a source flag
-                    dataToSave[fieldName] = {
-                        value: fieldValue,
-                        confidence: 100,
-                        source: 'human'
-                    };
+                    // Check if this field was renamed
+                    const actualFieldName = renamedFields[fieldName] || fieldName;
+                    
+                    // Store as simple value (not confidence object)
+                    dataToSave[actualFieldName] = fieldValue;
                 }
                 
                 // Update currentPageData
@@ -2063,12 +2124,9 @@
                     dataToSave[key] = value;
                 }
                 
-                // Add the new field with human-verified format
-                dataToSave[fieldName] = {
-                    value: fieldValue,
-                    confidence: 100,
-                    source: 'human'
-                };
+                // Add the new field as a simple value (not a confidence object)
+                // This prevents it from being split into multiple fields
+                dataToSave[fieldName] = fieldValue;
                 
                 // Update currentPageData
                 currentPageData = dataToSave;
@@ -2099,6 +2157,15 @@
                     showPage(currentPageIndex);
                 }, 300);
             } catch (error) {
+                console.error('Add field error:', error);
+                console.error('Error details:', {
+                    documentId,
+                    currentAccountIndex,
+                    currentPageIndex,
+                    actualPageNum: accountPageNumbers[currentPageIndex] || currentPageIndex,
+                    fieldName,
+                    fieldValue
+                });
                 showNotification('Failed to add field: ' + error.message, 'error');
             }
         }
