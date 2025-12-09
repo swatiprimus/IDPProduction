@@ -1009,8 +1009,8 @@
                             const fullKey = prefix ? `${prefix}_${key}` : key;
                             
                             if (value && typeof value === 'object' && !Array.isArray(value)) {
-                                // Check if this is a confidence object
-                                if ('value' in value && 'confidence' in value && Object.keys(value).length === 2) {
+                                // Check if this is a confidence object (can have 2 or 3 keys: value, confidence, source)
+                                if ('value' in value && 'confidence' in value) {
                                     // This is a confidence object
                                     processed[key] = value.value;
                                     fieldConfidence[fullKey] = value.confidence;
@@ -1047,8 +1047,8 @@
                             const newKey = prefix ? `${prefix}_${key}` : key;
                             
                             if (value && typeof value === 'object' && !Array.isArray(value)) {
-                                // CRITICAL: Check if this is a confidence object {value: "X", confidence: 95}
-                                if ('value' in value && 'confidence' in value && Object.keys(value).length === 2) {
+                                // CRITICAL: Check if this is a confidence object {value: "X", confidence: 95, source: "human"}
+                                if ('value' in value && 'confidence' in value) {
                                     // This is a confidence object - keep it as-is, don't flatten
                                     flattened[newKey] = value;
                                     console.log(`✓ Preserved confidence object in flattening: ${newKey}`);
@@ -1206,10 +1206,17 @@
                             continue;
                         }
                         
-                        // Prepare confidence badge with color
+                        // Prepare confidence badge with color and source indicator
                         let confidenceBadge = '';
                         
-                        if (fieldConfidence[key]) {
+                        // Check if this field has a source indicator
+                        const fieldData = flattenedFields[key];
+                        const isHumanVerified = fieldData && typeof fieldData === 'object' && fieldData.source === 'human';
+                        
+                        if (isHumanVerified) {
+                            // Human-verified fields get a special badge
+                            confidenceBadge = ` <span style="color:#10b981;font-size:0.85em;font-weight:700;background:#d1fae5;padding:2px 6px;border-radius:4px;">✓ 100% (Human Verified)</span>`;
+                        } else if (fieldConfidence[key]) {
                             const conf = fieldConfidence[key];
                             let confColor = '#6b7280'; // Default gray
                             
@@ -1414,12 +1421,28 @@
             if (!editMode) return;
             
             const fieldName = element.dataset.field;
-            const currentValue = element.textContent.trim();
+            
+            // Get the actual value from currentPageData, not from the displayed text (which includes confidence badge)
+            let actualValue = '';
+            if (currentPageData && currentPageData[fieldName]) {
+                const fieldData = currentPageData[fieldName];
+                // Handle both old format (string) and new format (object with value/confidence)
+                if (typeof fieldData === 'object' && fieldData.value !== undefined) {
+                    actualValue = fieldData.value;
+                } else {
+                    actualValue = fieldData;
+                }
+            }
+            
+            // Store original value for cancel
+            if (!element.dataset.originalValue) {
+                element.dataset.originalValue = actualValue;
+            }
             
             const input = document.createElement('input');
             input.type = 'text';
             input.className = 'field-input';
-            input.value = currentValue;
+            input.value = actualValue === 'N/A' ? '' : actualValue;
             
             element.innerHTML = '';
             element.appendChild(input);
@@ -1430,8 +1453,14 @@
             };
             
             input.onblur = () => {
+                // If value changed, keep the new value; otherwise restore original
                 const newValue = input.value.trim();
-                element.innerHTML = newValue || currentValue;
+                if (newValue) {
+                    element.textContent = newValue;
+                } else {
+                    // Restore original value from dataset
+                    element.textContent = element.dataset.originalValue || 'N/A';
+                }
             };
         }
 
@@ -1442,17 +1471,33 @@
             }
             
             try {
-                // Update currentPageData with edited fields
-                for (const [fieldName, fieldValue] of Object.entries(editedFields)) {
-                    currentPageData[fieldName] = fieldValue;
+                // Prepare the data to save - preserve existing field formats
+                const dataToSave = {};
+                
+                // Copy all existing fields as-is (preserving their confidence scores)
+                for (const [key, value] of Object.entries(currentPageData)) {
+                    dataToSave[key] = value;
                 }
+                
+                // Update only the edited fields with human-verified format
+                for (const [fieldName, fieldValue] of Object.entries(editedFields)) {
+                    // Human-edited fields get 100% confidence and a source flag
+                    dataToSave[fieldName] = {
+                        value: fieldValue,
+                        confidence: 100,
+                        source: 'human'
+                    };
+                }
+                
+                // Update currentPageData
+                currentPageData = dataToSave;
                 
                 // Save to backend and update S3 cache
                 const response = await fetch(`/api/document/${documentId}/page/${currentPageIndex}/update`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        page_data: currentPageData
+                        page_data: dataToSave
                     })
                 });
                 
@@ -1472,7 +1517,8 @@
         function cancelEdit() {
             if (Object.keys(editedFields).length > 0) {
                 if (confirm('Discard changes?')) {
-                    renderPageData();
+                    editedFields = {}; // Clear edited fields
+                    renderPageData(); // Re-render to restore original values
                     exitEditMode();
                 }
             } else {
@@ -1530,14 +1576,31 @@
                 if (!currentPageData) {
                     currentPageData = {};
                 }
-                currentPageData[fieldName] = fieldValue;
+                
+                // Prepare the data to save - preserve existing field formats
+                const dataToSave = {};
+                
+                // Copy all existing fields as-is (preserving their confidence scores)
+                for (const [key, value] of Object.entries(currentPageData)) {
+                    dataToSave[key] = value;
+                }
+                
+                // Add the new field with human-verified format
+                dataToSave[fieldName] = {
+                    value: fieldValue,
+                    confidence: 100,
+                    source: 'human'
+                };
+                
+                // Update currentPageData
+                currentPageData = dataToSave;
                 
                 // Save to backend and update S3 cache
                 const response = await fetch(`/api/document/${documentId}/page/${currentPageIndex}/update`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        page_data: currentPageData
+                        page_data: dataToSave
                     })
                 });
                 

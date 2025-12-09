@@ -1283,8 +1283,8 @@
                             const fullKey = prefix ? `${prefix}_${key}` : key;
                             
                             if (value && typeof value === 'object' && !Array.isArray(value)) {
-                                // Check if this is a confidence object
-                                if ('value' in value && 'confidence' in value && Object.keys(value).length === 2) {
+                                // Check if this is a confidence object (can have 2 or 3 keys: value, confidence, source)
+                                if ('value' in value && 'confidence' in value) {
                                     // This is a confidence object
                                     processed[key] = value.value;
                                     fieldConfidence[fullKey] = value.confidence;
@@ -1523,11 +1523,12 @@
                         // Handle nested objects - flatten them into regularFields
                         if (typeof value === 'object' && value !== null) {
                             // Check if this is a confidence object that wasn't processed
-                            if ('value' in value && 'confidence' in value && Object.keys(value).length === 2) {
+                            // Can have 2 keys (value, confidence) or 3 keys (value, confidence, source)
+                            if ('value' in value && 'confidence' in value) {
                                 // This is a confidence object - extract value and store confidence
                                 regularFields[key] = value.value;
                                 fieldConfidence[key] = value.confidence;
-                                console.log(`✓ Late-processed confidence object: ${key} = ${value.value} (${value.confidence}% confidence)`);
+                                console.log(`✓ Late-processed confidence object: ${key} = ${value.value} (${value.confidence}% confidence, source: ${value.source || 'ai'})`);
                                 continue;
                             }
                             
@@ -1637,10 +1638,17 @@
                         totalFields++;
                         filledFields++;
                         
-                        // Prepare confidence badge with color
+                        // Prepare confidence badge with color and source indicator
                         let confidenceBadge = '';
                         
-                        if (fieldConfidence[key]) {
+                        // Check if this field has a source indicator
+                        const fieldData = fields[key];
+                        const isHumanVerified = fieldData && typeof fieldData === 'object' && fieldData.source === 'human';
+                        
+                        if (isHumanVerified) {
+                            // Human-verified fields get a special badge
+                            confidenceBadge = ` <span style="color:#10b981;font-size:0.85em;font-weight:700;background:#d1fae5;padding:2px 6px;border-radius:4px;">✓ 100% (Human Verified)</span>`;
+                        } else if (fieldConfidence[key]) {
                             const conf = fieldConfidence[key];
                             let confColor = '#6b7280'; // Default gray
                             
@@ -1720,10 +1728,17 @@
                             totalFields++;
                             filledFields++;
                             
-                            // Prepare confidence badge with color
+                            // Prepare confidence badge with color and source indicator
                             let confidenceBadge = '';
                             
-                            if (fieldConfidence[signerFieldKey]) {
+                            // Check if this field has a source indicator
+                            const signerFieldData = fields[signerFieldKey];
+                            const isHumanVerified = signerFieldData && typeof signerFieldData === 'object' && signerFieldData.source === 'human';
+                            
+                            if (isHumanVerified) {
+                                // Human-verified fields get a special badge
+                                confidenceBadge = ` <span style="color:#10b981;font-size:0.85em;font-weight:700;background:#d1fae5;padding:2px 6px;border-radius:4px;">✓ 100% (Human Verified)</span>`;
+                            } else if (fieldConfidence[signerFieldKey]) {
                                 const conf = fieldConfidence[signerFieldKey];
                                 let confColor = '#6b7280'; // Default gray
                                 
@@ -1867,12 +1882,28 @@
             if (!editMode) return;
             
             const fieldName = element.dataset.field;
-            const currentValue = element.textContent.trim();
+            
+            // Get the actual value from currentPageData, not from the displayed text (which includes confidence badge)
+            let actualValue = '';
+            if (currentPageData && currentPageData[fieldName]) {
+                const fieldData = currentPageData[fieldName];
+                // Handle both old format (string) and new format (object with value/confidence)
+                if (typeof fieldData === 'object' && fieldData.value !== undefined) {
+                    actualValue = fieldData.value;
+                } else {
+                    actualValue = fieldData;
+                }
+            }
+            
+            // Store original value for cancel
+            if (!element.dataset.originalValue) {
+                element.dataset.originalValue = actualValue;
+            }
             
             const input = document.createElement('input');
             input.type = 'text';
             input.className = 'field-input';
-            input.value = currentValue === 'N/A' ? '' : currentValue;
+            input.value = actualValue === 'N/A' ? '' : actualValue;
             
             element.innerHTML = '';
             element.appendChild(input);
@@ -1883,7 +1914,14 @@
             };
             
             input.onblur = () => {
-                element.innerHTML = input.value.trim() || 'N/A';
+                // If value changed, keep the new value; otherwise restore original
+                const newValue = input.value.trim();
+                if (newValue) {
+                    element.textContent = newValue;
+                } else {
+                    // Restore original value from dataset
+                    element.textContent = element.dataset.originalValue || 'N/A';
+                }
             };
         }
 
@@ -1894,10 +1932,26 @@
             }
             
             try {
-                // Update currentPageData with edited fields
-                for (const [fieldName, fieldValue] of Object.entries(editedFields)) {
-                    currentPageData[fieldName] = fieldValue;
+                // Prepare the data to save - preserve existing field formats
+                const dataToSave = {};
+                
+                // Copy all existing fields as-is (preserving their confidence scores)
+                for (const [key, value] of Object.entries(currentPageData)) {
+                    dataToSave[key] = value;
                 }
+                
+                // Update only the edited fields with human-verified format
+                for (const [fieldName, fieldValue] of Object.entries(editedFields)) {
+                    // Human-edited fields get 100% confidence and a source flag
+                    dataToSave[fieldName] = {
+                        value: fieldValue,
+                        confidence: 100,
+                        source: 'human'
+                    };
+                }
+                
+                // Update currentPageData
+                currentPageData = dataToSave;
                 
                 // Get the actual PDF page number for this account page
                 const actualPageNum = accountPageNumbers[currentPageIndex] || currentPageIndex;
@@ -1907,7 +1961,7 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        page_data: currentPageData,
+                        page_data: dataToSave,
                         account_index: currentAccountIndex
                     })
                 });
@@ -1930,7 +1984,8 @@
         function cancelEdit() {
             if (Object.keys(editedFields).length > 0) {
                 if (confirm('Discard changes?')) {
-                    renderPageData();
+                    editedFields = {}; // Clear edited fields
+                    renderPageData(); // Re-render to restore original values
                     exitEditMode();
                 }
             } else {
@@ -1999,7 +2054,24 @@
                 if (!currentPageData) {
                     currentPageData = {};
                 }
-                currentPageData[fieldName] = fieldValue;
+                
+                // Prepare the data to save - preserve existing field formats
+                const dataToSave = {};
+                
+                // Copy all existing fields as-is (preserving their confidence scores)
+                for (const [key, value] of Object.entries(currentPageData)) {
+                    dataToSave[key] = value;
+                }
+                
+                // Add the new field with human-verified format
+                dataToSave[fieldName] = {
+                    value: fieldValue,
+                    confidence: 100,
+                    source: 'human'
+                };
+                
+                // Update currentPageData
+                currentPageData = dataToSave;
                 
                 // Save to backend and update S3 cache
                 const account = accounts[currentAccountIndex];
@@ -2009,7 +2081,7 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        page_data: currentPageData
+                        page_data: dataToSave
                     })
                 });
                 
