@@ -249,20 +249,46 @@ def get_comprehensive_extraction_prompt():
     return """
 You are a data extraction expert. Extract ALL fields and their values from this document.
 
+CRITICAL: Extract EVERYTHING you see - printed text, handwritten text, stamps, seals, and marks.
+
+IMPORTANT: Use SIMPLE, SHORT field names.
+- Example: If you see "VERIFIED" stamp → use "Verified" with value "Yes" or "VERIFIED"
+- Example: If you see handwritten "4630" near "Account" → use "Account_Number" with value "4630"
+- Simplify all verbose labels to their core meaning
+
+SPECIAL ATTENTION REQUIRED:
+🔴 **HANDWRITTEN TEXT:** Extract ALL handwritten numbers and text - these are CRITICAL data points
+   - Handwritten numbers are often account numbers, reference numbers, or IDs
+   - Extract them with appropriate field names (Account_Number, Reference_Number, etc.)
+   
+🔴 **STAMPS & SEALS:** Extract ALL stamps, seals, and verification marks
+   - "VERIFIED" stamp → Verified: "Yes" or "VERIFIED"
+   - Date stamps → Stamp_Date or Verified_Date
+   - Names in stamps → Verified_By or Stamped_By
+   - Official seals → Official_Seal: "Present" or description
+   
+🔴 **MULTIPLE NUMBERS:** Documents often have MULTIPLE number types - extract ALL of them
+   - Certificate_Number (printed certificate ID)
+   - Account_Number (handwritten or printed account/billing number)
+   - File_Number (state file number)
+   - Reference_Number (reference or tracking number)
+
 PRIORITY ORDER (Extract in this order):
-1. **IDENTIFYING NUMBERS** - Certificate numbers, license numbers, file numbers, document numbers, reference numbers
-2. **NAMES** - All person names (full names, witness names, registrar names, etc.)
-3. **DATES** - All dates (issue dates, birth dates, marriage dates, death dates, expiration dates, stamp dates)
-4. **LOCATIONS** - Cities, states, counties, countries, addresses
-5. **FORM FIELDS** - All labeled fields with values (Business Name, Account Number, etc.)
-6. **SIGNER INFORMATION** - Extract ALL signers with their complete information
-7. **CONTACT INFO** - Phone numbers, emails, addresses
+1. **HANDWRITTEN NUMBERS** - These are often the most important (account numbers, IDs)
+2. **STAMPS & VERIFICATION MARKS** - Verified stamps, date stamps, official seals
+3. **IDENTIFYING NUMBERS** - Certificate numbers, file numbers, license numbers
+4. **NAMES** - All person names (full names, witness names, registrar names, stamped names)
+5. **DATES** - All dates (issue dates, birth dates, death dates, stamp dates)
+6. **LOCATIONS** - Cities, states, counties, countries, addresses
+7. **FORM FIELDS** - All labeled fields with values
 8. **CHECKBOXES** - Checkbox states (Yes/No, checked/unchecked)
-9. **SPECIAL FIELDS** - Any other visible data
+9. **ANY OTHER VISIBLE DATA** - Extract everything else you can see
 
 CRITICAL RULES:
-- Extract EVERY field you can see in the document
-- Include ALL identifying numbers (license #, certificate #, file #, reference #, etc.)
+- Extract EVERY field you can see - printed, handwritten, stamped, or sealed
+- **HANDWRITTEN TEXT IS CRITICAL** - Never skip handwritten numbers or text
+- **STAMPS ARE DATA** - Extract stamp text as actual field values, not descriptions
+- Include ALL identifying numbers (license #, certificate #, file #, reference #, account #, etc.)
 - Extract ALL names, even if they appear multiple times in different contexts
 - Extract ALL dates in their original format
 - Do NOT extract long legal text, disclaimers, or authorization paragraphs
@@ -302,6 +328,18 @@ WHAT TO EXTRACT:
   - If ONE signer: Signer1_Name, Signer1_SSN, Signer1_DateOfBirth, Signer1_Address, Signer1_Phone, Signer1_DriversLicense
   - If TWO signers: Add Signer2_Name, Signer2_SSN, Signer2_DateOfBirth, Signer2_Address, Signer2_Phone, Signer2_DriversLicense
   - If THREE+ signers: Continue with Signer3_, Signer4_, etc.
+✓ **VERIFICATION & CERTIFICATION FIELDS:**
+  - Verified (Yes/No or checkbox state)
+  - Verified_By (name of person who verified)
+  - Verified_Date (date of verification)
+  - Certification_Date, Certified_By
+  - Registrar_Name, Registrar_Signature
+  - Official_Seal, Stamp_Date
+  - Any verification stamps or certification marks
+✓ **CHECKBOXES & STATUS FIELDS:**
+  - Extract ALL checkbox states (checked/unchecked, Yes/No, True/False)
+  - Status fields (Approved, Pending, Verified, etc.)
+  - Any marked or selected options
 ✓ **ALL OTHER VISIBLE FIELDS**
 
 WHAT NOT TO EXTRACT:
@@ -434,6 +472,38 @@ You are an AI assistant that extracts ALL structured data from loan account docu
 
 Extract EVERY piece of information from the document and return it as valid JSON.
 
+🔴🔴🔴 CRITICAL PARSING RULE - READ THIS FIRST 🔴🔴🔴
+
+The OCR often reads form labels and values together without spaces. You MUST parse them correctly:
+
+IF YOU SEE THIS IN THE TEXT:
+- "PurposeConsumer" or "Purpose:Consumer" or "Purpose: Consumer" → Extract as: "AccountPurpose": "Consumer"
+- "TypePersonal" or "Type:Personal" or "Type: Personal" → Extract as: "AccountType": "Personal"
+- "PurposeConsumer Personal" or "Purpose:Consumer Type:Personal" → Extract as TWO fields:
+  * "AccountPurpose": "Consumer"
+  * "AccountType": "Personal"
+
+PARSING RULES:
+1. Look for the word "Purpose" followed by a value (Consumer, Checking, Savings, etc.) → Extract as AccountPurpose
+2. Look for the word "Type" followed by a value (Personal, Business, etc.) → Extract as AccountType
+3. These are ALWAYS separate fields even if they appear together in the text
+4. NEVER combine them into one field
+
+WRONG ❌:
+{
+  "AccountPurpose": "Consumer Personal"
+}
+
+CORRECT ✅:
+{
+  "AccountPurpose": "Consumer",
+  "AccountType": "Personal"
+}
+
+IF THE TEXT SAYS "PurposeConsumer Personal", PARSE IT AS:
+- Find "Purpose" → Next word is "Consumer" → AccountPurpose: "Consumer"
+- Find "Personal" (after Consumer) → This is the Type value → AccountType: "Personal"
+
 REQUIRED FIELDS (extract if present):
 
 For documents with ONE signer:
@@ -476,23 +546,12 @@ For documents with MULTIPLE signers, add Signer2_, Signer3_, etc.:
 
 FIELD DEFINITIONS - READ CAREFULLY:
 
-1. AccountType: The USAGE TYPE or WHO uses the account. Look for these terms:
-   - "Personal" (for individual/family use)
-   - "Business" (for business operations)
-   - "Commercial" (for commercial purposes)
-   - "Corporate" (for corporation)
-   - "Trust" (trust account)
-   - "Estate" (estate account)
-   Extract whether it's for personal or business use.
+🔴 CRITICAL: AccountPurpose and AccountType are TWO SEPARATE FIELDS - NEVER combine them!
 
-2. WSFSAccountType: The SPECIFIC internal bank account type code or classification. Look for:
-   - Specific product names like "Premier Checking", "Platinum Savings", "Gold CD"
-   - Internal codes or account classifications
-   - Branded account names unique to the bank
-   - If the document shows "Account Type: Premier Checking", then AccountType="Personal" (if for personal use) and WSFSAccountType="Premier Checking"
-   - If only one type is mentioned, use it for WSFSAccountType and infer AccountType from context
-
-3. AccountPurpose: The CATEGORY or CLASSIFICATION of the account. Look for:
+1. AccountPurpose: The CATEGORY or CLASSIFICATION of the account.
+   LOOK FOR: The word "Purpose" in the text (may appear as "Purpose:", "PurposeConsumer", "Purpose Consumer", etc.)
+   EXTRACT: The value that comes AFTER "Purpose"
+   POSSIBLE VALUES:
    - "Consumer" (consumer banking)
    - "Checking" (checking account)
    - "Savings" (savings account)
@@ -501,7 +560,39 @@ FIELD DEFINITIONS - READ CAREFULLY:
    - "IRA" or "Retirement"
    - "Loan" (loan account)
    - "Mortgage" (mortgage account)
-   Extract the banking product category or account classification.
+   
+   PARSING EXAMPLES:
+   - Text: "Purpose: Consumer" → AccountPurpose: "Consumer"
+   - Text: "PurposeConsumer" → AccountPurpose: "Consumer"
+   - Text: "Purpose:Consumer Type:Personal" → AccountPurpose: "Consumer" (extract ONLY the Purpose value)
+   - Text: "PurposeConsumer Personal" → AccountPurpose: "Consumer" (extract ONLY "Consumer", NOT "Consumer Personal")
+
+2. AccountType: The USAGE TYPE or WHO uses the account.
+   LOOK FOR: The word "Type" in the text (may appear as "Type:", "TypePersonal", "Type Personal", etc.)
+   EXTRACT: The value that comes AFTER "Type"
+   POSSIBLE VALUES:
+   - "Personal" (for individual/family use)
+   - "Business" (for business operations)
+   - "Commercial" (for commercial purposes)
+   - "Corporate" (for corporation)
+   - "Trust" (trust account)
+   - "Estate" (estate account)
+   
+   PARSING EXAMPLES:
+   - Text: "Type: Personal" → AccountType: "Personal"
+   - Text: "TypePersonal" → AccountType: "Personal"
+   - Text: "Purpose:Consumer Type:Personal" → AccountType: "Personal" (extract ONLY the Type value)
+   - Text: "PurposeConsumer Personal" → AccountType: "Personal" (extract ONLY "Personal", which comes after "Consumer")
+
+3. WSFSAccountType: The SPECIFIC internal bank account type code or classification. Look for:
+   - Specific product names like "Premier Checking", "Platinum Savings", "Gold CD", "WSFS Saving Core"
+   - Internal codes or account classifications
+   - Branded account names unique to the bank
+   - **IMPORTANT**: This field often appears WITHOUT a header label - just the value written on the form
+   - Look for bank-specific product names like "WSFS Saving Core", "WSFS Checking Plus", etc.
+   - These are usually written in a specific area of the form, even without a label
+   - If you see "WSFS Saving Core" or similar bank product names, extract as WSFSAccountType
+   - This is SEPARATE from AccountType (Personal/Business) and AccountPurpose (Consumer/Checking)
 
 4. OwnershipType: WHO owns the account legally. Common values:
    - "Individual" or "Single Owner" (single owner)
@@ -512,14 +603,34 @@ FIELD DEFINITIONS - READ CAREFULLY:
    - "Custodial" (for minor)
    - "Business" or "Corporate"
 
-EXTRACTION RULES:
-- Extract EVERY field visible in the document, not just the ones listed above
+EXTRACTION RULES - EXTRACT EVERYTHING COMPLETELY:
+- 🔴 CRITICAL: Extract EVERY field visible in the document with COMPLETE information
+- 🔴 DO NOT skip any fields or partial information - extract EVERYTHING you see
 - Include ALL form fields, checkboxes, dates, amounts, addresses, phone numbers, emails
-- Extract ALL names, titles, positions, relationships
+- Extract ALL names, titles, positions, relationships with FULL details
 - Include ALL dates (opened, closed, effective, expiration, birth dates, etc.)
+- Extract COMPLETE addresses (street, city, state, zip) - not just partial
+- Extract COMPLETE phone numbers with area codes
+- Extract COMPLETE SSNs, license numbers, account numbers
 - **IMPORTANT: Extract ALL STAMP DATES** - Look for date stamps like "DEC 26 2014", "JAN 15 2023", etc.
 - **IMPORTANT: Extract REFERENCE NUMBERS** - Look for numbers like "#298", "Ref #123", etc.
 - Extract ALL identification numbers (SSN, Tax ID, License numbers, etc.)
+- **CRITICAL: PARSE AND SEPARATE COMBINED VALUES** - OCR often reads form labels and values together without spaces:
+  * If you see "PurposeConsumer Personal" → Parse as: AccountPurpose: "Consumer", AccountType: "Personal"
+  * If you see "TypeBusiness" → Parse as: AccountType: "Business"
+  * If you see "OwnershipJoint" → Parse as: OwnershipType: "Joint"
+  * RULE: Look for field labels (Purpose, Type, Ownership) followed immediately by values
+  * RULE: Capital letters in the middle of text indicate separate words/fields
+  * RULE: Match the pattern against field definitions above to extract correct values
+  * DO NOT create a field with combined text - ALWAYS separate into proper fields
+  * Example: NEVER output "AccountPurpose": "PurposeConsumer Personal" - ALWAYS split it
+- **CRITICAL: EXTRACT WSFS PRODUCT NAMES WITHOUT HEADERS** - Look for bank product names that appear without field labels:
+  * "WSFS Saving Core" (no header) → WSFSAccountType: "WSFS Saving Core"
+  * "WSFS Checking Plus" (no header) → WSFSAccountType: "WSFS Checking Plus"
+  * "WSFS Money Market" (no header) → WSFSAccountType: "WSFS Money Market"
+  * These product names are usually written in a specific section of the form
+  * Extract them even if they don't have a field label like "Account Type:" or "Product:"
+  * This is SEPARATE from AccountType (Personal/Business) and AccountPurpose (Consumer/Checking)
 - **CRITICAL FOR ACCOUNT NUMBER**: 
   * Extract ONLY the PRIMARY account number from the main form/header (usually labeled "ACCOUNT NUMBER:" at the top)
   * DO NOT extract account numbers from summary lists, sidebars, or reference sections
@@ -550,13 +661,48 @@ EXTRACTION RULES:
 - **CRITICAL: DO NOT use "N/A" or empty strings - ONLY include fields with actual values found in the document**
 - **CRITICAL: If a field is not visible in the document, DO NOT include it in the JSON response**
 - For AccountHolderNames: Return as array even if single name, e.g., ["John Doe"]
-- **CRITICAL FOR SIGNERS - DO NOT USE NESTED OBJECTS**:
-  * WRONG: "Signer1": {"Name": "John", "SSN": "123"}
-  * CORRECT: "Signer1_Name": "John", "Signer1_SSN": "123"
-  * Use FLAT fields with underscore naming: Signer1_Name, Signer1_SSN, Signer1_DateOfBirth, Signer1_Address, Signer1_Phone, Signer1_DriversLicense
-  * For second signer: Signer2_Name, Signer2_SSN, Signer2_DateOfBirth, Signer2_Address, Signer2_Phone, Signer2_DriversLicense
-  * For third signer: Signer3_Name, Signer3_SSN, etc.
-  * NEVER nest signer data - always use flat top-level fields
+- 🔴🔴🔴 CRITICAL FOR SIGNERS - EXTRACT COMPLETE INFORMATION - DO NOT SKIP ANYTHING 🔴🔴🔴
+  * SIGNERS ARE THE MOST IMPORTANT PART - Extract EVERY SINGLE piece of information for EACH signer
+  * DO NOT skip any signer fields - extract EVERYTHING you see
+  * For EACH signer, you MUST extract ALL of these fields if they are visible:
+    
+    SIGNER 1 - EXTRACT ALL OF THESE:
+    - Signer1_Name (full name - first, middle, last)
+    - Signer1_SSN (social security number - complete 9 digits)
+    - Signer1_DateOfBirth (date of birth in any format)
+    - Signer1_Address (COMPLETE address: street number, street name, apartment/unit, city, state, zip code)
+    - Signer1_Phone (phone number with area code)
+    - Signer1_Email (email address)
+    - Signer1_DriversLicense (driver's license number AND state)
+    - Signer1_DriversLicenseExpiration (expiration date if shown)
+    - Signer1_Citizenship (citizenship status: US Citizen, Permanent Resident, etc.)
+    - Signer1_Occupation (job title or occupation)
+    - Signer1_Employer (employer name and address if shown)
+    - Signer1_EmployerPhone (employer phone if shown)
+    - Signer1_MothersMaidenName (if shown)
+    - Signer1_Relationship (relationship to account: Owner, Joint Owner, etc.)
+    - Signer1_Signature (if signature is present, note "Signed" or "Signature present")
+    - Signer1_SignatureDate (date of signature if shown)
+    - ANY other signer-specific information you see
+    
+    SIGNER 2 - EXTRACT ALL OF THESE (if second signer exists):
+    - Signer2_Name, Signer2_SSN, Signer2_DateOfBirth, Signer2_Address, Signer2_Phone, Signer2_Email
+    - Signer2_DriversLicense, Signer2_DriversLicenseExpiration, Signer2_Citizenship
+    - Signer2_Occupation, Signer2_Employer, Signer2_EmployerPhone
+    - Signer2_MothersMaidenName, Signer2_Relationship, Signer2_Signature, Signer2_SignatureDate
+    - ANY other information for signer 2
+    
+    SIGNER 3+ - Continue with Signer3_, Signer4_, etc. if more signers exist
+  
+  * 🔴 CRITICAL RULES FOR SIGNERS:
+    - DO NOT USE NESTED OBJECTS - Use FLAT fields with underscore naming
+    - WRONG ❌: "Signer1": {"Name": "John", "SSN": "123"}
+    - CORRECT ✅: "Signer1_Name": "John", "Signer1_SSN": "123"
+    - Extract COMPLETE addresses - not just street, include city, state, zip
+    - Extract COMPLETE phone numbers - include area code
+    - Extract COMPLETE SSNs - all 9 digits
+    - If a signer field is visible, YOU MUST EXTRACT IT - do not skip anything
+    - Look in ALL sections of the document for signer information (may be in multiple places)
 - For SupportingDocuments: Create separate objects for EACH document type found
 - Preserve exact account numbers and SSNs as they appear
 - If you see multiple account types mentioned, use the most specific one
@@ -564,26 +710,46 @@ EXTRACTION RULES:
 - Pay special attention to compliance sections, checkboxes, verification stamps, and date stamps
 - **REMEMBER: Only extract what you can SEE in the document. Do not invent or assume fields.**
 
-EXAMPLES:
-Example 1: Document says "Premier Checking Account for Business Operations, Consumer Banking"
+EXAMPLES OF CORRECT FIELD SEPARATION:
+
+Example 1: Document shows "Purpose: Consumer" and "Type: Personal"
+{
+  "AccountPurpose": "Consumer",
+  "AccountType": "Personal"
+}
+
+Example 2: Document shows "Purpose: Consumer", "Type: Personal", and "WSFS Saving Core" (no header for WSFS)
+{
+  "AccountPurpose": "Consumer",
+  "AccountType": "Personal",
+  "WSFSAccountType": "WSFS Saving Core"
+}
+
+Example 3: Document shows combined text "PurposeConsumer Personal" (NO SPACES)
+{
+  "AccountPurpose": "Consumer",
+  "AccountType": "Personal"
+}
+
+Example 4: Document shows "Purpose: Consumer Type: Business" and also has "WSFS Checking Plus" written somewhere
+{
+  "AccountPurpose": "Consumer",
+  "AccountType": "Business",
+  "WSFSAccountType": "WSFS Checking Plus"
+}
+
+Example 5: Document says "Premier Checking Account for Business Operations, Consumer Banking"
 {
   "AccountType": "Business",
   "WSFSAccountType": "Premier Checking",
   "AccountPurpose": "Consumer"
 }
 
-Example 2: Document says "Personal IRA Savings Account"
+Example 6: Document says "Personal IRA Savings Account"
 {
   "AccountType": "Personal",
   "WSFSAccountType": "IRA Savings",
   "AccountPurpose": "Retirement"
-}
-
-Example 3: Document says "Personal Checking Account, Consumer"
-{
-  "AccountType": "Personal",
-  "WSFSAccountType": "Personal Checking",
-  "AccountPurpose": "Consumer"
 }
 
 Example 4: SupportingDocuments with OFAC check and verification
@@ -664,6 +830,11 @@ CRITICAL RULES:
 2. DO NOT include fields with "N/A" or empty values
 3. For multiple signers, use Signer1_, Signer2_, Signer3_ prefixes
 4. Each signer's information should be separate fields, not nested objects
+
+🔴 FINAL REMINDER - DO NOT FORGET 🔴
+AccountPurpose and AccountType are ALWAYS TWO SEPARATE FIELDS!
+NEVER combine them like "AccountPurpose": "Consumer Personal"
+ALWAYS separate: "AccountPurpose": "Consumer", "AccountType": "Personal"
 """
 
 # Supported Document Types with Expected Fields
@@ -1073,12 +1244,17 @@ FIELD NAMING EXAMPLES:
 - "K1-0011267" → "case_number" or "file_number"
 - "CAUSE OF DEATH" → "cause_of_death"
 
-CRITICAL NAMING FOR DEATH CERTIFICATES:
-- The main certificate number (often handwritten, like "468431466" or "K1-0011267") MUST be extracted as "account_number"
-- DO NOT use "certificate_number" - use "account_number" instead
-- Example: If you see "468431466" or "K1-0011267" as the primary certificate identifier:
-  * Extract it as "account_number": "468431466"
-  * NOT as "certificate_number"
+CRITICAL NAMING FOR DEATH CERTIFICATES AND VITAL RECORDS:
+- ANY handwritten number on the certificate MUST be extracted as "account_number"
+- DO NOT use "reference_number", "certificate_number", or any other name
+- ALWAYS use "account_number" for handwritten numbers
+- Examples:
+  * Handwritten "468431466" → account_number: "468431466"
+  * Handwritten "4630" → account_number: "4630"
+  * Handwritten "85333" → account_number: "85333"
+  * Handwritten "K1-0011267" → account_number: "K1-0011267"
+- If there are MULTIPLE handwritten numbers, use account_number, account_number_2, account_number_3, etc.
+- NEVER use "reference_number" for handwritten numbers on certificates
 
 EXTRACT EVERY SINGLE FIELD - DO NOT MISS ANYTHING:
 - Look at EVERY line of text
@@ -1624,12 +1800,21 @@ FIELD NAMING:
   * "CAUSE OF DEATH" → "Cause_Of_Death"
   * "K1-0011267" → "Case_Number" or "File_Number"
 
-CRITICAL NAMING FOR DEATH CERTIFICATES:
-- The main certificate number (often handwritten, like "468431466" or "K1-0011267") MUST be extracted as "Account_Number"
-- DO NOT use "Certificate_Number" - use "Account_Number" instead
-- Example: If you see "468431466" or "K1-0011267" as the primary certificate identifier:
-  * Extract it as "Account_Number": "468431466"
-  * NOT as "Certificate_Number"
+CRITICAL NAMING FOR DEATH CERTIFICATES AND VITAL RECORDS:
+- ANY handwritten number on the certificate MUST be extracted as "Account_Number"
+- DO NOT use "Reference_Number", "Certificate_Number", or any other name
+- ALWAYS use "Account_Number" for handwritten numbers
+- IMPORTANT: Only extract Account_Number if there is a SEPARATE handwritten number that is DIFFERENT from the Certificate_Number
+- DO NOT extract partial numbers or substrings of the Certificate_Number as Account_Number
+- Examples:
+  * Handwritten "468431466" (separate from cert number) → Account_Number: "468431466"
+  * Handwritten "4630" (separate from cert number) → Account_Number: "4630"
+  * Handwritten "85333" (separate from cert number) → Account_Number: "85333"
+  * Handwritten "K1-0011267" (separate from cert number) → Account_Number: "K1-0011267"
+- If Certificate_Number is "463085233" and you see "4630" which is just the first 4 digits, DO NOT extract it as Account_Number
+- If there are MULTIPLE handwritten numbers, use Account_Number, Account_Number_2, Account_Number_3, etc.
+- NEVER use "Reference_Number" for handwritten numbers on certificates
+- If no separate handwritten account number exists, DO NOT include Account_Number field at all
 
 EXTRACT ABSOLUTELY EVERYTHING - MISS NOTHING:
 - Read EVERY line of the document
@@ -2073,9 +2258,10 @@ def process_job(job_id: str, file_bytes: bytes, filename: str, use_ocr: bool, do
             "progress": 5
         }
         
-        # OPTIMIZATION: For PDFs, do a quick check to see if it's a loan document
-        # If so, skip expensive full-document OCR and go straight to page-level processing
-        is_loan_document = False
+        # OPTIMIZATION: For PDFs, do a quick check to see if we should skip upfront OCR
+        # Skip OCR for: loan documents, certificates, IDs (do page-level OCR instead)
+        skip_upfront_ocr = False
+        actual_doc_type = None  # Track what type of document this actually is
         if use_ocr and filename.lower().endswith('.pdf') and saved_pdf_path:
             job_status_map[job_id].update({
                 "status": "Quick scan to detect document type...",
@@ -2091,67 +2277,129 @@ def process_job(job_id: str, file_bytes: bytes, filename: str, use_ocr: bool, do
                     pdf_doc.close()
                     
                     # Quick detection based on first page
-                    if "ACCOUNT NUMBER" in first_page_text.upper() and "ACCOUNT HOLDER" in first_page_text.upper():
-                        is_loan_document = True
-                        print(f"[INFO] OPTIMIZATION: Detected loan document - will skip full OCR and use page-level processing")
+                    first_page_upper = first_page_text.upper()
+                    
+                    # Exclude business card order forms and other specific forms
+                    is_business_card = "BUSINESS CARD ORDER FORM" in first_page_upper or "CARD ORDER FORM" in first_page_upper
+                    is_card_request = "CARD REQUEST" in first_page_upper or "ATM" in first_page_upper or "DEBIT CARD" in first_page_upper
+                    is_withdrawal = "WITHDRAWAL FORM" in first_page_upper or "ACCOUNT WITHDRAWAL" in first_page_upper
+                    
+                    # Detect certificates (death, birth, marriage, etc.) - these should skip upfront OCR
+                    # Be more aggressive with detection - check for any vital record indicators
+                    is_certificate = (
+                        # Standard certificate indicators
+                        (("CERTIFICATE" in first_page_upper or "CERTIFICATION" in first_page_upper) and
+                         ("DEATH" in first_page_upper or "BIRTH" in first_page_upper or 
+                          "MARRIAGE" in first_page_upper or "VITAL RECORD" in first_page_upper)) or
+                        # Death-specific indicators
+                        ("DECEASED" in first_page_upper or "DECEDENT" in first_page_upper) or
+                        ("CAUSE OF DEATH" in first_page_upper) or
+                        ("DATE OF DEATH" in first_page_upper) or
+                        ("PLACE OF DEATH" in first_page_upper) or
+                        ("REGISTRAR" in first_page_upper and "DEATH" in first_page_upper) or
+                        # Birth-specific indicators
+                        ("DATE OF BIRTH" in first_page_upper and "PLACE OF BIRTH" in first_page_upper) or
+                        # Marriage-specific indicators
+                        ("BRIDE" in first_page_upper and "GROOM" in first_page_upper) or
+                        # Generic vital record indicators
+                        ("VITAL STATISTICS" in first_page_upper) or
+                        ("STATE FILE NUMBER" in first_page_upper and ("DELAWARE" in first_page_upper or "PENNSYLVANIA" in first_page_upper))
+                    )
+                    
+                    # Detect driver's license / ID cards
+                    is_drivers_license = (
+                        "DRIVER" in first_page_upper or "LICENSE" in first_page_upper or
+                        "IDENTIFICATION CARD" in first_page_upper or "STATE ID" in first_page_upper
+                    )
+                    
+                    # Only treat as loan document if it has loan-specific indicators AND is not a form
+                    has_loan_indicators = (
+                        "ACCOUNT NUMBER" in first_page_upper and 
+                        "ACCOUNT HOLDER" in first_page_upper and
+                        not is_business_card and
+                        not is_card_request and
+                        not is_withdrawal
+                    )
+                    
+                    # Skip upfront OCR for loan documents, certificates, and IDs
+                    if has_loan_indicators or is_certificate or is_drivers_license:
+                        skip_upfront_ocr = True
+                        if has_loan_indicators:
+                            actual_doc_type = "loan_document"
+                            print(f"[INFO] OPTIMIZATION: Detected loan document - will skip full OCR and use page-level processing")
+                        elif is_certificate:
+                            actual_doc_type = "certificate"
+                            print(f"[INFO] OPTIMIZATION: Detected certificate - will skip full OCR and use page-level processing")
+                        elif is_drivers_license:
+                            actual_doc_type = "drivers_license"
+                            print(f"[INFO] OPTIMIZATION: Detected driver's license/ID - will skip full OCR and use page-level processing")
+                    elif is_business_card or is_card_request:
+                        print(f"[INFO] Detected business card/form - will use normal processing")
             except Exception as quick_scan_err:
                 print(f"[WARNING] Quick scan failed: {str(quick_scan_err)}, will proceed with normal OCR")
         
-        # Step 1: OCR if needed (skip for loan documents - we'll do page-level OCR instead)
-        if use_ocr and not is_loan_document:
-            job_status_map[job_id].update({
-                "status": "Uploading document to S3...",
-                "progress": 10
-            })
+        # Step 1: OCR if needed (skip if we detected a document type that should defer OCR)
+        if use_ocr and not skip_upfront_ocr:
+            # OPTIMIZATION #1: Try PyPDF2 FIRST (FREE) before expensive Textract
+            text = None
+            ocr_file = None
             
-            try:
-                # Progress update: Uploading
+            if filename.lower().endswith('.pdf'):
                 job_status_map[job_id].update({
-                    "status": "Document uploaded, starting OCR with Amazon Textract...",
+                    "status": "Trying FREE text extraction (PyPDF2)...",
+                    "progress": 10
+                })
+                
+                print(f"[OPTIMIZATION] Trying PyPDF2 first (FREE) before Textract...")
+                text, ocr_file = try_extract_pdf_with_pypdf(file_bytes, filename)
+                
+                # Check if text is meaningful (not just watermarks/demo text)
+                is_watermark = False
+                if text:
+                    text_lower = text.lower()
+                    # Check for common watermark/demo patterns
+                    watermark_indicators = [
+                        "pdf-xchange", "click to buy", "demo", "trial version",
+                        "unregistered", "evaluation copy", "watermark"
+                    ]
+                    # If text is mostly watermark content
+                    if any(indicator in text_lower for indicator in watermark_indicators):
+                        # Count how many lines are watermark vs real content
+                        lines = text.split('\n')
+                        watermark_lines = sum(1 for line in lines if any(ind in line.lower() for ind in watermark_indicators))
+                        if watermark_lines > len(lines) * 0.5:  # More than 50% watermark
+                            is_watermark = True
+                            print(f"[OPTIMIZATION] ⚠️ PyPDF2 extracted mostly watermark text, falling back to Textract...")
+                
+                if text and len(text.strip()) > 100 and not is_watermark:
+                    # PyPDF2 succeeded! Save money by not using Textract
+                    job_status_map[job_id]["ocr_file"] = ocr_file
+                    job_status_map[job_id]["ocr_method"] = "PyPDF2 (FREE)"
+                    print(f"[OPTIMIZATION] ✅ PyPDF2 succeeded! Saved Textract cost (~$0.04)")
+                else:
+                    # PyPDF2 failed or extracted too little text, use Textract
+                    if not is_watermark:
+                        print(f"[OPTIMIZATION] PyPDF2 failed or insufficient text, falling back to Textract...")
+                    text = None
+                    ocr_file = None
+            
+            # If PyPDF2 didn't work or not a PDF, use Textract
+            if not text:
+                job_status_map[job_id].update({
+                    "status": "Running OCR with Amazon Textract (this may take 1-2 minutes for scanned PDFs)...",
                     "progress": 15
                 })
                 
-                # Start OCR
-                text, ocr_file = extract_text_with_textract(file_bytes, filename)
-                
-                # Progress updates during OCR (simulated based on typical processing time)
-                job_status_map[job_id].update({
-                    "status": "OCR in progress - extracting text from document...",
-                    "progress": 25
-                })
-                
-                # OCR completed
-                job_status_map[job_id].update({
-                    "status": "OCR completed successfully",
-                    "progress": 35
-                })
-                
-                job_status_map[job_id]["ocr_file"] = ocr_file
-                job_status_map[job_id]["ocr_method"] = "Amazon Textract"
-            except Exception as textract_error:
-                # If Textract fails for PDF, try PyPDF2 as fallback
-                if filename.lower().endswith('.pdf'):
-                    job_status_map[job_id].update({
-                        "status": "Textract failed, trying PyPDF2 fallback...",
-                        "progress": 20
-                    })
-                    text, ocr_file = try_extract_pdf_with_pypdf(file_bytes, filename)
-                    
-                    if text and ocr_file:
-                        job_status_map[job_id].update({
-                            "status": "Text extracted using PyPDF2",
-                            "progress": 35
-                        })
-                        job_status_map[job_id]["ocr_file"] = ocr_file
-                        job_status_map[job_id]["ocr_method"] = "PyPDF2 (Fallback)"
-                        job_status_map[job_id]["textract_error"] = str(textract_error)
-                    else:
-                        raise Exception(f"Both Textract and PyPDF2 failed. Textract error: {str(textract_error)}")
-                else:
-                    raise textract_error
-        elif is_loan_document:
-            # OPTIMIZATION: For loan documents, extract text quickly with PyMuPDF (no expensive OCR yet)
-            print(f"[INFO] OPTIMIZATION: Skipping full document OCR for loan document - will do page-level OCR during pre-caching")
+                try:
+                    text, ocr_file = extract_text_with_textract(file_bytes, filename)
+                    job_status_map[job_id]["ocr_file"] = ocr_file
+                    job_status_map[job_id]["ocr_method"] = "Amazon Textract"
+                    print(f"[INFO] Textract succeeded")
+                except Exception as textract_error:
+                    raise Exception(f"Text extraction failed. Error: {str(textract_error)}")
+        elif skip_upfront_ocr:
+            # OPTIMIZATION: For detected documents, extract text quickly with PyMuPDF (no expensive OCR yet)
+            print(f"[INFO] OPTIMIZATION: Skipping full document OCR for {actual_doc_type} - will do page-level OCR when viewing")
             job_status_map[job_id].update({
                 "status": "Extracting text for account detection (no OCR yet)...",
                 "progress": 10
@@ -2196,9 +2444,24 @@ def process_job(job_id: str, file_bytes: bytes, filename: str, use_ocr: bool, do
             "progress": 40
         })
         
-        # Check if this is a loan document - use special processing
-        doc_type_preview = detect_document_type(text) if not is_loan_document else "loan_document"
-        print(f"[INFO] Document type detected: {doc_type_preview}")
+        # Detect document type - use actual_doc_type if we detected it during quick scan
+        if actual_doc_type == "loan_document":
+            doc_type_preview = "loan_document"
+        elif actual_doc_type == "certificate":
+            # For certificates, run full detection to get specific type (death, birth, marriage)
+            doc_type_preview = detect_document_type(text)
+            print(f"[INFO] Certificate detected during quick scan, running full detection: {doc_type_preview}")
+            
+            # If detection fails, default to death_certificate (most common)
+            if doc_type_preview == "unknown" or doc_type_preview == "invoice":
+                print(f"[WARNING] Full detection failed, defaulting to death_certificate based on quick scan")
+                doc_type_preview = "death_certificate"
+        elif actual_doc_type == "drivers_license":
+            doc_type_preview = "drivers_license"
+        else:
+            doc_type_preview = detect_document_type(text)
+        
+        print(f"[INFO] Final document type: {doc_type_preview}")
         
         job_status_map[job_id].update({
             "status": f"Document type identified: {doc_type_preview}",
@@ -2242,23 +2505,24 @@ def process_job(job_id: str, file_bytes: bytes, filename: str, use_ocr: bool, do
                 "progress": 70
             })
         else:
-            # For non-loan documents, extract basic fields
+            # For non-loan documents, just detect document type - don't extract fields yet
+            # Fields will be extracted page-by-page when user views them
+            print(f"[INFO] Document type identified: {doc_type_preview} - fields will extract on page view")
             job_status_map[job_id].update({
-                "status": "Extracting fields from document...",
-                "progress": 50
-            })
-            basic_fields = extract_basic_fields(text, num_fields=20)
-            
-            job_status_map[job_id].update({
-                "status": "Analyzing document content...",
-                "progress": 60
-            })
-            result = detect_and_extract_documents(text)
-            
-            job_status_map[job_id].update({
-                "status": "Document analysis completed",
+                "status": f"Document type identified: {doc_type_preview}",
                 "progress": 70
             })
+            
+            # Create result with document type but no extracted fields
+            basic_fields = {}
+            result = {
+                "documents": [{
+                    "document_type": doc_type_preview,
+                    "extracted_fields": {},
+                    "total_fields": 0,
+                    "filled_fields": 0
+                }]
+            }
 
         
         # Add basic fields to result

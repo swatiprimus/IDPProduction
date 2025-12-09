@@ -1,6 +1,13 @@
 """
-Document Type Detector - Identifies document types using pattern matching
+Document Type Detector - Identifies document types using LLM
 """
+import boto3
+import json
+
+# AWS Configuration
+AWS_REGION = "us-east-1"
+bedrock = boto3.client("bedrock-runtime", region_name=AWS_REGION)
+MODEL_ID = "us.anthropic.claude-3-5-sonnet-20241022-v2:0"
 
 # Supported Document Types with Expected Fields
 SUPPORTED_DOCUMENT_TYPES = {
@@ -93,123 +100,98 @@ SUPPORTED_DOCUMENT_TYPES = {
 
 def detect_document_type(text: str):
     """
-    Detect document type using hierarchical decision tree
-    Based on specific visual and textual markers
+    Detect document type using LLM (Claude) for accurate classification
     """
     print(f"\n{'='*80}")
-    print(f"[DETECT_TYPE] Starting document type detection...")
+    print(f"[DETECT_TYPE] Starting LLM-based document type detection...")
     print(f"[DETECT_TYPE] Text length: {len(text)} characters")
     
-    text_upper = text.upper()
-    text_lower = text.lower()
-    lines = text.split('\n')
+    # Truncate text if too long (use first 3000 chars for detection)
+    text_sample = text[:3000] if len(text) > 3000 else text
     
-    # Helper function to check for patterns
-    def contains_any(patterns):
-        return any(p.upper() in text_upper for p in patterns)
-    
-    def contains_all(patterns):
-        return all(p.upper() in text_upper for p in patterns)
-    
-    # ============================================================
-    # STEP 1: Check for LOAN/ACCOUNT DOCUMENT FIRST (highest priority)
-    # ============================================================
-    has_account_number = "ACCOUNT NUMBER" in text_upper
-    has_account_holder = "ACCOUNT HOLDER" in text_upper
-    has_account_purpose = "ACCOUNT PURPOSE" in text_upper
-    has_account_type = "ACCOUNT TYPE" in text_upper
-    has_ownership_type = "OWNERSHIP TYPE" in text_upper
-    has_signature_card = "SIGNATURE CARD" in text_upper
-    
-    # Count how many required fields are present
-    required_fields_count = sum([
-        has_account_number,
-        has_account_holder,
-        has_account_purpose,
-        has_account_type,
-        has_ownership_type,
-        has_signature_card
-    ])
-    
-    # If 3 or more required fields present, it's likely a loan/account document
-    if required_fields_count >= 3:
-        print(f"[DETECT_TYPE] Found {required_fields_count}/6 account document fields")
-        print(f"[DETECT_TYPE] ✓ Detected: Loan/Account Document")
-        print(f"{'='*80}\n")
-        return "loan_document"
-    
-    # ============================================================
-    # STEP 2: Check for SPECIFIC FORM TYPES
-    # ============================================================
-    
-    # Business Card Order Form (must be specific - not just "CARD")
-    if contains_any(["BUSINESS CARD ORDER FORM", "BUSINESS CARD ORDER"]) and not has_signature_card:
-        print(f"[DETECT_TYPE] ✓ Detected: Business Card Order Form")
-        print(f"{'='*80}\n")
-        return "business_card"
-    
-    # ATM/Debit Card Request (must be specific)
-    if contains_any(["ATM/POS/DEBIT CARD REQUEST", "DEBIT CARD REQUEST", "ATM CARD REQUEST"]) and not has_signature_card:
-        print(f"[DETECT_TYPE] ✓ Detected: Card Request Form")
-        print(f"{'='*80}\n")
-        return "business_card"
-    
-    # Account Withdrawal Form
-    if contains_any(["ACCOUNT WITHDRAWAL", "WITHDRAWAL FORM"]):
-        print(f"[DETECT_TYPE] ✓ Detected: Account Withdrawal Form")
-        print(f"{'='*80}\n")
-        return "invoice"
-    
-    # Name Change Request
-    if contains_any(["NAME CHANGE REQUEST", "NAME CHANGE FORM"]):
-        print(f"[DETECT_TYPE] ✓ Detected: Name Change Request")
-        print(f"{'='*80}\n")
-        return "contract"
-    
-    # Tax ID Number Change
-    if contains_any(["TAX ID NUMBER CHANGE", "TAX ID CHANGE", "TIN CHANGE"]):
-        print(f"[DETECT_TYPE] ✓ Detected: Tax ID Change Form")
-        print(f"{'='*80}\n")
-        return "tax_form"
-    
-
-    
-    # ============================================================
-    # STEP 3: Check for ID CARD (Driver's License)
-    # ============================================================
-    if contains_any(["DRIVER LICENSE", "DRIVER'S LICENSE", "DRIVERS LICENSE", "IDENTIFICATION CARD", "ID CARD"]):
-        print(f"[DETECT_TYPE] ✓ Detected: Driver's License/ID Card")
-        print(f"{'='*80}\n")
-        return "drivers_license"
-    
-    # ============================================================
-    # FALLBACK: Use keyword-based scoring
-    # ============================================================
-    print(f"[DETECT_TYPE] No specific pattern matched - using keyword scoring...")
-    
-    scores = {}
+    # Build list of supported document types for the prompt
+    doc_types_list = []
     for doc_type, info in SUPPORTED_DOCUMENT_TYPES.items():
-        score = 0
-        for keyword in info['keywords']:
-            if keyword.lower() in text_lower:
-                score += 1
-        scores[doc_type] = score
+        doc_types_list.append(f"- {doc_type}: {info['description']}")
     
-    # Check for strong indicators
-    loan_score = scores.get('loan_document', 0)
-    if loan_score >= 5:
-        print(f"[DETECT_TYPE] ✓ Detected: loan_document (score: {loan_score})")
-        print(f"{'='*80}\n")
-        return 'loan_document'
+    doc_types_str = "\n".join(doc_types_list)
     
-    # If we have a clear winner (score >= 2), use it
-    max_score = max(scores.values()) if scores else 0
-    if max_score >= 2:
-        detected_type = max(scores, key=scores.get)
-        print(f"[DETECT_TYPE] ✓ Detected: {detected_type} (score: {max_score})")
-        print(f"{'='*80}\n")
-        return detected_type
-    
-    print(f"[DETECT_TYPE] ⚠️ Document type unknown")
-    print(f"{'='*80}\n")
-    return "unknown"
+    prompt = f"""You are a document classification expert. Analyze the following document text and identify its type.
+
+SUPPORTED DOCUMENT TYPES:
+{doc_types_str}
+
+DOCUMENT TEXT:
+{text_sample}
+
+INSTRUCTIONS:
+1. Carefully read the document text
+2. Identify the document type from the supported types above
+3. Return ONLY the document type key (e.g., "death_certificate", "loan_document", "invoice")
+4. If the document doesn't match any type, return "unknown"
+
+IMPORTANT DISTINCTIONS:
+- "loan_document" = Bank account forms, signature cards, account opening documents
+- "invoice" = Invoices, bills, withdrawal forms, funeral statements
+- "death_certificate" = Official death certificates from vital records
+- "business_card" = Business cards or card order forms (ATM/debit card requests)
+- "contract" = Legal documents, estate documents, name change forms
+
+Return ONLY the document type key, nothing else."""
+
+    try:
+        # Call Claude API
+        response = bedrock.invoke_model(
+            modelId=MODEL_ID,
+            body=json.dumps({
+                "anthropic_version": "bedrock-2023-05-31",
+                "max_tokens": 50,
+                "temperature": 0,
+                "messages": [{
+                    "role": "user",
+                    "content": prompt
+                }]
+            })
+        )
+        
+        result = json.loads(response['body'].read())
+        detected_type = result['content'][0]['text'].strip().lower()
+        
+        # Validate the detected type
+        if detected_type in SUPPORTED_DOCUMENT_TYPES:
+            print(f"[DETECT_TYPE] ✓ LLM Detected: {detected_type}")
+            print(f"{'='*80}\n")
+            return detected_type
+        else:
+            print(f"[DETECT_TYPE] ⚠️ LLM returned invalid type: {detected_type}")
+            print(f"[DETECT_TYPE] Falling back to 'unknown'")
+            print(f"{'='*80}\n")
+            return "unknown"
+            
+    except Exception as e:
+        print(f"[DETECT_TYPE] ❌ LLM detection failed: {str(e)}")
+        print(f"[DETECT_TYPE] Falling back to keyword-based detection")
+        
+        # Fallback to simple keyword matching
+        text_upper = text.upper()
+        
+        if "SIGNATURE CARD" in text_upper and "ACCOUNT" in text_upper:
+            print(f"[DETECT_TYPE] ✓ Fallback: loan_document")
+            print(f"{'='*80}\n")
+            return "loan_document"
+        elif "DEATH" in text_upper and "CERTIFICATE" in text_upper:
+            print(f"[DETECT_TYPE] ✓ Fallback: death_certificate")
+            print(f"{'='*80}\n")
+            return "death_certificate"
+        elif "MARRIAGE" in text_upper and "CERTIFICATE" in text_upper:
+            print(f"[DETECT_TYPE] ✓ Fallback: marriage_certificate")
+            print(f"{'='*80}\n")
+            return "marriage_certificate"
+        elif "WITHDRAWAL" in text_upper:
+            print(f"[DETECT_TYPE] ✓ Fallback: invoice")
+            print(f"{'='*80}\n")
+            return "invoice"
+        else:
+            print(f"[DETECT_TYPE] ⚠️ Fallback: unknown")
+            print(f"{'='*80}\n")
+            return "unknown"

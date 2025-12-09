@@ -27,45 +27,16 @@
             font-family: 'Inter', sans-serif;
             background: #f5f7fa;
             height: 100vh;
-            display: flex;
-            flex-direction: column;
+            margin: 0;
+            padding: 0;
             overflow: hidden;
-        }
-
-        .header {
-            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
-            color: white;
-            padding: 20px 30px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            flex-shrink: 0;
-        }
-
-        .header h1 {
-            font-size: 1.5em;
-            margin-bottom: 5px;
-        }
-
-        .back-btn {
-            display: inline-block;
-            padding: 8px 16px;
-            background: rgba(255,255,255,0.2);
-            color: white;
-            text-decoration: none;
-            border-radius: 8px;
-            margin-bottom: 10px;
-            transition: all 0.3s;
-        }
-
-        .back-btn:hover {
-            background: rgba(255,255,255,0.3);
         }
 
         .main-container {
             display: flex;
-            flex: 1;
+            height: 100vh;
             overflow: hidden;
             position: relative;
-            min-height: 0;
         }
 
         /* Left Sidebar - Account List (Collapsible) */
@@ -484,32 +455,32 @@
 
         .data-header {
             flex-shrink: 0;
-            padding: 20px;
+            padding: 12px 16px;
             background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
             color: white;
             overflow: visible;
         }
 
         .data-header h2 {
-            font-size: 1.2em;
-            margin-bottom: 10px;
+            font-size: 1em;
+            margin-bottom: 8px;
         }
         
         .view-tabs {
             display: flex;
-            gap: 10px;
-            margin-bottom: 15px;
+            gap: 8px;
+            margin-bottom: 10px;
         }
         
         .tab-btn {
-            padding: 8px 20px;
+            padding: 6px 16px;
             background: rgba(255,255,255,0.2);
             color: white;
             border: none;
             border-radius: 6px;
             cursor: pointer;
             font-weight: 600;
-            font-size: 0.9em;
+            font-size: 0.85em;
             transition: all 0.3s;
         }
         
@@ -523,31 +494,31 @@
         }
 
         .data-meta {
-            font-size: 0.9em;
+            font-size: 0.85em;
             opacity: 0.9;
-            margin-bottom: 10px;
+            margin-bottom: 8px;
         }
         
         .fields-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 10px;
+            margin-bottom: 8px;
         }
         
         .fields-title {
-            font-size: 1em;
+            font-size: 0.9em;
             font-weight: 600;
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 8px;
         }
         
         .page-badge {
             background: rgba(255,255,255,0.3);
-            padding: 4px 12px;
+            padding: 3px 10px;
             border-radius: 12px;
-            font-size: 0.85em;
+            font-size: 0.8em;
         }
         
         .field-count {
@@ -557,13 +528,13 @@
         
         .search-box {
             width: 100%;
-            padding: 10px 15px;
+            padding: 8px 12px;
             border: 2px solid rgba(255,255,255,0.3);
-            border-radius: 8px;
+            border-radius: 6px;
             background: rgba(255,255,255,0.1);
             color: white;
-            font-size: 0.9em;
-            margin-bottom: 15px;
+            font-size: 0.85em;
+            margin-bottom: 10px;
         }
         
         .search-box::placeholder {
@@ -578,33 +549,36 @@
 
         .control-section {
             background: rgba(255,255,255,0.1);
-            padding: 12px;
-            border-radius: 8px;
+            padding: 8px 10px;
+            border-radius: 6px;
             border: 1px solid rgba(255,255,255,0.2);
+            margin-bottom: 8px;
         }
         
         .section-title {
-            font-size: 0.85em;
+            font-size: 0.75em;
             font-weight: 700;
             color: rgba(255,255,255,0.9);
-            margin-bottom: 8px;
+            margin-bottom: 6px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
         
         .data-controls {
             display: flex;
-            gap: 8px;
+            gap: 6px;
             flex-wrap: wrap;
+            align-items: center;
         }
 
         .control-btn {
-            padding: 8px 16px;
+            padding: 6px 10px;
             border: none;
-            border-radius: 6px;
+            border-radius: 5px;
             cursor: pointer;
+            white-space: nowrap;
+            font-size: 0.8em;
             font-weight: 600;
-            font-size: 0.9em;
             transition: all 0.3s;
             display: flex;
             align-items: center;
@@ -782,9 +756,8 @@
     </style>
 </head>
 <body>
-    <div class="header">
-        <a href="/dashboard" class="back-btn">← Back to Dashboard</a>
-        <h1>{{ document.document_name or document.filename }}</h1>
+    <div style="position: absolute; top: 10px; left: 10px; z-index: 1000;">
+        <a href="/dashboard" style="display: inline-block; padding: 8px 16px; background: rgba(102, 126, 234, 0.9); color: white; text-decoration: none; border-radius: 6px; font-size: 0.9em; font-weight: 600; box-shadow: 0 2px 8px rgba(0,0,0,0.15); transition: all 0.3s;" onmouseover="this.style.background='rgba(118, 75, 162, 0.9)'" onmouseout="this.style.background='rgba(102, 126, 234, 0.9)'">← Back</a>
     </div>
 
     {% if document.needs_review %}
@@ -878,15 +851,8 @@
                     
                     <div class="data-meta" id="dataMeta">Select an account to view data</div>
                     
-                    <!-- Fields Header with Search -->
+                    <!-- Search Box -->
                     <div id="fieldsSection" style="display:none;">
-                        <div class="fields-header">
-                            <div class="fields-title">
-                                <span>Extracted Fields</span>
-                                <span class="page-badge" id="pageBadge">📄 Page 1</span>
-                            </div>
-                            <div class="field-count" id="fieldCount">0 fields</div>
-                        </div>
                         <input type="text" class="search-box" id="searchBox" placeholder="🔍 Search fields..." oninput="filterFields()">
                     </div>
                     
@@ -929,7 +895,7 @@
                                 📄 Page JSON
                             </button>
                             <button class="control-btn btn-download" id="downloadAccountBtn" onclick="downloadAccountJSON()" style="display:none;">
-                                💾 Account JSON
+                                💾 Complete JSON
                             </button>
                         </div>
                     </div>
@@ -1353,10 +1319,47 @@
                 
                 displayPageData(result, account, result.cached || false);
                 
+                // Prefetch next page in background for instant loading
+                prefetchNextPage();
+                
             } catch (error) {
                 console.error('Error loading page data:', error);
                 container.innerHTML = '<div class="loading" style="color:#ef4444;">Error: ' + error.message + '</div>';
                 showNotification('Failed to load page data: ' + error.message, 'error');
+            }
+        }
+        
+        // Prefetch next page data in background
+        async function prefetchNextPage() {
+            const nextPageIndex = currentPageIndex + 1;
+            const totalPagesInAccount = accountPageNumbers.length;
+            
+            if (nextPageIndex >= totalPagesInAccount) {
+                console.log(`[PREFETCH] No next page in current account`);
+                return; // No next page in this account
+            }
+            
+            const cacheKey = `${currentAccountIndex}_${nextPageIndex}`;
+            
+            // Skip if already cached
+            if (pageDataCache[cacheKey]) {
+                console.log(`[PREFETCH] Page ${nextPageIndex + 1} already in cache, skipping`);
+                return;
+            }
+            
+            console.log(`[PREFETCH] Loading page ${nextPageIndex + 1} in background...`);
+            
+            try {
+                const actualPageNum = accountPageNumbers[nextPageIndex] || nextPageIndex;
+                const response = await fetch(`/api/document/${documentId}/account/${currentAccountIndex}/page/${actualPageNum}/data`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    pageDataCache[cacheKey] = result;
+                    console.log(`[PREFETCH] ✓ Cached page ${nextPageIndex + 1} for instant access`);
+                }
+            } catch (error) {
+                console.log(`[PREFETCH] Failed to prefetch page ${nextPageIndex + 1}:`, error.message);
             }
         }
         
@@ -1896,8 +1899,6 @@
                     
                     // Update fields section
                     document.getElementById('fieldsSection').style.display = 'block';
-                    document.getElementById('pageBadge').textContent = `📄 Page ${currentPageIndex + 1}`;
-                    document.getElementById('fieldCount').textContent = `${totalFields} fields`;
                     document.getElementById('searchBox').value = ''; // Reset search
                     
                     // Update JSON view
@@ -2382,10 +2383,6 @@
                 item.style.display = matches ? 'block' : 'none';
                 if (matches) visibleCount++;
             });
-            const totalFields = fieldItems.length;
-            document.getElementById('fieldCount').textContent = searchTerm 
-                ? `${visibleCount} of ${totalFields} fields`
-                : `${totalFields} fields`;
         }
         
         function zoomIn() {
