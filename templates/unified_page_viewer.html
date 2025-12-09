@@ -290,37 +290,49 @@
         .viewer-content {
             flex: 1;
             overflow-y: auto;
-            overflow-x: hidden;
+            overflow-x: auto;
             padding: 20px;
             background: #525659;
             text-align: center;
             min-height: 0;
+            position: relative;
         }
         
         /* Custom scrollbar for viewer */
         .viewer-content::-webkit-scrollbar {
-            width: 10px;
+            width: 12px;
+            height: 12px;
         }
         
         .viewer-content::-webkit-scrollbar-track {
             background: #3f4447;
+            border-radius: 6px;
         }
         
         .viewer-content::-webkit-scrollbar-thumb {
             background: #667eea;
-            border-radius: 5px;
+            border-radius: 6px;
+            border: 2px solid #3f4447;
         }
         
         .viewer-content::-webkit-scrollbar-thumb:hover {
             background: #764ba2;
         }
         
+        .viewer-content::-webkit-scrollbar-corner {
+            background: #3f4447;
+        }
+        
         .viewer-content img {
-            width: 100%;
+            max-width: 100%;
+            width: auto;
             height: auto;
+            max-height: none;
             object-fit: contain;
             border-radius: 8px;
             box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            display: block;
+            margin: 0 auto;
         }
         
         /* Data Panel - 30% */
@@ -818,6 +830,7 @@
         let totalPages = 0;
         let editMode = false;
         let originalData = {};
+        let pageDataCache = {}; // Browser-side cache: {pageIndex: {data, cached_at}} or {accountIndex_pageIndex: {data, cached_at}}
         let editedFields = {};
         let currentPageData = null;
         let accounts = [];
@@ -1007,6 +1020,18 @@
         async function renderPageData() {
             const container = document.getElementById('dataContent');
             
+            // Check browser cache first
+            const cacheKey = hasAccounts && currentAccountIndex >= 0 
+                ? `${currentAccountIndex}_${currentPageIndex}`
+                : `${currentPageIndex}`;
+            
+            if (pageDataCache[cacheKey]) {
+                console.log(`[CACHE HIT] Loading page ${currentPageIndex + 1} from browser cache (instant!)`);
+                const cachedResult = pageDataCache[cacheKey];
+                displayPageData(cachedResult, true);
+                return;
+            }
+            
             const metaText = hasAccounts && currentAccountIndex >= 0 
                 ? `Account ${accounts[currentAccountIndex].accountNumber} - Page ${currentPageIndex + 1} - Loading...`
                 : `Page ${currentPageIndex + 1} - Loading...`;
@@ -1014,6 +1039,8 @@
             container.innerHTML = '<div class="loading"><div class="spinner"></div><div>Extracting data from page...</div></div>';
             
             try {
+                console.log(`[CACHE MISS] Fetching page ${currentPageIndex + 1} from server...`);
+                
                 let response, result;
                 if (hasAccounts && currentAccountIndex >= 0) {
                     response = await fetch(`/api/document/${documentId}/account/${currentAccountIndex}/page/${currentPageIndex}/data`);
@@ -1021,6 +1048,26 @@
                     response = await fetch(`/api/document/${documentId}/page/${currentPageIndex}/extract`);
                 }
                 result = await response.json();
+                
+                // Cache the result in browser for instant future access
+                if (result.success) {
+                    pageDataCache[cacheKey] = result;
+                    console.log(`[CACHED] Stored page ${currentPageIndex + 1} in browser cache`);
+                }
+                
+                displayPageData(result, result.cached || false);
+                
+            } catch (error) {
+                console.error('Error loading page data:', error);
+                container.innerHTML = '<div class="loading" style="color:#ef4444;">Error: ' + error.message + '</div>';
+                showNotification('Failed to load page data: ' + error.message, 'error');
+            }
+        }
+        
+        function displayPageData(result, fromCache) {
+            const container = document.getElementById('dataContent');
+            
+            try {
                 
                 if (result.success) {
                     let fields = result.data || {};
@@ -1338,14 +1385,23 @@
                     if (currentView === 'json') {
                         document.getElementById('jsonDisplay').innerHTML = formatJsonWithConfidence(fields);
                     }
+                    
+                    // Show cache indicator
+                    if (fromCache) {
+                        const cacheIndicator = fromCache === true ? '⚡ Instant (Browser Cache)' : '💾 Cached (S3)';
+                        const metaElement = document.getElementById('dataMeta');
+                        const currentMeta = metaElement.textContent;
+                        metaElement.innerHTML = currentMeta + ` <span style="display:inline-block;margin-left:10px;padding:4px 8px;background:#3b82f6;color:white;border-radius:4px;font-size:0.75em;font-weight:600;">${cacheIndicator}</span>`;
+                    }
+                    
                 } else {
                     currentPageData = null;
                     document.getElementById('fieldsSection').style.display = 'none';
                     container.innerHTML = `<div class="loading">Error: ${result.message}</div>`;
                 }
             } catch (error) {
-                console.error('Error loading page data:', error);
-                container.innerHTML = `<div class="loading">Failed to load page data: ${error.message}</div>`;
+                console.error('Error displaying page data:', error);
+                container.innerHTML = `<div class="loading">Failed to display page data: ${error.message}</div>`;
             }
         }
 
@@ -1534,6 +1590,14 @@
                 
                 showNotification('Page saved successfully! Changes will persist.', 'success');
                 exitEditMode();
+                
+                // Clear browser cache for this page to force reload
+                const cacheKey = hasAccounts && currentAccountIndex >= 0 
+                    ? `${currentAccountIndex}_${currentPageIndex}`
+                    : `${currentPageIndex}`;
+                delete pageDataCache[cacheKey];
+                console.log(`[CACHE CLEAR] Removed page ${currentPageIndex + 1} from browser cache after save`);
+                
                 renderPageData();
             } catch (error) {
                 showNotification('Failed to save: ' + error.message, 'error');
@@ -1703,13 +1767,19 @@
         }
 
         async function clearDocumentCache() {
-            if (!confirm('Clear cache and re-extract all pages with updated prompts?\n\nThis will:\n- Delete all cached page data\n- Force fresh extraction on next page click\n- Extract stamp dates and other new fields')) {
+            if (!confirm('Clear cache and re-extract all pages with updated prompts?\n\nThis will:\n- Delete all cached page data (both browser and S3)\n- Force fresh extraction on next page click\n- Extract stamp dates and other new fields')) {
                 return;
             }
             
             try {
                 showNotification('Clearing cache...', 'success');
                 
+                // Clear browser cache for all pages
+                const keysToDelete = Object.keys(pageDataCache);
+                keysToDelete.forEach(key => delete pageDataCache[key]);
+                console.log(`[CACHE CLEAR] Removed ${keysToDelete.length} pages from browser cache`);
+                
+                // Clear S3 cache
                 const response = await fetch(`/api/document/${documentId}/clear-cache`, {
                     method: 'POST'
                 });
