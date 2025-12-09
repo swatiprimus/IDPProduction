@@ -1933,13 +1933,29 @@
         }
         
         function filterFields() {
-            const searchTerm = document.getElementById('searchBox').value.toLowerCase();
-            const fieldItems = document.querySelectorAll('.field-item');
+            const searchBox = document.getElementById('searchBox');
+            if (!searchBox) {
+                console.error('Search box not found');
+                return;
+            }
+            
+            const searchTerm = searchBox.value.toLowerCase();
+            const fieldItems = document.querySelectorAll('#dataContent .field-item');
             let visibleCount = 0;
             
+            console.log(`Filtering ${fieldItems.length} fields with term: "${searchTerm}"`);
+            
             fieldItems.forEach(item => {
-                const label = item.querySelector('.field-label').textContent.toLowerCase();
-                const value = item.querySelector('.field-value').textContent.toLowerCase();
+                const labelEl = item.querySelector('.field-label');
+                const valueEl = item.querySelector('.field-value');
+                
+                if (!labelEl || !valueEl) {
+                    // Skip items without proper structure (like signer headers or supporting docs)
+                    return;
+                }
+                
+                const label = labelEl.textContent.toLowerCase();
+                const value = valueEl.textContent.toLowerCase();
                 const matches = label.includes(searchTerm) || value.includes(searchTerm);
                 
                 item.style.display = matches ? 'block' : 'none';
@@ -1948,9 +1964,14 @@
             
             // Update field count
             const totalFields = fieldItems.length;
-            document.getElementById('fieldCount').textContent = searchTerm 
-                ? `${visibleCount} of ${totalFields} fields`
-                : `${totalFields} fields`;
+            const fieldCountEl = document.getElementById('fieldCount');
+            if (fieldCountEl) {
+                fieldCountEl.textContent = searchTerm 
+                    ? `${visibleCount} of ${totalFields} fields`
+                    : `${totalFields} fields`;
+            }
+            
+            console.log(`Showing ${visibleCount} of ${totalFields} fields`);
         }
 
         function zoomIn() {
