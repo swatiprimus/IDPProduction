@@ -296,6 +296,8 @@ WHAT TO EXTRACT:
     * DO NOT extract account numbers from summary lists, sidebars, or reference sections
     * If you see a list of multiple account numbers (like "Account Numbers: 123, 456, 789"), IGNORE IT
     * Only extract the single account number that this specific page is about
+    * **HANDWRITTEN ACCOUNT NUMBERS**: If you find a 6 to 9 -digit number that appears to be handwritten and has NO clear field label, treat it as "Account_Number"
+    * This is especially common in death certificates where account numbers may be written by hand
 ✓ **SIGNER INFORMATION (if applicable):**
   - If ONE signer: Signer1_Name, Signer1_SSN, Signer1_DateOfBirth, Signer1_Address, Signer1_Phone, Signer1_DriversLicense
   - If TWO signers: Add Signer2_Name, Signer2_SSN, Signer2_DateOfBirth, Signer2_Address, Signer2_Phone, Signer2_DriversLicense
@@ -524,6 +526,9 @@ EXTRACTION RULES:
   * If you see a list of multiple account numbers (like "Account Numbers: 123, 456, 789"), IGNORE IT
   * Only extract the single account number that this specific page is about
   * The primary account number is typically at the top of the form in a field labeled "ACCOUNT NUMBER"
+  * **HANDWRITTEN ACCOUNT NUMBERS**: If you find a 9-digit number that appears to be handwritten and has NO clear field label, treat it as "AccountNumber"
+  * This is especially common in death certificates where account numbers may be written by hand
+  * Look for standalone 6-digit numbers without labels - these are likely handwritten account numbers
 - Include ALL financial information (balances, limits, rates, fees)
 - Extract ALL addresses (mailing, physical, business, home)
 - Include ALL contact information (phone, fax, email, website)
@@ -2761,8 +2766,61 @@ def get_account_page_data(doc_id, account_index, page_num):
             parsed = flatten_nested_objects(parsed)
             print(f"[DEBUG] Flattened nested objects in parsed data")
             
+            # CRITICAL: Detect handwritten account numbers (6-9 digits without clear labels)
+            # If AccountNumber is missing but we have a 6-9 digit number labeled as something else, reclassify it
+            print(f"[DEBUG] Checking for account number in parsed data...")
+            print(f"[DEBUG] Current AccountNumber value: {parsed.get('AccountNumber', 'NOT FOUND')}")
+            
+            if "AccountNumber" not in parsed or not parsed["AccountNumber"] or parsed["AccountNumber"] == "Unknown":
+                print(f"[ACCOUNT_DETECT] AccountNumber missing or unknown, checking for 6-9 digit numbers...")
+                
+                # Look for fields that might be misclassified account numbers
+                potential_account_fields = [
+                    "Document_Number", "DocumentNumber", "Reference_Number", "ReferenceNumber",
+                    "File_Number", "FileNumber", "Certificate_Number", "CertificateNumber",
+                    "License_Number", "LicenseNumber", "ID_Number", "IDNumber",
+                    "Registration_Number", "RegistrationNumber", "Case_Number", "CaseNumber"
+                ]
+                
+                found_account = False
+                for field_name in potential_account_fields:
+                    if field_name in parsed:
+                        value = str(parsed[field_name]).strip()
+                        # Check if it's a 6-9 digit number (possibly with spaces or dashes)
+                        clean_value = value.replace(" ", "").replace("-", "").replace(".", "")
+                        if clean_value.isdigit() and 6 <= len(clean_value) <= 9:
+                            print(f"[ACCOUNT_DETECT] ✓ Found potential account number in {field_name}: {value} (cleaned: {clean_value})")
+                            parsed["AccountNumber"] = clean_value
+                            account_number = clean_value
+                            # Keep the original field too, don't delete it
+                            print(f"[ACCOUNT_DETECT] ✓ Reclassified {field_name} as AccountNumber: {clean_value}")
+                            found_account = True
+                            break
+                
+                # If still no account number found, look for ANY 6-9 digit number in the data
+                if not found_account:
+                    print(f"[ACCOUNT_DETECT] Still no account number, scanning ALL fields for 6-9 digit numbers...")
+                    for field_name, field_value in parsed.items():
+                        if isinstance(field_value, (str, int)):
+                            value = str(field_value).strip()
+                            clean_value = value.replace(" ", "").replace("-", "").replace(".", "")
+                            if clean_value.isdigit() and 6 <= len(clean_value) <= 9:
+                                print(f"[ACCOUNT_DETECT] ✓ Found 6-9 digit number in {field_name}: {value} (cleaned: {clean_value})")
+                                parsed["AccountNumber"] = clean_value
+                                account_number = clean_value
+                                print(f"[ACCOUNT_DETECT] ✓ Using {field_name} as AccountNumber: {clean_value}")
+                                found_account = True
+                                break
+                
+                if not found_account:
+                    print(f"[ACCOUNT_DETECT] ⚠️ No 6-9 digit account number found in any field")
+            else:
+                print(f"[ACCOUNT_DETECT] ✓ AccountNumber already present: {parsed['AccountNumber']}")
+            
             # Add account number to the result
-            parsed["AccountNumber"] = account_number
+            if "AccountNumber" not in parsed:
+                parsed["AccountNumber"] = account_number
+                print(f"[ACCOUNT_DETECT] Set AccountNumber to default: {account_number}")
             
             # Cache the result in S3
             cache_data = {
