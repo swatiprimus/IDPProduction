@@ -4475,83 +4475,57 @@ def delete_document(doc_id):
             os.remove(doc["pdf_path"])
             print(f"[INFO] Deleted PDF file: {doc['pdf_path']}")
         
-        # CRITICAL: Clear ALL S3 caches for this document to prevent stale data
-        print(f"[INFO] Clearing all S3 caches for document {doc_id}")
-        deleted_cache_count = 0
+        # OPTIMIZED: Clear S3 caches using batch operations for speed
+        print(f"[INFO] Clearing S3 caches for document {doc_id} (optimized)")
         
-        # Get accounts from document
-        doc_data = doc.get("documents", [{}])[0]
-        accounts = doc_data.get("accounts", [])
-        
-        # Delete cache for all accounts and pages
-        for account_index in range(max(len(accounts), 1)):  # At least try index 0
-            # Delete page mapping cache
-            try:
-                cache_key = f"page_mapping/{doc_id}/mapping.json"
-                s3_client.delete_object(Bucket=S3_BUCKET, Key=cache_key)
-                deleted_cache_count += 1
-                print(f"[INFO] Deleted cache: {cache_key}")
-            except:
-                pass
-            
-            # Delete page data cache (try up to 100 pages)
-            for page_num in range(100):
-                try:
-                    cache_key = f"page_data/{doc_id}/account_{account_index}/page_{page_num}.json"
-                    s3_client.delete_object(Bucket=S3_BUCKET, Key=cache_key)
-                    deleted_cache_count += 1
-                    print(f"[INFO] Deleted cache: {cache_key}")
-                except:
-                    pass
-                
-                # Delete document-level extraction cache
-                try:
-                    doc_cache_key = f"document_extraction_cache/{doc_id}_account_{account_index}_page_{page_num}.json"
-                    s3_client.delete_object(Bucket=S3_BUCKET, Key=doc_cache_key)
-                    deleted_cache_count += 1
-                    print(f"[INFO] Deleted document-level cache: {doc_cache_key}")
-                except:
-                    pass
-        
-        # Delete non-account page cache
-        for page_num in range(100):
-            try:
-                cache_key = f"page_data/{doc_id}/page_{page_num}.json"
-                s3_client.delete_object(Bucket=S3_BUCKET, Key=cache_key)
-                deleted_cache_count += 1
-                print(f"[INFO] Deleted cache: {cache_key}")
-            except:
-                pass
-        
-        # Delete OCR cache
         try:
-            cache_key = f"ocr_cache/{doc_id}/text_cache.json"
-            s3_client.delete_object(Bucket=S3_BUCKET, Key=cache_key)
-            deleted_cache_count += 1
-            print(f"[INFO] Deleted OCR cache: {cache_key}")
-        except:
-            pass
-        
-        # Delete content-based extraction cache (try common patterns)
-        try:
-            # List all content-based cache entries and delete them
-            # This is more aggressive but ensures no stale content-based cache remains
-            paginator = s3_client.get_paginator('list_objects_v2')
-            pages = paginator.paginate(Bucket=S3_BUCKET, Prefix='content_extraction_cache/')
+            # Collect all cache keys to delete in batches
+            keys_to_delete = []
             
-            for page in pages:
-                if 'Contents' in page:
-                    for obj in page['Contents']:
-                        try:
-                            s3_client.delete_object(Bucket=S3_BUCKET, Key=obj['Key'])
-                            deleted_cache_count += 1
-                            print(f"[INFO] Deleted content cache: {obj['Key']}")
-                        except:
-                            pass
+            # Add specific cache patterns for this document
+            cache_patterns = [
+                f"page_mapping/{doc_id}/",
+                f"page_data/{doc_id}/",
+                f"document_extraction_cache/{doc_id}_",
+                f"ocr_cache/{doc_id}/",
+                f"content_extraction_cache/"  # Clear all content cache (small overhead)
+            ]
+            
+            # List and collect all matching objects
+            for pattern in cache_patterns:
+                try:
+                    paginator = s3_client.get_paginator('list_objects_v2')
+                    pages = paginator.paginate(Bucket=S3_BUCKET, Prefix=pattern)
+                    
+                    for page in pages:
+                        if 'Contents' in page:
+                            for obj in page['Contents']:
+                                keys_to_delete.append({'Key': obj['Key']})
+                                
+                except Exception as e:
+                    print(f"[WARNING] Failed to list objects for pattern {pattern}: {str(e)}")
+            
+            # Delete in batches of 1000 (S3 limit)
+            deleted_count = 0
+            batch_size = 1000
+            
+            for i in range(0, len(keys_to_delete), batch_size):
+                batch = keys_to_delete[i:i + batch_size]
+                if batch:
+                    try:
+                        response = s3_client.delete_objects(
+                            Bucket=S3_BUCKET,
+                            Delete={'Objects': batch}
+                        )
+                        deleted_count += len(response.get('Deleted', []))
+                        print(f"[INFO] Batch deleted {len(response.get('Deleted', []))} cache entries")
+                    except Exception as e:
+                        print(f"[WARNING] Failed to delete batch: {str(e)}")
+            
+            print(f"[INFO] Cleared {deleted_count} S3 cache entries for document {doc_id}")
+            
         except Exception as e:
-            print(f"[WARNING] Failed to clear content-based cache: {str(e)}")
-        
-        print(f"[INFO] Cleared {deleted_cache_count} S3 cache entries for document {doc_id}")
+            print(f"[WARNING] S3 cache clearing failed, but continuing with document deletion: {str(e)}")
         
         # Remove from processed documents
         original_count = len(processed_documents)

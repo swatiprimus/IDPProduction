@@ -416,11 +416,27 @@
                     <td><span class="version-badge">${processedDate}</span></td>
                     <td><span class="description">${docType}</span></td>
                     <td style="text-align:center;">
-                        <button onclick="event.stopPropagation();deleteDocument('${skill.id}','${skill.document_name || skill.filename}')" style="padding:8px 12px;background:transparent;color:#ef4444;border:none;cursor:pointer;transition:all 0.3s;font-size:1.2em;" title="Delete Document">
+                        <button class="delete-btn" data-doc-id="${skill.id}" data-doc-name="${skill.document_name || skill.filename}" style="padding:8px 12px;background:transparent;color:#ef4444;border:none;cursor:pointer;transition:all 0.3s;font-size:1.2em;" title="Delete Document">
                             🗑️
                         </button>
                     </td>
                 `;
+                
+                // Add event listener for delete button (more reliable than onclick)
+                const deleteBtn = row.querySelector('.delete-btn');
+                if (deleteBtn) {
+                    deleteBtn.addEventListener('click', function(event) {
+                        event.stopPropagation();
+                        event.preventDefault();
+                        
+                        const docId = this.getAttribute('data-doc-id');
+                        const docName = this.getAttribute('data-doc-name');
+                        
+                        console.log(`🗑️ Delete button clicked for: ${docId} - ${docName}`);
+                        deleteDocument(docId, docName);
+                    });
+                }
+                
                 tbody.appendChild(row);
             });
         }
@@ -754,67 +770,134 @@
 
         // Delete Document Function
         async function deleteDocument(docId, docName) {
+            console.log(`🗑️ deleteDocument called with ID: ${docId}, Name: ${docName}`);
+            
             if (!confirm(`Are you sure you want to delete "${docName}"?\n\nThis will:\n- Delete the document from database\n- Delete all cached data\n- Delete OCR files\n- Delete PDF file\n\nThis action cannot be undone!`)) {
+                console.log('❌ User cancelled deletion');
                 return;
             }
+            
+            console.log('✅ User confirmed deletion, proceeding...');
 
+            // IMMEDIATE UI UPDATE - Remove from grid right away (optimistic update)
+            console.log(`🗑️ IMMEDIATE DELETE: Removing ${docId} from grid`);
+            
+            // Store original arrays in case we need to restore
+            const originalAllSkills = [...allSkills];
+            const originalFilteredSkills = [...filteredSkills];
+            
+            // Remove the document from the local arrays immediately
+            allSkills = allSkills.filter(skill => skill.id !== docId);
+            filteredSkills = filteredSkills.filter(skill => skill.id !== docId);
+            
+            console.log(`📊 Grid updated: ${originalAllSkills.length} → ${allSkills.length} documents`);
+            
+            // Immediately refresh the display
+            displaySkills();
+            loadStats();
+            
+            // Show notification that deletion is in progress
+            showNotification(`🗑️ Deleting "${docName}"...`, 'info');
+
+            // Start background deletion process
             try {
-                showNotification('Deleting document...', 'info');
-                
-                // Add timestamp to prevent caching
+                console.log(`🌐 Starting backend delete API call for ${docId}`);
                 const timestamp = new Date().getTime();
-                const response = await fetch(`/api/document/${docId}/delete?_t=${timestamp}`, {
+                const deleteUrl = `/api/document/${docId}/delete?_t=${timestamp}`;
+                console.log(`📡 DELETE URL: ${deleteUrl}`);
+                
+                // Create a timeout promise (reduced to 5 seconds since backend is optimized)
+                const timeoutPromise = new Promise((_, reject) => {
+                    setTimeout(() => reject(new Error('Request timeout after 5 seconds')), 5000);
+                });
+                
+                // Create the fetch promise
+                const fetchPromise = fetch(deleteUrl, {
                     method: 'POST',
                     headers: {
                         'Cache-Control': 'no-cache, no-store, must-revalidate',
                         'Pragma': 'no-cache',
-                        'Expires': '0'
+                        'Expires': '0',
+                        'Content-Type': 'application/json'
                     }
                 });
+                
+                // Race between fetch and timeout
+                const response = await Promise.race([fetchPromise, timeoutPromise]);
+
+                console.log(`📡 DELETE RESPONSE STATUS: ${response.status}`);
+                console.log(`📡 DELETE RESPONSE OK: ${response.ok}`);
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
 
                 const result = await response.json();
+                console.log(`📡 DELETE RESPONSE BODY:`, result);
 
                 if (result.success) {
-                    console.log(`✅ DELETE SUCCESS: Document ${docId} deleted from backend`);
+                    console.log(`✅ BACKEND DELETE SUCCESS: Document ${docId} deleted from server`);
+                    showNotification(`✅ Document "${docName}" deleted successfully!`, 'success');
                     
-                    // Debug: Log the arrays before and after filtering
-                    console.log('Before deletion - allSkills count:', allSkills.length);
-                    console.log('Document ID to delete:', docId);
-                    console.log('All document IDs before:', allSkills.map(s => s.id));
+                    // Double-check by reloading from server to verify deletion
+                    setTimeout(async () => {
+                        console.log('🔄 Verifying deletion with server reload...');
+                        await loadSkills();
+                        const stillExists = allSkills.find(s => s.id === docId);
+                        if (stillExists) {
+                            console.error('❌ VERIFICATION FAILED: Document still exists on server after delete!');
+                            showNotification(`❌ Delete verification failed - document still exists on server`, 'error');
+                        } else {
+                            console.log('✅ VERIFICATION SUCCESS: Document confirmed deleted from server');
+                        }
+                    }, 1000);
                     
-                    // Remove the document from the local arrays immediately
-                    const originalAllCount = allSkills.length;
-                    const originalFilteredCount = filteredSkills.length;
+                } else {
+                    console.error('❌ BACKEND DELETE FAILED:', result.message);
                     
-                    allSkills = allSkills.filter(skill => skill.id !== docId);
-                    filteredSkills = filteredSkills.filter(skill => skill.id !== docId);
-                    
-                    console.log('After deletion - allSkills count:', allSkills.length);
-                    console.log('All document IDs after:', allSkills.map(s => s.id));
-                    console.log('Removed from allSkills:', originalAllCount - allSkills.length);
-                    console.log('Removed from filteredSkills:', originalFilteredCount - filteredSkills.length);
-                    
-                    // Force immediate grid refresh
-                    console.log('🔄 Refreshing grid display...');
+                    // Restore the document to the arrays since backend delete failed
+                    allSkills = originalAllSkills;
+                    filteredSkills = originalFilteredSkills;
                     displaySkills();
                     loadStats();
                     
-                    // Show success notification
-                    showNotification(`✅ Document "${docName}" deleted successfully!`, 'success');
-                    
-                    // Double-check by reloading from server after a short delay
-                    setTimeout(async () => {
-                        console.log('🔄 Double-checking with server reload...');
-                        await loadSkills();
-                        console.log('📊 Final document count:', allSkills.length);
-                    }, 500);
-                    
-                } else {
-                    console.error('❌ DELETE FAILED:', result.message);
                     showNotification(`❌ Failed to delete: ${result.message}`, 'error');
                 }
             } catch (error) {
-                console.error('❌ DELETE ERROR:', error);
+                console.error('❌ BACKEND DELETE ERROR:', error);
+                console.error('❌ ERROR DETAILS:', {
+                    message: error.message,
+                    stack: error.stack,
+                    docId: docId,
+                    docName: docName
+                });
+                
+                // Try a simpler fetch request as fallback
+                console.log('🔄 Attempting fallback delete request...');
+                try {
+                    const fallbackResponse = await fetch(`/api/document/${docId}/delete`, {
+                        method: 'POST'
+                    });
+                    
+                    if (fallbackResponse.ok) {
+                        const fallbackResult = await fallbackResponse.json();
+                        if (fallbackResult.success) {
+                            console.log('✅ FALLBACK DELETE SUCCESS');
+                            showNotification(`✅ Document "${docName}" deleted successfully!`, 'success');
+                            return; // Don't restore the document
+                        }
+                    }
+                } catch (fallbackError) {
+                    console.error('❌ FALLBACK DELETE ALSO FAILED:', fallbackError);
+                }
+                
+                // Restore the document to the arrays since backend delete failed
+                console.log('🔄 Restoring document to grid due to delete failure');
+                allSkills = originalAllSkills;
+                filteredSkills = originalFilteredSkills;
+                displaySkills();
+                loadStats();
+                
                 showNotification(`❌ Error deleting document: ${error.message}`, 'error');
             }
         }

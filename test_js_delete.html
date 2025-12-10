@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>JavaScript Delete Test</title>
+</head>
+<body>
+    <h1>JavaScript Delete Test</h1>
+    <button onclick="testDeleteFunction()">Test Delete Function</button>
+    <div id="output"></div>
+    
+    <script>
+        // Simulate the delete function
+        async function testDeleteFunction() {
+            const output = document.getElementById('output');
+            output.innerHTML = '<p>Testing delete function...</p>';
+            
+            try {
+                // Test if we can call the API
+                const response = await fetch('/api/documents');
+                const data = await response.json();
+                
+                output.innerHTML += `<p>Found ${data.documents.length} documents</p>`;
+                
+                if (data.documents.length > 0) {
+                    const docId = data.documents[0].id;
+                    const docName = data.documents[0].document_name || data.documents[0].filename;
+                    
+                    output.innerHTML += `<p>Attempting to delete: ${docId} - ${docName}</p>`;
+                    
+                    // Call delete API
+                    const deleteResponse = await fetch(`/api/document/${docId}/delete`, {
+                        method: 'POST',
+                        headers: {
+                            'Cache-Control': 'no-cache, no-store, must-revalidate',
+                            'Pragma': 'no-cache',
+                            'Expires': '0'
+                        }
+                    });
+                    
+                    const deleteResult = await deleteResponse.json();
+                    output.innerHTML += `<p>Delete result: ${JSON.stringify(deleteResult)}</p>`;
+                    
+                    if (deleteResult.success) {
+                        output.innerHTML += '<p style="color: green;">✅ Delete API call successful!</p>';
+                    } else {
+                        output.innerHTML += '<p style="color: red;">❌ Delete API call failed!</p>';
+                    }
+                } else {
+                    output.innerHTML += '<p>No documents to delete</p>';
+                }
+                
+            } catch (error) {
+                output.innerHTML += `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        }
+    </script>
+</body>
+</html>
