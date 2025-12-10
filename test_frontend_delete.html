@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Delete Test</title>
+</head>
+<body>
+    <h1>Frontend Delete Test</h1>
+    <div id="output"></div>
+    
+    <script>
+        async function testDelete() {
+            const output = document.getElementById('output');
+            
+            try {
+                // Get current documents
+                output.innerHTML += '<p>Getting current documents...</p>';
+                const response = await fetch('/api/documents');
+                const data = await response.json();
+                
+                output.innerHTML += `<p>Found ${data.documents.length} documents:</p>`;
+                data.documents.forEach(doc => {
+                    output.innerHTML += `<p>- ID: ${doc.id}, Name: ${doc.document_name || doc.filename}</p>`;
+                });
+                
+                if (data.documents.length > 0) {
+                    const docToDelete = data.documents[0];
+                    output.innerHTML += `<p><strong>Attempting to delete: ${docToDelete.id}</strong></p>`;
+                    
+                    // Delete the document
+                    const deleteResponse = await fetch(`/api/document/${docToDelete.id}/delete`, {
+                        method: 'POST',
+                        headers: {
+                            'Cache-Control': 'no-cache',
+                            'Pragma': 'no-cache'
+                        }
+                    });
+                    
+                    const deleteResult = await deleteResponse.json();
+                    output.innerHTML += `<p>Delete response: ${JSON.stringify(deleteResult)}</p>`;
+                    
+                    // Check documents again
+                    const response2 = await fetch('/api/documents');
+                    const data2 = await response2.json();
+                    
+                    output.innerHTML += `<p>After delete - Found ${data2.documents.length} documents:</p>`;
+                    data2.documents.forEach(doc => {
+                        output.innerHTML += `<p>- ID: ${doc.id}, Name: ${doc.document_name || doc.filename}</p>`;
+                    });
+                    
+                    if (data2.documents.length < data.documents.length) {
+                        output.innerHTML += '<p style="color: green;"><strong>✅ Delete worked!</strong></p>';
+                    } else {
+                        output.innerHTML += '<p style="color: red;"><strong>❌ Delete failed!</strong></p>';
+                    }
+                }
+                
+            } catch (error) {
+                output.innerHTML += `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        }
+        
+        // Run test when page loads
+        window.onload = testDelete;
+    </script>
+</body>
+</html>

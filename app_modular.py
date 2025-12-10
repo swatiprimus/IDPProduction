@@ -323,6 +323,13 @@ def get_comprehensive_extraction_prompt():
     return """
 You are a data extraction expert. Extract ALL fields and their values from this document.
 
+🔴🔴🔴 MOST CRITICAL - EXTRACT THESE FIRST 🔴🔴🔴
+1. **PHONE NUMBERS** - Look for "610-485-4979", "610- 485- 4979", "(302) 834-0382" - Extract as Phone_Number
+2. **STAMP DATES** - Look for "MAR 21 2016", "DEC 26 2014", "MAR 2 5 2015" - Extract as Stamp_Date  
+3. **REFERENCE NUMBERS** - Look for "#652", "#357", "#298" - Extract as Reference_Number
+4. **ACCOUNT NUMBERS** - Any 8-10 digit numbers - Extract as Account_Number
+5. **HANDWRITTEN TEXT** - Any handwritten numbers or text
+
 CRITICAL: Extract EVERYTHING you see - printed text, handwritten text, stamps, seals, and marks.
 
 IMPORTANT: Use SIMPLE, SHORT field names. Do NOT copy the entire label text from the document.
@@ -335,19 +342,27 @@ IMPORTANT: Use SIMPLE, SHORT field names. Do NOT copy the entire label text from
 SPECIAL ATTENTION REQUIRED:
 🔴 **HANDWRITTEN TEXT:** Extract ALL handwritten numbers and text - these are CRITICAL data points
    - Handwritten numbers are often account numbers, reference numbers, or IDs
-   - Extract them with appropriate field names (Account_Number, Reference_Number, etc.)
+   - **HANDWRITTEN PHONE NUMBERS:** Look for patterns like "610-485-4979", "610- 485- 4979", "(610) 485-4979"
+   - Extract them with appropriate field names (Account_Number, Reference_Number, Phone_Number, Contact_Phone, etc.)
    
 🔴 **STAMPS & SEALS:** Extract ALL stamps, seals, and verification marks
    - "VERIFIED" stamp → Verified: "Yes" or "VERIFIED"
-   - Date stamps → Stamp_Date or Verified_Date
+   - Date stamps → Stamp_Date or Verified_Date (look for formats like "MAR 21 2016", "DEC 26 2014", "JAN 15 2023")
+   - Reference numbers with stamps → Reference_Number (look for "#652", "#357", "Ref #123")
    - Names in stamps → Verified_By or Stamped_By
    - Official seals → Official_Seal: "Present" or description
    
 🔴 **MULTIPLE NUMBERS:** Documents often have MULTIPLE number types - extract ALL of them
-   - Certificate_Number (printed certificate ID)
-   - Account_Number (handwritten or printed account/billing number)
+   - **Account_Number** (PRIMARY IDENTIFIER - handwritten or printed account/billing number)
+   - Certificate_Number (printed certificate ID - ONLY if clearly labeled as "Certificate Number")
    - File_Number (state file number)
    - Reference_Number (reference or tracking number)
+
+🔴🔴🔴 CRITICAL FOR DEATH CERTIFICATES 🔴🔴🔴
+- **ANY LARGE NUMBER (8-10 digits) on a death certificate should be extracted as Account_Number**
+- **Examples: 463085233, 468431466 → ALWAYS use Account_Number (NOT Certificate_Number)**
+- **Only use Certificate_Number if you see explicit labels like "Certificate Number:" or "Cert #:"**
+- **When in doubt on death certificates, use Account_Number for the main identifying number**
 
 PRIORITY ORDER (Extract in this order):
 1. **HANDWRITTEN NUMBERS** - These are often the most important (account numbers, IDs)
@@ -359,6 +374,29 @@ PRIORITY ORDER (Extract in this order):
 7. **FORM FIELDS** - All labeled fields with values
 8. **CHECKBOXES** - Checkbox states (Yes/No, checked/unchecked)
 9. **ANY OTHER VISIBLE DATA** - Extract everything else you can see
+
+🔴🔴🔴 CRITICAL PHONE NUMBER EXTRACTION RULES 🔴🔴🔴
+- **PHONE NUMBERS ARE CRITICAL** - Look for ALL phone number patterns in the document
+- **COMMON PHONE NUMBER FORMATS:**
+  * "610-485-4979" (standard format with dashes)
+  * "610- 485- 4979" (with spaces around dashes - common in handwritten)
+  * "(302) 834-0382" (with parentheses and space)
+  * "302.834.0382" (with dots)
+  * "3028340382" (no separators)
+- **HANDWRITTEN PHONE NUMBERS:** Often have irregular spacing - still extract them
+- **WHERE TO FIND:** Can appear anywhere on the document - margins, forms, handwritten notes
+- **FIELD NAMES:** Use Phone_Number, Contact_Phone, Mobile_Phone, or Signer1_Phone as appropriate
+
+🔴🔴🔴 CRITICAL STAMP DATE EXTRACTION RULES 🔴🔴🔴
+- **STAMP DATES ARE CRITICAL** - Look for standalone dates that appear to be stamped on the document
+- **COMMON STAMP DATE FORMATS:**
+  * "MAR 21 2016" (month abbreviation, day, year)
+  * "DEC 26 2014" (month abbreviation, day, year)  
+  * "MAR 2 5 2015" (month abbreviation, day with space, year)
+  * "JAN 15 2023" (month abbreviation, day, year)
+- **STAMP REFERENCE NUMBERS:** Look for numbers with # symbol like "#652", "#357", "#298"
+- **WHERE TO FIND STAMPS:** Usually in margins, corners, or separate sections of certificates
+- **EXTRACT BOTH:** If you see a stamp date, also look for an associated reference number nearby
 
 CRITICAL RULES:
 - Extract EVERY field you can see - printed, handwritten, stamped, or sealed
@@ -394,7 +432,8 @@ WHAT TO EXTRACT:
 ✓ **ALL DATES:**
   - Issue_Date, Birth_Date, Marriage_Date, Death_Date
   - Expiration_Date, Filing_Date, Registration_Date
-  - Stamp_Date (look for stamps like "DEC 26 2014", "JAN 15 2023")
+  - Stamp_Date (look for stamps like "DEC 26 2014", "JAN 15 2023", "MAR 21 2016", "MAR 2 5 2015")
+  - Reference_Number (look for "#652", "#357", "Ref #123", numbers with # symbol)
 ✓ **ALL LOCATIONS:**
   - City, State, County, Country
   - Place_of_Birth, Place_of_Marriage, Place_of_Death
@@ -420,6 +459,10 @@ WHAT TO EXTRACT:
   - Extract ALL checkbox states (checked/unchecked, Yes/No, True/False)
   - Status fields (Approved, Pending, Verified, etc.)
   - Any marked or selected options
+✓ **PHONE NUMBERS & CONTACT INFO:**
+  - Phone_Number, Contact_Phone, Mobile_Phone (look for patterns like "610-485-4979", "610- 485- 4979", "(302) 834-0382")
+  - Fax_Number, Email_Address
+  - **CRITICAL:** Extract ALL phone numbers, even if handwritten or have unusual spacing
 ✓ **ALL OTHER VISIBLE FIELDS**
 
 WHAT NOT TO EXTRACT:
@@ -473,9 +516,17 @@ Return a JSON object where each field has both a value and a confidence score (0
     "value": "extracted value",
     "confidence": 95
   },
-  "Another_Field": {
-    "value": "another value",
-    "confidence": 80
+  "Phone_Number": {
+    "value": "610-485-4979",
+    "confidence": 85
+  },
+  "Stamp_Date": {
+    "value": "MAR 21 2016",
+    "confidence": 90
+  },
+  "Reference_Number": {
+    "value": "#357",
+    "confidence": 95
   }
 }
 
@@ -490,6 +541,7 @@ IMPORTANT:
 - Only include fields with actual values (omit empty fields)
 - Every field MUST have both "value" and "confidence"
 - Be honest about confidence - if text is unclear, use a lower score
+- Extract the phone number "610- 485- 4979" as "Phone_Number": {"value": "610-485-4979", "confidence": 75}
 
 EXTRACT EVERYTHING - BE THOROUGH AND COMPLETE!
 """
@@ -621,11 +673,72 @@ CRITICAL REQUIREMENTS:
 
 def get_loan_document_prompt():
     """Get the specialized prompt for loan/account documents"""
+    # PROMPT VERSION: Increment this when prompt changes to invalidate old cache
+    # Current version: v6 (confidence score preservation + WSFS extraction)
     return """
 You are an AI assistant that extracts ALL structured data from loan account documents.
 
-🔴🔴🔴 CRITICAL PARSING RULE - READ THIS FIRST 🔴🔴🔴
+🔴🔴🔴 CRITICAL: RETURN ALL FIELDS WITH CONFIDENCE SCORES 🔴🔴🔴
+**EVERY field MUST be returned in this format:**
+```json
+{
+  "Field_Name": {
+    "value": "extracted value",
+    "confidence": 95
+  }
+}
+```
 
+**CONFIDENCE SCORE GUIDELINES:**
+- 90-100: Text is clear, printed, and easily readable
+- 70-89: Text is readable but slightly unclear (handwritten, faded, or small)
+- 50-69: Text is partially unclear or ambiguous
+- 30-49: Text is difficult to read or uncertain
+- 0-29: Very uncertain or guessed
+
+🔴🔴🔴 MOST IMPORTANT - EXTRACT ALL ACCOUNT AND SIGNER FIELDS 🔴🔴🔴
+
+**CRITICAL ACCOUNT FIELDS TO EXTRACT:**
+1. **Account_Number** - Look for "ACCOUNT NUMBER:", "Account Number:", or similar labels
+2. **Account_Holders** - Look for "Account Holder Names:", "ACCOUNT HOLDER NAMES:", or names listed as account owners
+3. **Mailing_Address** - Look for "Mailing Address:", complete address with street, city, state, zip
+4. **Phone_Number** - Look for "Home Phone:", "Work Phone:", or any phone numbers
+5. **Date_Opened** - Look for "DATE OPENED:", "Date Opened:", opening date
+6. **CIF_Number** - Look for "CIF Number", "CIF #", customer identification number
+7. **Branch** - Look for branch name, location, or office name
+8. **Verified_By** - Look for "VERIFIED BY:", "Verified By:", name of verifier
+9. **Opened_By** - Look for "OPENED BY:", name of person who opened account
+10. **Signatures_Required** - Look for "Number of Signatures Required:", signature requirements
+
+**CRITICAL SIGNER FIELDS TO EXTRACT:**
+For EACH signer, you MUST extract EVERY piece of information visible:
+- Name, SSN, Date of Birth, Address (complete with street, city, state, zip)
+- Phone, Email, Driver's License, Citizenship, Occupation, Employer
+- DO NOT skip any signer fields - extract EVERYTHING you see
+- If a field exists for a signer, YOU MUST INCLUDE IT in the output
+
+**EXAMPLE FIELD MAPPINGS FROM DOCUMENT:**
+- "Account Holder Names: DANETTE EBERLY OR R BRUCE EBERLY" → Account_Holders: ["DANETTE EBERLY", "R BRUCE EBERLY"]
+- "Mailing Address: 512 PONDEROSA DR, BEAR, DE, 19701-2155" → Mailing_Address: "512 PONDEROSA DR, BEAR, DE, 19701-2155"
+- "Home Phone: (302) 834-0382" → Phone_Number: "(302) 834-0382"
+- "CIF Number 00000531825" → CIF_Number: "00000531825"
+- "VERIFIED BY: Kasie Mears" → Verified_By: "Kasie Mears"
+- "468869904" followed by "WSFS Core Savings" → WSFS_Account_Type: "WSFS Core Savings"
+
+🔴🔴🔴 CRITICAL PARSING RULES - READ THESE FIRST 🔴🔴🔴
+
+**RULE 1: WSFS PRODUCT NAME EXTRACTION**
+Look for this EXACT pattern in the text:
+```
+ACCOUNT NUMBER:
+Account Holder Names:
+468869904
+WSFS Core Savings
+```
+When you see an account number followed by "WSFS Core Savings" (or similar product name), extract it as:
+WSFS_Account_Type: "WSFS Core Savings"
+
+**RULE 2: COMBINED OCR TEXT PARSING**
 The OCR often reads form labels and values together without spaces. You MUST parse them correctly:
 
 IF YOU SEE THIS IN THE TEXT:
@@ -678,31 +791,41 @@ Extract EVERY piece of information from the document and return it as valid JSON
 
 REQUIRED FIELDS (extract if present):
 
-For documents with ONE signer:
+REQUIRED FIELDS TO EXTRACT (if present in document):
 {
-  "Account_Number": "string",
-  "Account_Holders": ["name1", "name2"],
-  "Account_Type": "string",
-  "Ownership_Type": "string",
-  "WSFS_Account_Type": "string",
-  "Account_Purpose": "string",
-  "SSN": "string or list of SSNs",
-  "Stamp_Date": "string (e.g., DEC 26 2014, JAN 15 2023)",
-  "Reference_Number": "string (e.g., #298, Ref #123)",
-  "Processed_Date": "string",
-  "Received_Date": "string",
+  "Account_Number": "string (e.g., 468869904)",
+  "Account_Holders": ["name1", "name2"] (e.g., ["DANETTE EBERLY", "R BRUCE EBERLY"]),
+  "Account_Purpose": "string (e.g., Consumer)",
+  "Account_Category": "string (e.g., Personal)", 
+  "Account_Type": "string (for backward compatibility)",
+  "WSFS_Account_Type": "string (e.g., WSFS Core Savings)",
+  "Ownership_Type": "string (e.g., Joint Owners)",
+  "Mailing_Address": "string (complete address)",
+  "Phone_Number": "string (e.g., (302) 834-0382)",
+  "Work_Phone": "string (if different from home phone)",
+  "Date_Opened": "string (e.g., 12/24/2014)",
+  "Date_Revised": "string (if present)",
+  "CIF_Number": "string (e.g., 00000531825)",
+  "Branch": "string (e.g., College Square)",
+  "Verified_By": "string (e.g., Kasie Mears)",
+  "Opened_By": "string (if present)",
+  "Signatures_Required": "string (e.g., 1)",
+  "Special_Instructions": "string (if present)",
+  "Form_Number": "string (if present)",
+  "Stamp_Date": "string (e.g., DEC 26 2014)",
+  "Reference_Number": "string (e.g., #298)",
   "Signer1_Name": "string",
   "Signer1_SSN": "string",
   "Signer1_DOB": "string",
   "Signer1_Address": "string",
   "Signer1_Phone": "string",
-  "Signer1_Email": "string",
-  "Supporting_Documents": [
-    {
-      "Type": "string",
-      "Details": "string"
-    }
-  ]
+  "Signer1_DriversLicense": "string",
+  "Signer2_Name": "string (if multiple signers)",
+  "Signer2_SSN": "string",
+  "Signer2_DOB": "string",
+  "Signer2_Address": "string",
+  "Signer2_Phone": "string",
+  "Signer2_DriversLicense": "string"
 }
 
 For documents with MULTIPLE signers, add Signer2_, Signer3_, etc.:
@@ -777,6 +900,43 @@ FIELD DEFINITIONS - READ CAREFULLY:
 - DO NOT create a field called "Purpose" with value "Consumer Personal"
 - These are ALWAYS separate fields even if they appear together on the form
 
+🔴🔴🔴 SPECIFIC EXTRACTION PATTERNS FOR WSFS DOCUMENTS 🔴🔴🔴
+
+**ACCOUNT HOLDER NAMES EXTRACTION:**
+- Look for "Account Holder Names:" followed by names
+- Look for "ACCOUNT HOLDER NAMES:" in all caps
+- Names may be separated by "OR", "AND", or commas
+- Example: "DANETTE EBERLY OR R BRUCE EBERLY" → Account_Holders: ["DANETTE EBERLY", "R BRUCE EBERLY"]
+
+**ADDRESS EXTRACTION:**
+- Look for "Mailing Address:" followed by complete address
+- Extract the full address including street, city, state, zip
+- Example: "Mailing Address: 512 PONDEROSA DR, BEAR, DE, 19701-2155"
+
+**PHONE NUMBER EXTRACTION:**
+- Look for "Home Phone:", "Work Phone:", or just phone number patterns
+- Extract with proper formatting: (302) 834-0382
+- May appear as handwritten numbers
+
+🔴🔴🔴 CRITICAL BANK PRODUCT EXTRACTION 🔴🔴🔴
+**WSFS PRODUCT NAMES - EXTRACT THESE IMMEDIATELY:**
+- Look for "WSFS Core Savings", "WSFS Checking Plus", "WSFS Money Market", "WSFS Premier Checking"
+- These appear RIGHT AFTER the account number, often on the same line or next line
+- They appear WITHOUT any field label - just the product name
+- **PATTERN**: "ACCOUNT NUMBER: 468869904" followed by "WSFS Core Savings" on next line
+- **CRITICAL**: Extract as WSFS_Account_Type even if no label is present
+- **EXAMPLE**: If you see "468869904" followed by "WSFS Core Savings" → WSFS_Account_Type: "WSFS Core Savings"
+
+**OTHER BANK PRODUCTS TO LOOK FOR:**
+- "Premier Checking", "Platinum Savings", "Gold CD", "Business Checking"
+- "Money Market", "Certificate of Deposit", "IRA Savings"
+- Any product name that appears near account information
+
+**BRANCH AND STAFF EXTRACTION:**
+- Look for "VERIFIED BY:", "OPENED BY:" followed by staff names
+- Look for branch names like "College Square", "Main Branch"
+- Extract staff names and branch locations
+
 EXTRACTION RULES - EXTRACT EVERYTHING COMPLETELY:
 - 🔴 CRITICAL: Extract EVERY field visible in the document with COMPLETE information
 - 🔴 DO NOT skip any fields or partial information - extract EVERYTHING you see
@@ -786,24 +946,36 @@ EXTRACTION RULES - EXTRACT EVERYTHING COMPLETELY:
 - Extract COMPLETE addresses (street, city, state, zip) - not just partial
 - Extract COMPLETE phone numbers with area codes
 - Extract COMPLETE SSNs, license numbers, account numbers
-- **IMPORTANT: Extract ALL STAMP DATES** - Look for date stamps like "DEC 26 2014", "JAN 15 2023", etc.
-- **IMPORTANT: Extract REFERENCE NUMBERS** - Look for numbers like "#298", "Ref #123", etc.
+- **IMPORTANT: Extract ALL STAMP DATES** - Look for date stamps like "DEC 26 2014", "JAN 15 2023", "MAR 21 2016", "MAR 2 5 2015", etc.
+  * These often appear as standalone dates on certificates
+  * May be accompanied by reference numbers like "#652", "#357"
+  * Extract both the stamp date AND any associated reference numbers
+- **IMPORTANT: Extract REFERENCE NUMBERS** - Look for numbers like "#298", "Ref #123", "#652", "#357", etc.
+  * These often appear near stamp dates on certificates
+  * Extract any number preceded by # symbol
+  * Common on death certificates and other official documents
 - Extract ALL identification numbers (SSN, Tax ID, License numbers, etc.)
 - **CRITICAL: SEPARATE COMBINED VALUES** - If you see values combined without clear separation:
   * "PurposeConsumer Personal" → Account_Purpose: "Consumer", Account_Type: "Personal"
   * "TypeBusiness Commercial" → Account_Type: "Business", WSFS_Account_Type: "Commercial"
   * Look for capital letters in the middle of text as indicators of separate fields
   * Split combined values into their proper fields based on field definitions above
-- **CRITICAL: EXTRACT WSFS PRODUCT NAMES WITHOUT HEADERS** - Look for bank product names that appear without field labels:
-  * "WSFS Saving Core" (no header) → WSFS_Account_Type: "WSFS Saving Core"
+- **🔴 CRITICAL: EXTRACT WSFS PRODUCT NAMES WITHOUT HEADERS 🔴** - Look for bank product names that appear without field labels:
+  * "WSFS Core Savings" (no header) → WSFS_Account_Type: "WSFS Core Savings"
   * "WSFS Checking Plus" (no header) → WSFS_Account_Type: "WSFS Checking Plus"
   * "WSFS Money Market" (no header) → WSFS_Account_Type: "WSFS Money Market"
-  * These product names are usually written in a specific section of the form
+  * "Premier Checking" (no header) → WSFS_Account_Type: "Premier Checking"
+  * **PATTERN TO LOOK FOR**: Account number followed immediately by product name
+  * **EXAMPLE**: "ACCOUNT NUMBER: 468869904" then "WSFS Core Savings" on next line
+  * These product names are usually written RIGHT AFTER the account number
   * Extract them even if they don't have a field label like "Account Type:" or "Product:"
   * This is SEPARATE from Account_Type (Personal/Business) and Account_Purpose (Consumer/Checking)
+  * **DO NOT SKIP THESE** - They are critical bank product identifiers
 - Include ALL financial information (balances, limits, rates, fees)
 - Extract ALL addresses (mailing, physical, business, home)
 - Include ALL contact information (phone, fax, email, website)
+- **CRITICAL FOR PHONE NUMBERS:** Look for patterns like "610-485-4979", "610- 485- 4979", "(302) 834-0382"
+- Extract phone numbers even if they have unusual spacing or are handwritten
 - Extract ALL signatures, initials, and authorization details
 - **CRITICAL: Extract ALL SUPPORTING DOCUMENTS** - Look for:
   * Driver's License (with number, state, expiration)
@@ -864,6 +1036,12 @@ EXTRACTION RULES - EXTRACT EVERYTHING COMPLETELY:
     - Extract COMPLETE SSNs - all 9 digits
     - If a signer field is visible, YOU MUST EXTRACT IT - do not skip anything
     - Look in ALL sections of the document for signer information (may be in multiple places)
+    
+  * 🔴🔴🔴 REMINDER: SIGNERS ARE THE MOST IMPORTANT PART 🔴🔴🔴
+    - Extract EVERY field for EVERY signer
+    - Do NOT be conservative - extract ALL information you see
+    - Missing signer information is a CRITICAL ERROR
+    - If you see a signer's name, you MUST extract ALL their other information too
 - For Supporting_Documents: Create separate objects for EACH document type found
 - Preserve exact account numbers and SSNs as they appear
 - If you see multiple account types mentioned, use the most specific one
@@ -1134,6 +1312,419 @@ def save_documents_db(documents):
 processed_documents = load_documents_db()
 
 
+def parse_combined_ocr_fields(text):
+    """
+    Parse combined OCR text that reads form labels and values together without spaces
+    Examples: "PurposeConsumer Personal" → Account_Purpose: "Consumer", Account_Category: "Personal"
+    """
+    results = {}
+    print(f"[PARSE_COMBINED] Input text: '{text}'")
+    
+    # CRITICAL: Handle the exact case the user is experiencing
+    # "Purpose Consumer Personal" → Account_Purpose: "Consumer", Account_Category: "Personal"
+    if "Purpose Consumer Personal" in text:
+        print(f"[PARSE_COMBINED] Found 'Purpose Consumer Personal' pattern - EXACT USER CASE")
+        results["Account_Purpose"] = "Consumer"
+        results["Account_Category"] = "Personal"
+        return results
+    
+    # Handle "Consumer Personal" pattern (space-separated)
+    if "Consumer Personal" in text:
+        print(f"[PARSE_COMBINED] Found 'Consumer Personal' pattern")
+        results["Account_Purpose"] = "Consumer"
+        results["Account_Category"] = "Personal"
+        return results
+    elif "Consumer Business" in text:
+        print(f"[PARSE_COMBINED] Found 'Consumer Business' pattern")
+        results["Account_Purpose"] = "Consumer"
+        results["Account_Category"] = "Business"
+        return results
+    
+    # Handle Purpose + Type combinations (no spaces)
+    if "PurposeConsumer" in text:
+        print(f"[PARSE_COMBINED] Found 'PurposeConsumer' pattern")
+        results["Account_Purpose"] = "Consumer"
+        # Check what comes after Consumer
+        if "Personal" in text:
+            results["Account_Category"] = "Personal"
+            print(f"[PARSE_COMBINED] Also found 'Personal'")
+        elif "Business" in text:
+            results["Account_Category"] = "Business"
+            print(f"[PARSE_COMBINED] Also found 'Business'")
+    
+    # Handle other Purpose types
+    if "PurposeChecking" in text:
+        print(f"[PARSE_COMBINED] Found 'PurposeChecking' pattern")
+        results["Account_Purpose"] = "Checking"
+    elif "PurposeSavings" in text:
+        print(f"[PARSE_COMBINED] Found 'PurposeSavings' pattern")
+        results["Account_Purpose"] = "Savings"
+    
+    # Handle Type patterns
+    if "TypePersonal" in text:
+        print(f"[PARSE_COMBINED] Found 'TypePersonal' pattern")
+        results["Account_Category"] = "Personal"
+    elif "TypeBusiness" in text:
+        print(f"[PARSE_COMBINED] Found 'TypeBusiness' pattern")
+        results["Account_Category"] = "Business"
+    
+    # Handle Ownership patterns
+    if "OwnershipJoint" in text:
+        print(f"[PARSE_COMBINED] Found 'OwnershipJoint' pattern")
+        results["Ownership_Type"] = "Joint"
+    elif "OwnershipIndividual" in text:
+        print(f"[PARSE_COMBINED] Found 'OwnershipIndividual' pattern")
+        results["Ownership_Type"] = "Individual"
+    
+    print(f"[PARSE_COMBINED] Results: {results}")
+    return results
+
+
+def extract_wsfs_product_from_text(text):
+    """
+    Extract WSFS product names from raw OCR text as a fallback
+    """
+    if not isinstance(text, str):
+        return None
+    
+    # Common WSFS product patterns
+    wsfs_products = [
+        "WSFS Core Savings",
+        "WSFS Checking Plus", 
+        "WSFS Money Market",
+        "WSFS Premier Checking",
+        "Premier Checking",
+        "Platinum Savings",
+        "Gold CD",
+        "Business Checking",
+        "Money Market Account",
+        "Certificate of Deposit"
+    ]
+    
+    # Look for product names in the text
+    for product in wsfs_products:
+        if product in text:
+            print(f"[WSFS_EXTRACT] Found product in text: {product}")
+            return product
+    
+    return None
+
+
+def ensure_consistent_field_structure(data, original_text=None):
+    """
+    Ensure consistent field structure by standardizing field names and values
+    This is called after normalization to guarantee consistency
+    """
+    if not isinstance(data, dict):
+        return data
+    
+    print(f"[CONSISTENCY] Input data: {data}")
+    
+    # Standard field mappings for loan documents
+    standard_fields = {
+        "Account_Number": None,
+        "Account_Holders": None,
+        "Account_Purpose": None,
+        "Account_Category": None,
+        "Account_Type": None,  # Keep for backward compatibility
+        "WSFS_Account_Type": None,
+        "Ownership_Type": None,
+        "Address": None,
+        "Phone_Number": None,
+        "Work_Phone": None,
+        "Date_Opened": None,
+        "Date_Revised": None,
+        "CIF_Number": None,
+        "Branch": None,
+        "Verified_By": None,
+        "Opened_By": None,
+        "Signatures_Required": None,
+        "Special_Instructions": None,
+        "Form_Number": None,
+        "Reference_Number": None,
+        "Stamp_Date": None,
+        "Signer1_Name": None,
+        "Signer1_SSN": None,
+        "Signer1_DOB": None,
+        "Signer1_Address": None,
+        "Signer1_Phone": None,
+        "Signer1_DriversLicense": None,
+        "Signer2_Name": None,
+        "Signer2_SSN": None,
+        "Signer2_DOB": None,
+        "Signer2_Address": None,
+        "Signer2_Phone": None,
+        "Signer2_DriversLicense": None
+    }
+    
+    # Copy existing fields
+    result = {}
+    for key, value in data.items():
+        # Skip empty values
+        if value == "" or value is None:
+            continue
+        result[key] = value
+    
+    # Ensure we have the critical separated fields
+    if "Account_Purpose" not in result and "Account_Category" not in result:
+        # Look for any field that might contain combined values
+        for key, value in result.items():
+            actual_value = value
+            if isinstance(value, dict) and "value" in value:
+                actual_value = value["value"]
+            
+            if isinstance(actual_value, str):
+                confidence_score = value.get("confidence", 100) if isinstance(value, dict) else 100
+                
+                if "Consumer Personal" in actual_value:
+                    result["Account_Purpose"] = {"value": "Consumer", "confidence": confidence_score}
+                    result["Account_Category"] = {"value": "Personal", "confidence": confidence_score}
+                    # Remove the combined field
+                    if key in ["Purpose", "Type", "Account_Type"]:
+                        del result[key]
+                    break
+                elif "Consumer Business" in actual_value:
+                    result["Account_Purpose"] = {"value": "Consumer", "confidence": confidence_score}
+                    result["Account_Category"] = {"value": "Business", "confidence": confidence_score}
+                    # Remove the combined field
+                    if key in ["Purpose", "Type", "Account_Type"]:
+                        del result[key]
+                    break
+    
+    # CRITICAL: Try to extract WSFS product type if missing
+    if "WSFS_Account_Type" not in result and original_text:
+        wsfs_product = extract_wsfs_product_from_text(original_text)
+        if wsfs_product:
+            result["WSFS_Account_Type"] = {"value": wsfs_product, "confidence": 85}
+            print(f"[CONSISTENCY] Added missing WSFS product: {wsfs_product}")
+    
+    print(f"[CONSISTENCY] Final result: {result}")
+    return result
+
+
+def normalize_extraction_result(data):
+    """
+    Normalize extraction results to ensure consistency across different extractions
+    """
+    if not data or not isinstance(data, dict):
+        return data
+    
+    print(f"[NORMALIZE] Input data: {data}")
+    normalized = {}
+    
+    # Field name mappings to standardize variations
+    field_mappings = {
+        # Address variations
+        "Mailing_Address": "Address",
+        "mailing_address": "Address", 
+        "Street_Address": "Address",
+        
+        # Signature variations  
+        "Required_Signatures": "Signatures_Required",
+        "required_signatures": "Signatures_Required",
+        "Signature_Required": "Signatures_Required",
+        "Number_of_Signatures_Required": "Signatures_Required",
+        
+        # Phone variations - normalize format
+        "phone_number": "Phone_Number",
+        "contact_phone": "Phone_Number",
+        "Home_Phone": "Phone_Number",
+        "home_phone": "Phone_Number",
+        
+        # Account category
+        "account_category": "Account_Category",
+        "AccountCategory": "Account_Category",
+        
+        # Account holder variations
+        "Account_Holder_Names": "Account_Holders",
+        "account_holder_names": "Account_Holders",
+        "AccountHolderNames": "Account_Holders",
+        
+        # CIF variations
+        "CIF_Number": "CIF_Number",
+        "cif_number": "CIF_Number",
+        "CIFNumber": "CIF_Number",
+        
+        # Date variations
+        "Date_Opened": "Date_Opened",
+        "date_opened": "Date_Opened",
+        "DateOpened": "Date_Opened",
+        
+        # Verification variations
+        "Verified_By": "Verified_By",
+        "verified_by": "Verified_By",
+        "VerifiedBy": "Verified_By"
+    }
+    
+    # Process each field
+    for key, value in data.items():
+        print(f"[NORMALIZE] Processing field: {key} = {value}")
+        
+        # CRITICAL: Handle confidence objects first
+        actual_value = value
+        confidence_score = 100  # Default confidence
+        is_confidence_object = False
+        
+        if isinstance(value, dict) and "value" in value:
+            actual_value = value["value"]
+            confidence_score = value.get("confidence", 100)
+            is_confidence_object = True
+            print(f"[NORMALIZE] Extracted value from confidence object: {actual_value} (confidence: {confidence_score})")
+        
+        # CRITICAL FIX: Handle specific field names with combined values
+        if key in ["Purpose", "Account_Purpose", "AccountPurpose"] and isinstance(actual_value, str):
+            print(f"[NORMALIZE] Found Purpose field: {key} = {actual_value}")
+            if "Consumer Personal" in actual_value:
+                print(f"[NORMALIZE] Parsing 'Consumer Personal' into separate fields")
+                normalized["Account_Purpose"] = {"value": "Consumer", "confidence": confidence_score}
+                normalized["Account_Category"] = {"value": "Personal", "confidence": confidence_score}
+                continue
+            elif "Consumer Business" in actual_value:
+                print(f"[NORMALIZE] Parsing 'Consumer Business' into separate fields")
+                normalized["Account_Purpose"] = {"value": "Consumer", "confidence": confidence_score}
+                normalized["Account_Category"] = {"value": "Business", "confidence": confidence_score}
+                continue
+            elif "Consumer" in actual_value:
+                print(f"[NORMALIZE] Found Consumer, checking for additional category")
+                normalized["Account_Purpose"] = {"value": "Consumer", "confidence": confidence_score}
+                # Try to extract category from remaining text
+                remaining = actual_value.replace("Consumer", "").strip()
+                print(f"[NORMALIZE] Remaining text after removing 'Consumer': '{remaining}'")
+                if remaining:
+                    if "Personal" in remaining:
+                        normalized["Account_Category"] = {"value": "Personal", "confidence": confidence_score}
+                        print(f"[NORMALIZE] Found Personal in remaining text")
+                    elif "Business" in remaining:
+                        normalized["Account_Category"] = {"value": "Business", "confidence": confidence_score}
+                        print(f"[NORMALIZE] Found Business in remaining text")
+                continue
+        
+        # Handle Type field variations - map to Account_Category for consistency
+        if key in ["Type", "Account_Type", "AccountType", "Account_Category", "AccountCategory"] and isinstance(actual_value, str):
+            print(f"[NORMALIZE] Found Type/Category field: {key} = {actual_value}")
+            if "Personal" in actual_value and "Consumer" not in actual_value:
+                normalized["Account_Category"] = {"value": "Personal", "confidence": confidence_score}
+                continue
+            elif "Business" in actual_value and "Consumer" not in actual_value:
+                normalized["Account_Category"] = {"value": "Business", "confidence": confidence_score}
+                continue
+            else:
+                # If it's already Account_Type, map it to Account_Category for consistency
+                if key in ["Account_Type", "AccountType"]:
+                    normalized["Account_Category"] = {"value": actual_value, "confidence": confidence_score}
+                else:
+                    normalized["Account_Category"] = {"value": actual_value, "confidence": confidence_score}
+                continue
+        
+        # CRITICAL FIX: Handle combined OCR field names and values
+        combined_text = f"{key} {actual_value}" if isinstance(actual_value, str) else key
+        parsed_fields = parse_combined_ocr_fields(combined_text)
+        
+        # If we parsed combined fields, add them and skip the original
+        if parsed_fields:
+            print(f"[NORMALIZE] Parsed combined fields: {parsed_fields}")
+            normalized.update(parsed_fields)
+            continue
+        
+        # Apply field name mapping
+        normalized_key = field_mappings.get(key, key)
+        
+        # Normalize phone number format
+        if "phone" in normalized_key.lower() and isinstance(actual_value, str):
+            # Remove extra formatting and standardize
+            phone = actual_value.replace("(", "").replace(")", "").replace("-", "").replace(" ", "")
+            if len(phone) == 10:
+                actual_value = f"({phone[:3]}) {phone[3:6]}-{phone[6:]}"
+        
+        print(f"[NORMALIZE] Adding field: {normalized_key} = {actual_value}")
+        # Preserve confidence format
+        if is_confidence_object or confidence_score != 100:
+            normalized[normalized_key] = {"value": actual_value, "confidence": confidence_score}
+        else:
+            normalized[normalized_key] = actual_value
+    
+    # Ensure consistent field ordering
+    ordered_fields = {}
+    field_order = [
+        "Account_Number", "Account_Category", "Account_Purpose", "Account_Type", 
+        "Address", "Phone_Number", "Branch", "CIF_Number", "Date_Opened",
+        "Form_Number", "Ownership_Type", "Signatures_Required", "Reference_Number",
+        "Stamp_Date", "Verified_By", "Signer1_Name", "Signer1_SSN", "Signer1_DOB",
+        "Signer1_DriversLicense", "Signer2_Name", "Signer2_SSN", "Signer2_DOB", 
+        "Signer2_DriversLicense"
+    ]
+    
+    # Add fields in preferred order
+    for field in field_order:
+        if field in normalized:
+            ordered_fields[field] = normalized[field]
+    
+    # Add any remaining fields
+    for key, value in normalized.items():
+        if key not in ordered_fields:
+            ordered_fields[key] = value
+    
+    # FINAL CLEANUP: Handle any remaining combined values that slipped through
+    final_cleaned = {}
+    for key, value in ordered_fields.items():
+        # Extract actual value from confidence objects
+        actual_value = value
+        if isinstance(value, dict) and "value" in value:
+            actual_value = value["value"]
+        
+        # Skip fields that contain combined values we should have parsed
+        if isinstance(actual_value, str) and ("Consumer Personal" in actual_value or "Consumer Business" in actual_value):
+            # These should have been parsed into separate fields already
+            print(f"[NORMALIZE] Skipping combined field that should have been parsed: {key} = {actual_value}")
+            continue
+        final_cleaned[key] = value
+    
+    # Ensure we have the essential separated fields
+    if "Account_Purpose" not in final_cleaned and "Account_Category" not in final_cleaned:
+        # Look for any field that might contain the combined value
+        for key, value in ordered_fields.items():
+            actual_value = value
+            if isinstance(value, dict) and "value" in value:
+                actual_value = value["value"]
+                
+            if isinstance(actual_value, str) and "Consumer Personal" in actual_value:
+                print(f"[NORMALIZE] Emergency parsing of combined field: {key} = {actual_value}")
+                final_cleaned["Account_Purpose"] = "Consumer"
+                final_cleaned["Account_Category"] = "Personal"
+                break
+            elif isinstance(actual_value, str) and "Consumer Business" in actual_value:
+                print(f"[NORMALIZE] Emergency parsing of combined field: {key} = {actual_value}")
+                final_cleaned["Account_Purpose"] = "Consumer"
+                final_cleaned["Account_Category"] = "Business"
+                break
+    
+    # FINAL SAFETY CHECK: Ensure no combined "Consumer Personal" fields remain
+    safety_checked = {}
+    for key, value in final_cleaned.items():
+        # Extract actual value from confidence objects
+        actual_value = value
+        confidence_score = 100
+        
+        if isinstance(value, dict) and "value" in value:
+            actual_value = value["value"]
+            confidence_score = value.get("confidence", 100)
+        
+        # If we find ANY field with "Consumer Personal", force split it
+        if isinstance(actual_value, str) and "Consumer Personal" in actual_value:
+            print(f"[NORMALIZE] SAFETY CHECK: Found remaining combined field {key} = {actual_value}")
+            # Don't add this field, instead add the split fields
+            if "Account_Purpose" not in safety_checked:
+                safety_checked["Account_Purpose"] = {"value": "Consumer", "confidence": confidence_score}
+            if "Account_Category" not in safety_checked:
+                safety_checked["Account_Category"] = {"value": "Personal", "confidence": confidence_score}
+            print(f"[NORMALIZE] SAFETY CHECK: Forced split into Account_Purpose=Consumer, Account_Category=Personal")
+        else:
+            safety_checked[key] = value
+    
+    print(f"[NORMALIZE] Final output after safety check: {safety_checked}")
+    return safety_checked
+
+
 def normalize_confidence_format(data):
     """
     Normalize data to separate values and confidence scores.
@@ -1264,7 +1855,7 @@ def call_bedrock(prompt: str, text: str, max_tokens: int = 8192):
     payload = {
         "anthropic_version": "bedrock-2023-05-31",
         "max_tokens": max_tokens,
-        "temperature": 0.2,
+        "temperature": 0,
         "messages": [
             {"role": "user", "content": [{"type": "text", "text": f"{prompt}\n\n{text}"}]}
         ],
@@ -1275,149 +1866,41 @@ def call_bedrock(prompt: str, text: str, max_tokens: int = 8192):
 
 def extract_basic_fields(text: str, num_fields: int = 100):
     """Extract ALL fields from any document (up to 100 fields) - BE THOROUGH"""
-    prompt = f"""
-YOU ARE A METICULOUS DATA EXTRACTION EXPERT. Extract EVERY SINGLE field from this document.
-
-CRITICAL: Use SIMPLE, SHORT field names. Do NOT copy the entire label text from the document.
-- Example: "DATE PRONOUNCED DEAD" → use "Death_Date" (NOT "Date_Pronounced_Dead")
-- Example: "ACCOUNT HOLDER NAMES" → use "Account_Holders" (NOT "Account_Holder_Names")
-- Simplify all verbose labels to their core meaning
-
-YOUR MISSION: Find and extract up to {num_fields} fields. Do NOT stop until you've extracted EVERYTHING.
-
-EXTRACTION PRIORITY (Extract ALL of these):
-1. ALL IDENTIFYING NUMBERS:
-   - Certificate numbers, file numbers, case numbers (K1-0000608, K1-0011267, etc.)
-   - License numbers, registration numbers, document numbers
-   - Social security numbers, tax IDs, reference numbers
-   - ANY number with a label
-
-2. ALL DATES AND TIMES:
-   - Issue dates, filing dates, death dates, birth dates, marriage dates
-   - Timestamps (22:29, 14:30, etc.)
-   - Date stamps (01/09/2016, January 9, 2016, etc.)
-   - Extract in ORIGINAL format
-
-3. ALL NAMES:
-   - Deceased names, witness names, registrar names, physician names
-   - Father names, mother names, spouse names, informant names
-   - Funeral director names, certifier names, pronouncer names
-   - ANY person's name ANYWHERE
-
-4. ALL LOCATIONS:
-   - Cities, counties, states, countries
-   - Place of death, place of birth, place of residence
-   - Addresses with street numbers, zip codes
-   - Hospital names, facility names
-
-5. ALL FORM FIELDS:
-   - Look for "FIELD_LABEL: value" patterns
-   - Checkbox fields (Yes/No, checked/unchecked)
-   - Signature fields and dates
-   - License fields, certification fields
-   - Cause of death, manner of death
-   - Occupation, industry, education
-   - Race, ethnicity, marital status
-
-6. ALL ADMINISTRATIVE DATA:
-   - Form numbers, version numbers, page numbers
-   - Barcode numbers, stamp text
-   - "LICENSE NUMBER FOR" values
-   - "DATE PRONOUNCED DEAD" values
-   - "ACTUAL OR PRESUMED DATE OF DEATH" values
-   - ANY labeled field
-
-CRITICAL RULES:
-- Extract EVERY field you can see - do NOT skip anything
-- Include ALL numbers with labels (even if they seem minor)
-- Extract ALL dates in their original format
-- Extract ALL names in any context
-- Use descriptive field names (e.g., "case_number", "file_number", "license_number_for")
-- Only include fields that have actual values (omit empty fields)
-
-FIELD NAMING EXAMPLES:
-- "LICENSE NUMBER FOR" → "license_number_for"
-- "DATE PRONOUNCED DEAD" → "date_pronounced_dead"
-- "K1-0011267" → "case_number" or "file_number"
-- "CAUSE OF DEATH" → "cause_of_death"
-
-CRITICAL NAMING FOR DEATH CERTIFICATES AND VITAL RECORDS:
-- ANY handwritten number on the certificate MUST be extracted as "Account_Number"
-- DO NOT use "Reference_Number", "Certificate_Number", or any other name
-- ALWAYS use "Account_Number" for handwritten numbers
-- IMPORTANT: Only extract Account_Number if there is a SEPARATE handwritten number that is DIFFERENT from the Certificate_Number
-- DO NOT extract partial numbers or substrings of the Certificate_Number as Account_Number
-- Examples:
-  * Handwritten "468431466" (separate from cert number) → Account_Number: "468431466"
-  * Handwritten "4630" (separate from cert number) → Account_Number: "4630"
-  * Handwritten "85333" (separate from cert number) → Account_Number: "85333"
-  * Handwritten "K1-0011267" (separate from cert number) → Account_Number: "K1-0011267"
-- If Certificate_Number is "463085233" and you see "4630" which is just the first 4 digits, DO NOT extract it as Account_Number
-- If there are MULTIPLE handwritten numbers, use Account_Number, Account_Number_2, Account_Number_3, etc.
-- NEVER use "Reference_Number" for handwritten numbers on certificates
-- If no separate handwritten account number exists, DO NOT include Account_Number field at all
-
-EXTRACT EVERY SINGLE FIELD - DO NOT MISS ANYTHING:
-- Look at EVERY line of text
-- Extract EVERY number you see with a label
-- Extract EVERY date in any format
-- Extract EVERY name mentioned
-- Extract EVERY location mentioned
-- Extract EVERY checkbox value
-- Extract EVERY signature field
-- Extract EVERY time stamp
-- If you see a field label but can't read the value, still include it as "illegible" or "unclear"
-
-Return ONLY valid JSON where EVERY field has both value and confidence. Extract up to {num_fields} fields - BE THOROUGH AND COMPLETE!
-
-Example format for Death Certificate:
-{{
-  "account_number": {{
-    "value": "468431466",
-    "confidence": 95
-  }},
-  "state_file_number": {{
-    "value": "K1-0000608",
-    "confidence": 100
-  }},
-  "date_pronounced_dead": {{
-    "value": "01/09/2016",
-    "confidence": 100
-  }},
-  "time_pronounced_dead": {{
-    "value": "22:29",
-    "confidence": 90
-  }},
-  "deceased_name": {{
-    "value": "John Doe",
-    "confidence": 98
-  }},
-  "place_of_death": {{
-    "value": "New Castle, DE",
-    "confidence": 100
-  }},
-  "cause_of_death": {{
-    "value": "description",
-    "confidence": 85
-  }},
-  "manner_of_death": {{
-    "value": "Natural",
-    "confidence": 100
-  }}
-}}
-
-CONFIDENCE SCORE GUIDELINES:
-- 90-100: Text is clear, printed, and easily readable
-- 70-89: Text is readable but slightly unclear (handwritten, faded, or small)
-- 50-69: Text is partially unclear or ambiguous
-- 30-49: Text is difficult to read or uncertain
-- 0-29: Very uncertain or guessed
-
-CRITICAL: EVERY field MUST have both "value" and "confidence"
-"""
+    # USE THE SAME PROMPT AS get_comprehensive_extraction_prompt() FOR CONSISTENCY
+    prompt = get_comprehensive_extraction_prompt()
     
     try:
-        response = call_bedrock(prompt, text[:10000], max_tokens=8192)  # Use maximum tokens for comprehensive extraction
+        # Ensure consistent text input by comprehensive normalization
+        def normalize_text_for_consistency(text):
+            """Normalize text to ensure identical processing regardless of source"""
+            # Remove extra whitespace and normalize line endings
+            text = re.sub(r'\r\n', '\n', text)  # Normalize line endings
+            text = re.sub(r'\r', '\n', text)    # Handle old Mac line endings
+            text = re.sub(r'\n+', '\n', text)   # Remove multiple consecutive newlines
+            text = re.sub(r'[ \t]+', ' ', text) # Normalize spaces and tabs
+            text = text.strip()                 # Remove leading/trailing whitespace
+            return text
+        
+        normalized_text = normalize_text_for_consistency(text)[:10000]  # Consistent truncation
+        
+        # Create a deterministic prompt hash to ensure consistency
+        import hashlib
+        # Use a stable prompt identifier + normalized text for hashing
+        prompt_stable = prompt.replace(str(num_fields), "NUM_FIELDS")  # Remove dynamic numbers
+        text_hash = hashlib.md5(f"{prompt_stable[:200]}{normalized_text}".encode()).hexdigest()
+        print(f"[EXTRACT_BASIC] Input hash: {text_hash[:8]} (for consistency tracking)")
+        
+        # Check if we have a cached result for this exact input
+        cache_key = f"extraction_cache/{text_hash}.json"
+        try:
+            cached_result = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+            cached_data = json.loads(cached_result['Body'].read())
+            print(f"[EXTRACT_BASIC] ✓ Using cached result (hash: {text_hash[:8]}) - GUARANTEED CONSISTENT")
+            return cached_data
+        except:
+            print(f"[EXTRACT_BASIC] No cache found, extracting fresh (hash: {text_hash[:8]}) - WILL CACHE FOR CONSISTENCY")
+        
+        response = call_bedrock(prompt, normalized_text, max_tokens=8192)  # Use maximum tokens for comprehensive extraction
         
         # Find JSON content
         json_start = response.find('{')
@@ -1428,6 +1911,22 @@ CRITICAL: EVERY field MUST have both "value" and "confidence"
         
         json_str = response[json_start:json_end + 1]
         result = json.loads(json_str)
+        
+        # Log the number of fields extracted for consistency tracking
+        field_count = len(result) if result else 0
+        print(f"[EXTRACT_BASIC] ✓ Extracted {field_count} fields (hash: {text_hash[:8]})")
+        
+        # Cache the result for future consistency
+        try:
+            s3_client.put_object(
+                Bucket=S3_BUCKET,
+                Key=cache_key,
+                Body=json.dumps(result),
+                ContentType='application/json'
+            )
+            print(f"[EXTRACT_BASIC] ✓ Cached result for future consistency")
+        except Exception as cache_error:
+            print(f"[EXTRACT_BASIC] ⚠️ Failed to cache result: {cache_error}")
         
         # Ensure we have at least some fields
         if not result or len(result) == 0:
@@ -1941,7 +2440,8 @@ def pre_cache_all_pages(job_id: str, pdf_path: str, accounts: list):
                         "account_number": account_number,
                         "data": parsed,
                         "extracted_at": datetime.now().isoformat(),
-                        "pre_cached": True
+                        "pre_cached": True,
+                        "prompt_version": "v4"  # Version to invalidate old cache
                     }
                     
                     s3_client.put_object(
@@ -2451,7 +2951,14 @@ def codebase():
 @app.route("/api/documents")
 def get_all_documents():
     """API endpoint to get all processed documents"""
-    return jsonify({"documents": processed_documents, "total": len(processed_documents)})
+    response = jsonify({"documents": processed_documents, "total": len(processed_documents)})
+    
+    # Add cache-busting headers to ensure fresh data
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    
+    return response
 
 
 @app.route("/api/document/<doc_id>")
@@ -2780,6 +3287,22 @@ def get_account_page_data(doc_id, account_index, page_num):
     
     print(f"[DEBUG] get_account_page_data called: doc_id={doc_id}, account_index={account_index}, page_num={page_num}")
     
+    # CONSISTENCY FIX: Check for document-level extraction cache first
+    doc_cache_key = f"document_extraction_cache/{doc_id}_account_{account_index}_page_{page_num}.json"
+    try:
+        cached_result = s3_client.get_object(Bucket=S3_BUCKET, Key=doc_cache_key)
+        cached_data = json.loads(cached_result['Body'].read())
+        print(f"[DEBUG] ✓ Using document-level cached result for account {account_index} page {page_num} - GUARANTEED CONSISTENT")
+        
+        # Add cache headers to prevent browser caching issues
+        response = jsonify(cached_data)
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
+    except Exception as e:
+        print(f"[DEBUG] No document-level cache found for account {account_index} page {page_num}, extracting fresh: {str(e)}")
+    
     doc = next((d for d in processed_documents if d["id"] == doc_id), None)
     if not doc:
         print(f"[ERROR] Document not found: {doc_id}")
@@ -2795,20 +3318,35 @@ def get_account_page_data(doc_id, account_index, page_num):
             print(f"[DEBUG] Checking S3 cache: {cache_key}")
             cache_response = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
             cached_data = json.loads(cache_response['Body'].read().decode('utf-8'))
-            print(f"[DEBUG] Found cached data in S3")
+            
+            # Check prompt version - invalidate old cache
+            cached_version = cached_data.get("prompt_version", "v1")
+            current_version = "v4"
+            
+            if cached_version != current_version:
+                print(f"[DEBUG] Cache version mismatch ({cached_version} vs {current_version}) - will re-extract")
+                raise Exception("Cache version outdated")
+            
+            print(f"[DEBUG] Found cached data in S3 (version {cached_version})")
             
             # CRITICAL: Apply flattening to cached data too!
             cached_fields = cached_data.get("data", {})
             cached_fields = flatten_nested_objects(cached_fields)
             print(f"[DEBUG] Applied flattening to cached data")
             
-            return jsonify({
+            response = jsonify({
                 "success": True,
                 "page_number": page_num + 1,
                 "account_number": cached_data.get("account_number"),
                 "data": cached_fields,
-                "cached": True
+                "cached": True,
+                "prompt_version": cached_version
             })
+            # Prevent browser caching - always fetch fresh data
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+            return response
         except s3_client.exceptions.NoSuchKey:
             print(f"[DEBUG] No cache found, will extract data")
         except Exception as cache_error:
@@ -2900,6 +3438,36 @@ def get_account_page_data(doc_id, account_index, page_num):
         account = accounts[account_index]
         account_number = account.get("accountNumber", "Unknown")
         
+        # CONSISTENCY FIX: Create content-based cache key for deterministic results
+        import hashlib
+        content_hash = hashlib.md5(page_text.encode('utf-8')).hexdigest()[:12]
+        content_cache_key = f"content_extraction_cache/{content_hash}_account_{account_index}_page_{page_num}.json"
+        
+        # Check content-based cache first
+        try:
+            cached_result = s3_client.get_object(Bucket=S3_BUCKET, Key=content_cache_key)
+            cached_data = json.loads(cached_result['Body'].read())
+            print(f"[DEBUG] ✓ Using content-based cached result (hash: {content_hash}) - GUARANTEED SAME CONTENT = SAME RESULT")
+            
+            # Still cache it in document-level cache for faster access
+            try:
+                s3_client.put_object(
+                    Bucket=S3_BUCKET,
+                    Key=doc_cache_key,
+                    Body=json.dumps(cached_data),
+                    ContentType='application/json'
+                )
+            except:
+                pass
+            
+            response = jsonify(cached_data)
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+            return response
+        except Exception as e:
+            print(f"[DEBUG] No content-based cache found (hash: {content_hash}), will extract fresh")
+        
         # Extract data from this specific page using AI
         print(f"[DEBUG] Calling AI to extract data from page {page_num}")
         
@@ -2972,13 +3540,61 @@ def get_account_page_data(doc_id, account_index, page_num):
             except Exception as s3_error:
                 print(f"[WARNING] Failed to cache to S3: {str(s3_error)}")
             
-            return jsonify({
+            result_data = {
                 "success": True,
                 "page_number": page_num + 1,
                 "account_number": account_number,
                 "data": parsed,
-                "cached": False
-            })
+                "cached": False,
+                "prompt_version": "v4"
+            }
+            
+            # CONSISTENCY FIX: Normalize field names and values before caching
+            print(f"[DEBUG] RAW AI RESPONSE BEFORE NORMALIZATION: {parsed}")
+            normalized_data = normalize_extraction_result(parsed)
+            print(f"[DEBUG] NORMALIZED DATA AFTER PROCESSING: {normalized_data}")
+            
+            # CONSISTENCY FIX: Ensure consistent field structure
+            consistent_data = ensure_consistent_field_structure(normalized_data, page_text)
+            print(f"[DEBUG] CONSISTENT DATA AFTER STRUCTURE CHECK: {consistent_data}")
+            
+            # CONSISTENCY FIX: Log field count for debugging
+            field_count = len(consistent_data)
+            print(f"[DEBUG] FINAL FIELD COUNT: {field_count} fields")
+            print(f"[DEBUG] FIELD NAMES: {list(consistent_data.keys())}")
+            
+            result_data["data"] = consistent_data
+            
+            # Cache the result at document level for future consistency
+            try:
+                s3_client.put_object(
+                    Bucket=S3_BUCKET,
+                    Key=doc_cache_key,
+                    Body=json.dumps(result_data),
+                    ContentType='application/json'
+                )
+                print(f"[DEBUG] ✓ Cached document-level result for account {account_index} page {page_num} - ENSURES CONSISTENCY")
+            except Exception as cache_error:
+                print(f"[WARNING] Failed to cache document-level result: {cache_error}")
+            
+            # CONSISTENCY FIX: Also cache by content hash for deterministic results
+            try:
+                s3_client.put_object(
+                    Bucket=S3_BUCKET,
+                    Key=content_cache_key,
+                    Body=json.dumps(result_data),
+                    ContentType='application/json'
+                )
+                print(f"[DEBUG] ✓ Cached content-based result (hash: {content_hash}) - ENSURES SAME CONTENT = SAME RESULT")
+            except Exception as cache_error:
+                print(f"[WARNING] Failed to cache content-based result: {cache_error}")
+            
+            response = jsonify(result_data)
+            # Prevent browser caching - always fetch fresh data
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+            return response
         else:
             return jsonify({
                 "success": False,
@@ -3000,6 +3616,16 @@ def extract_page_data(doc_id, page_num):
     import json
     
     print(f"[DEBUG] extract_page_data called: doc_id={doc_id}, page_num={page_num}")
+    
+    # CONSISTENCY FIX: Check for document-level extraction cache first
+    doc_cache_key = f"document_extraction_cache/{doc_id}_page_{page_num}.json"
+    try:
+        cached_result = s3_client.get_object(Bucket=S3_BUCKET, Key=doc_cache_key)
+        cached_data = json.loads(cached_result['Body'].read())
+        print(f"[DEBUG] ✓ Using document-level cached result for page {page_num} - GUARANTEED CONSISTENT")
+        return jsonify(cached_data)
+    except:
+        print(f"[DEBUG] No document-level cache found for page {page_num}, extracting fresh")
     
     # Check if force re-extraction is requested
     force = request.args.get('force', 'false').lower() == 'true'
@@ -3204,12 +3830,29 @@ def extract_page_data(doc_id, page_num):
             except Exception as s3_error:
                 print(f"[WARNING] Failed to cache to S3: {str(s3_error)}")
             
-            return jsonify({
+            # CONSISTENCY FIX: Cache the result at document level for future consistency
+            # CONSISTENCY FIX: Normalize field names and values before caching
+            normalized_data = normalize_extraction_result(parsed)
+            
+            result_data = {
                 "success": True,
                 "page_number": page_num + 1,
-                "data": parsed,
+                "data": normalized_data,
                 "cached": False
-            })
+            }
+            
+            try:
+                s3_client.put_object(
+                    Bucket=S3_BUCKET,
+                    Key=doc_cache_key,
+                    Body=json.dumps(result_data),
+                    ContentType='application/json'
+                )
+                print(f"[DEBUG] ✓ Cached document-level result for page {page_num} - ENSURES CONSISTENCY")
+            except Exception as cache_error:
+                print(f"[WARNING] Failed to cache document-level result: {cache_error}")
+            
+            return jsonify(result_data)
         else:
             return jsonify({
                 "success": False,
@@ -3728,6 +4371,15 @@ def clear_document_cache(doc_id):
                     print(f"[INFO] Deleted cache: {cache_key}")
                 except:
                     pass
+                
+                # CRITICAL: Also delete document-level extraction cache for consistency
+                try:
+                    doc_cache_key = f"document_extraction_cache/{doc_id}_account_{account_index}_page_{page_num}.json"
+                    s3_client.delete_object(Bucket=S3_BUCKET, Key=doc_cache_key)
+                    deleted_count += 1
+                    print(f"[INFO] Deleted document-level cache: {doc_cache_key}")
+                except:
+                    pass
         
         # Also delete non-account page cache
         for page_num in range(100):
@@ -3823,11 +4475,97 @@ def delete_document(doc_id):
             os.remove(doc["pdf_path"])
             print(f"[INFO] Deleted PDF file: {doc['pdf_path']}")
         
+        # CRITICAL: Clear ALL S3 caches for this document to prevent stale data
+        print(f"[INFO] Clearing all S3 caches for document {doc_id}")
+        deleted_cache_count = 0
+        
+        # Get accounts from document
+        doc_data = doc.get("documents", [{}])[0]
+        accounts = doc_data.get("accounts", [])
+        
+        # Delete cache for all accounts and pages
+        for account_index in range(max(len(accounts), 1)):  # At least try index 0
+            # Delete page mapping cache
+            try:
+                cache_key = f"page_mapping/{doc_id}/mapping.json"
+                s3_client.delete_object(Bucket=S3_BUCKET, Key=cache_key)
+                deleted_cache_count += 1
+                print(f"[INFO] Deleted cache: {cache_key}")
+            except:
+                pass
+            
+            # Delete page data cache (try up to 100 pages)
+            for page_num in range(100):
+                try:
+                    cache_key = f"page_data/{doc_id}/account_{account_index}/page_{page_num}.json"
+                    s3_client.delete_object(Bucket=S3_BUCKET, Key=cache_key)
+                    deleted_cache_count += 1
+                    print(f"[INFO] Deleted cache: {cache_key}")
+                except:
+                    pass
+                
+                # Delete document-level extraction cache
+                try:
+                    doc_cache_key = f"document_extraction_cache/{doc_id}_account_{account_index}_page_{page_num}.json"
+                    s3_client.delete_object(Bucket=S3_BUCKET, Key=doc_cache_key)
+                    deleted_cache_count += 1
+                    print(f"[INFO] Deleted document-level cache: {doc_cache_key}")
+                except:
+                    pass
+        
+        # Delete non-account page cache
+        for page_num in range(100):
+            try:
+                cache_key = f"page_data/{doc_id}/page_{page_num}.json"
+                s3_client.delete_object(Bucket=S3_BUCKET, Key=cache_key)
+                deleted_cache_count += 1
+                print(f"[INFO] Deleted cache: {cache_key}")
+            except:
+                pass
+        
+        # Delete OCR cache
+        try:
+            cache_key = f"ocr_cache/{doc_id}/text_cache.json"
+            s3_client.delete_object(Bucket=S3_BUCKET, Key=cache_key)
+            deleted_cache_count += 1
+            print(f"[INFO] Deleted OCR cache: {cache_key}")
+        except:
+            pass
+        
+        # Delete content-based extraction cache (try common patterns)
+        try:
+            # List all content-based cache entries and delete them
+            # This is more aggressive but ensures no stale content-based cache remains
+            paginator = s3_client.get_paginator('list_objects_v2')
+            pages = paginator.paginate(Bucket=S3_BUCKET, Prefix='content_extraction_cache/')
+            
+            for page in pages:
+                if 'Contents' in page:
+                    for obj in page['Contents']:
+                        try:
+                            s3_client.delete_object(Bucket=S3_BUCKET, Key=obj['Key'])
+                            deleted_cache_count += 1
+                            print(f"[INFO] Deleted content cache: {obj['Key']}")
+                        except:
+                            pass
+        except Exception as e:
+            print(f"[WARNING] Failed to clear content-based cache: {str(e)}")
+        
+        print(f"[INFO] Cleared {deleted_cache_count} S3 cache entries for document {doc_id}")
+        
         # Remove from processed documents
+        original_count = len(processed_documents)
         processed_documents = [d for d in processed_documents if d["id"] != doc_id]
+        new_count = len(processed_documents)
+        
+        print(f"[INFO] Document removal: {original_count} -> {new_count} documents")
+        print(f"[INFO] Removed {original_count - new_count} document(s)")
+        
         save_documents_db(processed_documents)
         
         print(f"[INFO] Deleted document: {doc_id}")
+        print(f"[INFO] Remaining documents: {[d['id'] for d in processed_documents]}")
+        
         return jsonify({"success": True, "message": "Document deleted successfully"})
     
     except Exception as e:

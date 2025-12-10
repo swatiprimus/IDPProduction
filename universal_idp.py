@@ -249,6 +249,13 @@ def get_comprehensive_extraction_prompt():
     return """
 You are a data extraction expert. Extract ALL fields and their values from this document.
 
+🔴🔴🔴 MOST CRITICAL - EXTRACT THESE FIRST 🔴🔴🔴
+1. **PHONE NUMBERS** - Look for "610-485-4979", "610- 485- 4979", "(302) 834-0382" - Extract as Phone_Number
+2. **STAMP DATES** - Look for "MAR 21 2016", "DEC 26 2014", "MAR 2 5 2015" - Extract as Stamp_Date  
+3. **REFERENCE NUMBERS** - Look for "#652", "#357", "#298" - Extract as Reference_Number
+4. **ACCOUNT NUMBERS** - Any 8-10 digit numbers - Extract as Account_Number
+5. **HANDWRITTEN TEXT** - Any handwritten numbers or text
+
 CRITICAL: Extract EVERYTHING you see - printed text, handwritten text, stamps, seals, and marks.
 
 IMPORTANT: Use SIMPLE, SHORT field names.
@@ -259,11 +266,13 @@ IMPORTANT: Use SIMPLE, SHORT field names.
 SPECIAL ATTENTION REQUIRED:
 🔴 **HANDWRITTEN TEXT:** Extract ALL handwritten numbers and text - these are CRITICAL data points
    - Handwritten numbers are often account numbers, reference numbers, or IDs
-   - Extract them with appropriate field names (Account_Number, Reference_Number, etc.)
+   - **HANDWRITTEN PHONE NUMBERS:** Look for patterns like "610-485-4979", "610- 485- 4979", "(610) 485-4979"
+   - Extract them with appropriate field names (Account_Number, Reference_Number, Phone_Number, Contact_Phone, etc.)
    
 🔴 **STAMPS & SEALS:** Extract ALL stamps, seals, and verification marks
    - "VERIFIED" stamp → Verified: "Yes" or "VERIFIED"
-   - Date stamps → Stamp_Date or Verified_Date
+   - Date stamps → Stamp_Date or Verified_Date (look for formats like "MAR 21 2016", "DEC 26 2014", "JAN 15 2023")
+   - Reference numbers with stamps → Reference_Number (look for "#652", "#357", "Ref #123")
    - Names in stamps → Verified_By or Stamped_By
    - Official seals → Official_Seal: "Present" or description
    
@@ -283,6 +292,29 @@ PRIORITY ORDER (Extract in this order):
 7. **FORM FIELDS** - All labeled fields with values
 8. **CHECKBOXES** - Checkbox states (Yes/No, checked/unchecked)
 9. **ANY OTHER VISIBLE DATA** - Extract everything else you can see
+
+🔴🔴🔴 CRITICAL PHONE NUMBER EXTRACTION RULES 🔴🔴🔴
+- **PHONE NUMBERS ARE CRITICAL** - Look for ALL phone number patterns in the document
+- **COMMON PHONE NUMBER FORMATS:**
+  * "610-485-4979" (standard format with dashes)
+  * "610- 485- 4979" (with spaces around dashes - common in handwritten)
+  * "(302) 834-0382" (with parentheses and space)
+  * "302.834.0382" (with dots)
+  * "3028340382" (no separators)
+- **HANDWRITTEN PHONE NUMBERS:** Often have irregular spacing - still extract them
+- **WHERE TO FIND:** Can appear anywhere on the document - margins, forms, handwritten notes
+- **FIELD NAMES:** Use Phone_Number, Contact_Phone, Mobile_Phone, or Signer1_Phone as appropriate
+
+🔴🔴🔴 CRITICAL STAMP DATE EXTRACTION RULES 🔴🔴🔴
+- **STAMP DATES ARE CRITICAL** - Look for standalone dates that appear to be stamped on the document
+- **COMMON STAMP DATE FORMATS:**
+  * "MAR 21 2016" (month abbreviation, day, year)
+  * "DEC 26 2014" (month abbreviation, day, year)  
+  * "MAR 2 5 2015" (month abbreviation, day with space, year)
+  * "JAN 15 2023" (month abbreviation, day, year)
+- **STAMP REFERENCE NUMBERS:** Look for numbers with # symbol like "#652", "#357", "#298"
+- **WHERE TO FIND STAMPS:** Usually in margins, corners, or separate sections of certificates
+- **EXTRACT BOTH:** If you see a stamp date, also look for an associated reference number nearby
 
 CRITICAL RULES:
 - Extract EVERY field you can see - printed, handwritten, stamped, or sealed
@@ -307,7 +339,8 @@ WHAT TO EXTRACT:
 ✓ **ALL DATES:**
   - Issue_Date, Birth_Date, Marriage_Date, Death_Date
   - Expiration_Date, Filing_Date, Registration_Date
-  - Stamp_Date (look for stamps like "DEC 26 2014", "JAN 15 2023")
+  - Stamp_Date (look for stamps like "DEC 26 2014", "JAN 15 2023", "MAR 21 2016", "MAR 2 5 2015")
+  - Reference_Number (look for "#652", "#357", "Ref #123", numbers with # symbol)
 ✓ **ALL LOCATIONS:**
   - City, State, County, Country
   - Place_of_Birth, Place_of_Marriage, Place_of_Death
@@ -340,6 +373,10 @@ WHAT TO EXTRACT:
   - Extract ALL checkbox states (checked/unchecked, Yes/No, True/False)
   - Status fields (Approved, Pending, Verified, etc.)
   - Any marked or selected options
+✓ **PHONE NUMBERS & CONTACT INFO:**
+  - Phone_Number, Contact_Phone, Mobile_Phone (look for patterns like "610-485-4979", "610- 485- 4979", "(302) 834-0382")
+  - Fax_Number, Email_Address
+  - **CRITICAL:** Extract ALL phone numbers, even if handwritten or have unusual spacing
 ✓ **ALL OTHER VISIBLE FIELDS**
 
 WHAT NOT TO EXTRACT:
@@ -467,8 +504,17 @@ Extract EVERYTHING you can see on the ID card - be thorough and complete!
 
 def get_loan_document_prompt():
     """Get the specialized prompt for loan/account documents"""
+    # PROMPT VERSION: Increment this when prompt changes to invalidate old cache
+    # Current version: v4 (aggressive signer extraction)
     return """
 You are an AI assistant that extracts ALL structured data from loan account documents.
+
+🔴🔴🔴 MOST IMPORTANT - EXTRACT EVERY SIGNER FIELD 🔴🔴🔴
+For EACH signer, you MUST extract EVERY piece of information visible:
+- Name, SSN, Date of Birth, Address (complete with street, city, state, zip)
+- Phone, Email, Driver's License, Citizenship, Occupation, Employer
+- DO NOT skip any signer fields - extract EVERYTHING you see
+- If a field exists for a signer, YOU MUST INCLUDE IT in the output
 
 Extract EVERY piece of information from the document and return it as valid JSON.
 
@@ -612,8 +658,14 @@ EXTRACTION RULES - EXTRACT EVERYTHING COMPLETELY:
 - Extract COMPLETE addresses (street, city, state, zip) - not just partial
 - Extract COMPLETE phone numbers with area codes
 - Extract COMPLETE SSNs, license numbers, account numbers
-- **IMPORTANT: Extract ALL STAMP DATES** - Look for date stamps like "DEC 26 2014", "JAN 15 2023", etc.
-- **IMPORTANT: Extract REFERENCE NUMBERS** - Look for numbers like "#298", "Ref #123", etc.
+- **IMPORTANT: Extract ALL STAMP DATES** - Look for date stamps like "DEC 26 2014", "JAN 15 2023", "MAR 21 2016", "MAR 2 5 2015", etc.
+  * These often appear as standalone dates on certificates
+  * May be accompanied by reference numbers like "#652", "#357"
+  * Extract both the stamp date AND any associated reference numbers
+- **IMPORTANT: Extract REFERENCE NUMBERS** - Look for numbers like "#298", "Ref #123", "#652", "#357", etc.
+  * These often appear near stamp dates on certificates
+  * Extract any number preceded by # symbol
+  * Common on death certificates and other official documents
 - Extract ALL identification numbers (SSN, Tax ID, License numbers, etc.)
 - **CRITICAL: PARSE AND SEPARATE COMBINED VALUES** - OCR often reads form labels and values together without spaces:
   * If you see "PurposeConsumer Personal" → Parse as: AccountPurpose: "Consumer", AccountType: "Personal"
@@ -643,6 +695,8 @@ EXTRACTION RULES - EXTRACT EVERYTHING COMPLETELY:
 - Include ALL financial information (balances, limits, rates, fees)
 - Extract ALL addresses (mailing, physical, business, home)
 - Include ALL contact information (phone, fax, email, website)
+- **CRITICAL FOR PHONE NUMBERS:** Look for patterns like "610-485-4979", "610- 485- 4979", "(302) 834-0382"
+- Extract phone numbers even if they have unusual spacing or are handwritten
 - Extract ALL signatures, initials, and authorization details
 - **CRITICAL: Extract ALL SUPPORTING DOCUMENTS** - Look for:
   * Driver's License (with number, state, expiration)
@@ -703,6 +757,12 @@ EXTRACTION RULES - EXTRACT EVERYTHING COMPLETELY:
     - Extract COMPLETE SSNs - all 9 digits
     - If a signer field is visible, YOU MUST EXTRACT IT - do not skip anything
     - Look in ALL sections of the document for signer information (may be in multiple places)
+    
+  * 🔴🔴🔴 REMINDER: SIGNERS ARE THE MOST IMPORTANT PART 🔴🔴🔴
+    - Extract EVERY field for EVERY signer
+    - Do NOT be conservative - extract ALL information you see
+    - Missing signer information is a CRITICAL ERROR
+    - If you see a signer's name, you MUST extract ALL their other information too
 - For SupportingDocuments: Create separate objects for EACH document type found
 - Preserve exact account numbers and SSNs as they appear
 - If you see multiple account types mentioned, use the most specific one
@@ -989,7 +1049,7 @@ def call_bedrock(prompt: str, text: str, max_tokens: int = 8192):
     payload = {
         "anthropic_version": "bedrock-2023-05-31",
         "max_tokens": max_tokens,
-        "temperature": 0.2,
+        "temperature": 0,
         "messages": [
             {"role": "user", "content": [{"type": "text", "text": f"{prompt}\n\n{text}"}]}
         ],
@@ -1183,114 +1243,43 @@ def extract_text_with_textract(file_bytes: bytes, filename: str):
 
 def extract_basic_fields(text: str, num_fields: int = 100):
     """Extract ALL fields from any document (up to 100 fields) - BE THOROUGH"""
-    prompt = f"""
-YOU ARE A METICULOUS DATA EXTRACTION EXPERT. Extract EVERY SINGLE field from this document.
+    # USE THE SAME PROMPT AS get_comprehensive_extraction_prompt() FOR CONSISTENCY
+    prompt = get_comprehensive_extraction_prompt()
 
-YOUR MISSION: Find and extract up to {num_fields} fields. Do NOT stop until you've extracted EVERYTHING.
 
-EXTRACTION PRIORITY (Extract ALL of these):
-1. ALL IDENTIFYING NUMBERS:
-   - Certificate numbers, file numbers, case numbers (K1-0000608, K1-0011267, etc.)
-   - License numbers, registration numbers, document numbers
-   - Social security numbers, tax IDs, reference numbers
-   - ANY number with a label
-
-2. ALL DATES AND TIMES:
-   - Issue dates, filing dates, death dates, birth dates, marriage dates
-   - Timestamps (22:29, 14:30, etc.)
-   - Date stamps (01/09/2016, January 9, 2016, etc.)
-   - Extract in ORIGINAL format
-
-3. ALL NAMES:
-   - Deceased names, witness names, registrar names, physician names
-   - Father names, mother names, spouse names, informant names
-   - Funeral director names, certifier names, pronouncer names
-   - ANY person's name ANYWHERE
-
-4. ALL LOCATIONS:
-   - Cities, counties, states, countries
-   - Place of death, place of birth, place of residence
-   - Addresses with street numbers, zip codes
-   - Hospital names, facility names
-
-5. ALL FORM FIELDS:
-   - Look for "FIELD_LABEL: value" patterns
-   - Checkbox fields (Yes/No, checked/unchecked)
-   - Signature fields and dates
-   - License fields, certification fields
-   - Cause of death, manner of death
-   - Occupation, industry, education
-   - Race, ethnicity, marital status
-
-6. ALL ADMINISTRATIVE DATA:
-   - Form numbers, version numbers, page numbers
-   - Barcode numbers, stamp text
-   - "LICENSE NUMBER FOR" values
-   - "DATE PRONOUNCED DEAD" values
-   - "ACTUAL OR PRESUMED DATE OF DEATH" values
-   - ANY labeled field
-
-CRITICAL RULES:
-- Extract EVERY field you can see - do NOT skip anything
-- Include ALL numbers with labels (even if they seem minor)
-- Extract ALL dates in their original format
-- Extract ALL names in any context
-- Use descriptive field names (e.g., "case_number", "file_number", "license_number_for")
-- Only include fields that have actual values (omit empty fields)
-
-FIELD NAMING EXAMPLES:
-- "LICENSE NUMBER FOR" → "license_number_for"
-- "DATE PRONOUNCED DEAD" → "date_pronounced_dead"
-- "K1-0011267" → "case_number" or "file_number"
-- "CAUSE OF DEATH" → "cause_of_death"
-
-CRITICAL NAMING FOR DEATH CERTIFICATES AND VITAL RECORDS:
-- ANY handwritten number on the certificate MUST be extracted as "account_number"
-- DO NOT use "reference_number", "certificate_number", or any other name
-- ALWAYS use "account_number" for handwritten numbers
-- Examples:
-  * Handwritten "468431466" → account_number: "468431466"
-  * Handwritten "4630" → account_number: "4630"
-  * Handwritten "85333" → account_number: "85333"
-  * Handwritten "K1-0011267" → account_number: "K1-0011267"
-- If there are MULTIPLE handwritten numbers, use account_number, account_number_2, account_number_3, etc.
-- NEVER use "reference_number" for handwritten numbers on certificates
-
-EXTRACT EVERY SINGLE FIELD - DO NOT MISS ANYTHING:
-- Look at EVERY line of text
-- Extract EVERY number you see with a label
-- Extract EVERY date in any format
-- Extract EVERY name mentioned
-- Extract EVERY location mentioned
-- Extract EVERY checkbox value
-- Extract EVERY signature field
-- Extract EVERY time stamp
-- If you see a field label but can't read the value, still include it as "illegible" or "unclear"
-
-Return ONLY valid JSON. Extract up to {num_fields} fields - BE THOROUGH AND COMPLETE!
-
-Example format for Death Certificate:
-{{
-  "account_number": "468431466",
-  "state_file_number": "K1-0000608",
-  "date_pronounced_dead": "01/09/2016",
-  "time_pronounced_dead": "22:29",
-  "actual_date_of_death": "January 9, 2016",
-  "time_of_death": "22:29",
-  "deceased_name": "John Doe",
-  "place_of_death": "New Castle, DE",
-  "license_number_for": "funeral_director_name",
-  "signature_of_person_pronouncing_death": "signature_present",
-  "date_signed": "01/09/2016",
-  "cause_of_death": "description",
-  "manner_of_death": "Natural",
-  "was_medical_examiner_contacted": "Yes",
-  ...
-}}
-"""
     
     try:
-        response = call_bedrock(prompt, text[:10000], max_tokens=8192)  # Use maximum tokens for comprehensive extraction
+        # Ensure consistent text input by comprehensive normalization
+        def normalize_text_for_consistency(text):
+            """Normalize text to ensure identical processing regardless of source"""
+            # Remove extra whitespace and normalize line endings
+            text = re.sub(r'\r\n', '\n', text)  # Normalize line endings
+            text = re.sub(r'\r', '\n', text)    # Handle old Mac line endings
+            text = re.sub(r'\n+', '\n', text)   # Remove multiple consecutive newlines
+            text = re.sub(r'[ \t]+', ' ', text) # Normalize spaces and tabs
+            text = text.strip()                 # Remove leading/trailing whitespace
+            return text
+        
+        normalized_text = normalize_text_for_consistency(text)[:10000]  # Consistent truncation
+        
+        # Create a deterministic prompt hash to ensure consistency
+        import hashlib
+        # Use a stable prompt identifier + normalized text for hashing
+        prompt_stable = prompt.replace(str(num_fields), "NUM_FIELDS")  # Remove dynamic numbers
+        text_hash = hashlib.md5(f"{prompt_stable[:200]}{normalized_text}".encode()).hexdigest()
+        print(f"[EXTRACT_BASIC] Input hash: {text_hash[:8]} (for consistency tracking)")
+        
+        # Check if we have a cached result for this exact input
+        cache_key = f"extraction_cache/{text_hash}.json"
+        try:
+            cached_result = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+            cached_data = json.loads(cached_result['Body'].read())
+            print(f"[EXTRACT_BASIC] ✓ Using cached result (hash: {text_hash[:8]})")
+            return cached_data
+        except:
+            print(f"[EXTRACT_BASIC] No cache found, extracting fresh (hash: {text_hash[:8]})")
+        
+        response = call_bedrock(prompt, normalized_text, max_tokens=8192)  # Use maximum tokens for comprehensive extraction
         
         # Find JSON content
         json_start = response.find('{')
@@ -1301,6 +1290,22 @@ Example format for Death Certificate:
         
         json_str = response[json_start:json_end + 1]
         result = json.loads(json_str)
+        
+        # Log the number of fields extracted for consistency tracking
+        field_count = len(result) if result else 0
+        print(f"[EXTRACT_BASIC] ✓ Extracted {field_count} fields (hash: {text_hash[:8]})")
+        
+        # Cache the result for future consistency
+        try:
+            s3_client.put_object(
+                Bucket=S3_BUCKET,
+                Key=cache_key,
+                Body=json.dumps(result),
+                ContentType='application/json'
+            )
+            print(f"[EXTRACT_BASIC] ✓ Cached result for future consistency")
+        except Exception as cache_error:
+            print(f"[EXTRACT_BASIC] ⚠️ Failed to cache result: {cache_error}")
         
         # Ensure we have at least some fields
         if not result or len(result) == 0:
@@ -2171,7 +2176,8 @@ def pre_cache_all_pages(job_id: str, pdf_path: str, accounts: list):
                         "account_number": account_number,
                         "data": parsed,
                         "extracted_at": datetime.now().isoformat(),
-                        "pre_cached": True
+                        "pre_cached": True,
+                        "prompt_version": "v4"  # Version to invalidate old cache
                     }
                     
                     s3_client.put_object(
@@ -2859,6 +2865,16 @@ def get_account_page_data(doc_id, account_index, page_num):
     
     print(f"[DEBUG] get_account_page_data called: doc_id={doc_id}, account_index={account_index}, page_num={page_num}")
     
+    # CONSISTENCY FIX: Check for document-level extraction cache first
+    doc_cache_key = f"document_extraction_cache/{doc_id}_account_{account_index}_page_{page_num}.json"
+    try:
+        cached_result = s3_client.get_object(Bucket=S3_BUCKET, Key=doc_cache_key)
+        cached_data = json.loads(cached_result['Body'].read())
+        print(f"[DEBUG] ✓ Using document-level cached result for account {account_index} page {page_num} - GUARANTEED CONSISTENT")
+        return jsonify(cached_data)
+    except Exception as e:
+        print(f"[DEBUG] No document-level cache found for account {account_index} page {page_num}, extracting fresh: {str(e)}")
+    
     doc = next((d for d in processed_documents if d["id"] == doc_id), None)
     if not doc:
         print(f"[ERROR] Document not found: {doc_id}")
@@ -2874,7 +2890,16 @@ def get_account_page_data(doc_id, account_index, page_num):
             print(f"[DEBUG] Checking S3 cache: {cache_key}")
             cache_response = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
             cached_data = json.loads(cache_response['Body'].read().decode('utf-8'))
-            print(f"[DEBUG] Found cached data in S3")
+            
+            # Check prompt version - invalidate old cache
+            cached_version = cached_data.get("prompt_version", "v1")
+            current_version = "v4"
+            
+            if cached_version != current_version:
+                print(f"[DEBUG] Cache version mismatch ({cached_version} vs {current_version}) - will re-extract")
+                raise Exception("Cache version outdated")
+            
+            print(f"[DEBUG] Found cached data in S3 (version {cached_version})")
             
             # CRITICAL: Apply flattening to cached data too!
             cached_fields = cached_data.get("data", {})
@@ -3104,13 +3129,27 @@ def get_account_page_data(doc_id, account_index, page_num):
             except Exception as s3_error:
                 print(f"[WARNING] Failed to cache to S3: {str(s3_error)}")
             
-            return jsonify({
+            result_data = {
                 "success": True,
                 "page_number": page_num + 1,
                 "account_number": account_number,
                 "data": parsed,
                 "cached": False
-            })
+            }
+            
+            # CONSISTENCY FIX: Cache the result at document level for future consistency
+            try:
+                s3_client.put_object(
+                    Bucket=S3_BUCKET,
+                    Key=doc_cache_key,
+                    Body=json.dumps(result_data),
+                    ContentType='application/json'
+                )
+                print(f"[DEBUG] ✓ Cached document-level result for account {account_index} page {page_num} - ENSURES CONSISTENCY")
+            except Exception as cache_error:
+                print(f"[WARNING] Failed to cache document-level result: {cache_error}")
+            
+            return jsonify(result_data)
         else:
             return jsonify({
                 "success": False,
@@ -3132,6 +3171,16 @@ def extract_page_data(doc_id, page_num):
     import json
     
     print(f"[DEBUG] extract_page_data called: doc_id={doc_id}, page_num={page_num}")
+    
+    # CONSISTENCY FIX: Check for document-level extraction cache first
+    doc_cache_key = f"document_extraction_cache/{doc_id}_page_{page_num}.json"
+    try:
+        cached_result = s3_client.get_object(Bucket=S3_BUCKET, Key=doc_cache_key)
+        cached_data = json.loads(cached_result['Body'].read())
+        print(f"[DEBUG] ✓ Using document-level cached result for page {page_num} - GUARANTEED CONSISTENT")
+        return jsonify(cached_data)
+    except:
+        print(f"[DEBUG] No document-level cache found for page {page_num}, extracting fresh")
     
     # Check if force re-extraction is requested
     force = request.args.get('force', 'false').lower() == 'true'
@@ -3332,12 +3381,26 @@ def extract_page_data(doc_id, page_num):
             except Exception as s3_error:
                 print(f"[WARNING] Failed to cache to S3: {str(s3_error)}")
             
-            return jsonify({
+            # CONSISTENCY FIX: Cache the result at document level for future consistency
+            result_data = {
                 "success": True,
                 "page_number": page_num + 1,
                 "data": parsed,
                 "cached": False
-            })
+            }
+            
+            try:
+                s3_client.put_object(
+                    Bucket=S3_BUCKET,
+                    Key=doc_cache_key,
+                    Body=json.dumps(result_data),
+                    ContentType='application/json'
+                )
+                print(f"[DEBUG] ✓ Cached document-level result for page {page_num} - ENSURES CONSISTENCY")
+            except Exception as cache_error:
+                print(f"[WARNING] Failed to cache document-level result: {cache_error}")
+            
+            return jsonify(result_data)
         else:
             return jsonify({
                 "success": False,

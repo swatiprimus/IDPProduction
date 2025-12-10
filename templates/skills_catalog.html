@@ -227,15 +227,40 @@
         
         async function loadSkills(){
             try{
-                const response=await fetch('/api/documents');
-                const data=await response.json();
-                allSkills=data.documents||[];
-                filteredSkills=allSkills;
+                // Add cache-busting parameters to prevent stale data
+                const timestamp = new Date().getTime();
+                console.log('📥 Loading skills with timestamp:', timestamp);
+                
+                const response = await fetch(`/api/documents?_t=${timestamp}`, {
+                    headers: {
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
+                        'Pragma': 'no-cache',
+                        'Expires': '0'
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                
+                console.log('📊 Loaded from server - document count:', data.documents?.length || 0);
+                console.log('📋 Document IDs from server:', (data.documents || []).map(d => d.id));
+                
+                allSkills = data.documents || [];
+                filteredSkills = [...allSkills]; // Create a fresh copy
+                
+                console.log('📝 Updated local arrays - allSkills:', allSkills.length, 'filteredSkills:', filteredSkills.length);
+                
                 sortTable(sortColumn, true); // Apply default sort
                 displaySkills();
-            }catch(error){
-                console.error('Error loading skills:',error);
-                document.getElementById('skillsTableBody').innerHTML='<tr><td colspan="5" style="text-align:center;padding:40px;color:#7f8c8d;">No skills created yet. Click "Create" to add your first document processing skill.</td></tr>';
+                loadStats(); // Update stats as well
+                
+            } catch(error) {
+                console.error('❌ Error loading skills:', error);
+                showNotification(`❌ Error loading documents: ${error.message}`, 'error');
+                document.getElementById('skillsTableBody').innerHTML='<tr><td colspan="5" style="text-align:center;padding:40px;color:#7f8c8d;">Error loading documents. Please refresh the page.</td></tr>';
             }
         }
         
@@ -290,6 +315,10 @@
         
         function displaySkills(){
             const tbody=document.getElementById('skillsTableBody');
+            
+            console.log('🎨 Displaying skills - filteredSkills count:', filteredSkills.length);
+            
+            // Clear existing content
             tbody.innerHTML='';
             
             const totalDocs=filteredSkills.length;
@@ -297,6 +326,8 @@
             const start=(currentPage-1)*perPage;
             const end=Math.min(start+perPage,totalDocs);
             const pageSkills=filteredSkills.slice(start,end);
+            
+            console.log('📄 Displaying page', currentPage, 'of', totalPages, '- showing', pageSkills.length, 'documents');
             
             // Update pagination info
             document.getElementById('showingStart').textContent=totalDocs>0?start+1:0;
@@ -307,7 +338,8 @@
             renderPagination(totalPages);
             
             if(pageSkills.length===0){
-                tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:40px;color:#7f8c8d;">No skills created yet. Click "Create" to add your first document processing skill.</td></tr>';
+                tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:40px;color:#7f8c8d;">No documents found. Click "Create" to add your first document processing skill.</td></tr>';
+                console.log('📭 No documents to display');
                 return;
             }
             
@@ -475,13 +507,26 @@
         }
         async function loadStats(){
             try{
-                const response=await fetch('/api/documents');
-                const data=await response.json();
-                const total=data.total||0;
-                document.getElementById('totalDocs').textContent=total;
-                document.querySelector('.stat-number').textContent=total;
-            }catch(error){
-                console.error('Error:',error);
+                const timestamp = new Date().getTime();
+                const response = await fetch(`/api/documents?_t=${timestamp}`, {
+                    headers: {
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
+                        'Pragma': 'no-cache',
+                        'Expires': '0'
+                    }
+                });
+                const data = await response.json();
+                const total = data.total || 0;
+                
+                console.log('📊 Stats updated - total documents:', total);
+                
+                document.getElementById('totalDocs').textContent = total;
+                const statElement = document.querySelector('.stat-number');
+                if (statElement) {
+                    statElement.textContent = total;
+                }
+            } catch(error) {
+                console.error('❌ Error loading stats:', error);
             }
         }
         function openCreateModal(){
@@ -562,12 +607,26 @@
                 alert(`${failCount} document(s) failed to upload. Check console for details.`);
             }
         }
-        function showNotification(message){
+        function showNotification(message, type = 'success'){
             const notification=document.createElement('div');
-            notification.style.cssText='position:fixed;top:20px;right:20px;background:#10b981;color:white;padding:15px 25px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.2);z-index:2000;';
+            
+            // Set background color based on type
+            let backgroundColor = '#10b981'; // success (green)
+            if (type === 'error') backgroundColor = '#ef4444'; // error (red)
+            if (type === 'info') backgroundColor = '#3b82f6'; // info (blue)
+            if (type === 'warning') backgroundColor = '#f59e0b'; // warning (yellow)
+            
+            notification.style.cssText=`position:fixed;top:20px;right:20px;background:${backgroundColor};color:white;padding:15px 25px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.2);z-index:2000;font-family:system-ui;font-size:14px;max-width:300px;`;
             notification.textContent=message;
             document.body.appendChild(notification);
-            setTimeout(()=>notification.remove(),3000);
+            
+            // Auto-remove after 4 seconds (longer for error messages)
+            const duration = type === 'error' ? 5000 : 4000;
+            setTimeout(()=>{
+                if (notification.parentNode) {
+                    notification.remove();
+                }
+            }, duration);
         }
         // Track processing documents
         const processingDocs = new Map();
@@ -700,21 +759,63 @@
             }
 
             try {
-                const response = await fetch(`/api/document/${docId}/delete`, {
-                    method: 'POST'
+                showNotification('Deleting document...', 'info');
+                
+                // Add timestamp to prevent caching
+                const timestamp = new Date().getTime();
+                const response = await fetch(`/api/document/${docId}/delete?_t=${timestamp}`, {
+                    method: 'POST',
+                    headers: {
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
+                        'Pragma': 'no-cache',
+                        'Expires': '0'
+                    }
                 });
 
                 const result = await response.json();
 
                 if (result.success) {
-                    alert(`✅ Document "${docName}" deleted successfully!`);
-                    // Reload the page to refresh the list
-                    window.location.reload();
+                    console.log(`✅ DELETE SUCCESS: Document ${docId} deleted from backend`);
+                    
+                    // Debug: Log the arrays before and after filtering
+                    console.log('Before deletion - allSkills count:', allSkills.length);
+                    console.log('Document ID to delete:', docId);
+                    console.log('All document IDs before:', allSkills.map(s => s.id));
+                    
+                    // Remove the document from the local arrays immediately
+                    const originalAllCount = allSkills.length;
+                    const originalFilteredCount = filteredSkills.length;
+                    
+                    allSkills = allSkills.filter(skill => skill.id !== docId);
+                    filteredSkills = filteredSkills.filter(skill => skill.id !== docId);
+                    
+                    console.log('After deletion - allSkills count:', allSkills.length);
+                    console.log('All document IDs after:', allSkills.map(s => s.id));
+                    console.log('Removed from allSkills:', originalAllCount - allSkills.length);
+                    console.log('Removed from filteredSkills:', originalFilteredCount - filteredSkills.length);
+                    
+                    // Force immediate grid refresh
+                    console.log('🔄 Refreshing grid display...');
+                    displaySkills();
+                    loadStats();
+                    
+                    // Show success notification
+                    showNotification(`✅ Document "${docName}" deleted successfully!`, 'success');
+                    
+                    // Double-check by reloading from server after a short delay
+                    setTimeout(async () => {
+                        console.log('🔄 Double-checking with server reload...');
+                        await loadSkills();
+                        console.log('📊 Final document count:', allSkills.length);
+                    }, 500);
+                    
                 } else {
-                    alert(`❌ Failed to delete: ${result.message}`);
+                    console.error('❌ DELETE FAILED:', result.message);
+                    showNotification(`❌ Failed to delete: ${result.message}`, 'error');
                 }
             } catch (error) {
-                alert(`❌ Error deleting document: ${error.message}`);
+                console.error('❌ DELETE ERROR:', error);
+                showNotification(`❌ Error deleting document: ${error.message}`, 'error');
             }
         }
 
@@ -744,11 +845,22 @@
                 const result = await response.json();
 
                 if (result.success) {
-                    alert(`✅ Successfully deleted:\n- ${result.documents_cleared} documents\n- ${result.files_deleted} files`);
-                    // Reload the page to refresh the list
-                    window.location.reload();
+                    showNotification(`✅ Successfully deleted:\n- ${result.documents_cleared} documents\n- ${result.files_deleted} files`, 'success');
+                    
+                    // Clear local arrays
+                    allSkills = [];
+                    filteredSkills = [];
+                    
+                    // Refresh display
+                    displaySkills();
+                    loadStats();
+                    
+                    // Reload from server
+                    setTimeout(() => {
+                        loadSkills();
+                    }, 1000);
                 } else {
-                    alert(`❌ Failed to delete all: ${result.message}`);
+                    showNotification(`❌ Failed to delete all: ${result.message}`, 'error');
                 }
             } catch (error) {
                 alert(`❌ Error deleting all documents: ${error.message}`);
