@@ -53,10 +53,14 @@ IMPORTANT RULES:
 Document text:
 {text}
 
-Return ONLY a JSON array of account numbers found, like:
-["123456789", "987654321"]
+CRITICAL: You MUST respond with ONLY a valid JSON array. Do not include any explanations, descriptions, or other text.
 
-If no account numbers found, return: []
+Examples of correct responses:
+["468869904", "210701488"]
+["123456789"]
+[]
+
+Return ONLY the JSON array:
 """
 
         response = bedrock.invoke_model(
@@ -82,6 +86,15 @@ If no account numbers found, return: []
             elif clean_response.startswith('```'):
                 clean_response = clean_response.replace('```', '').strip()
             
+            # Try to extract JSON array from descriptive text if direct parsing fails
+            if not clean_response.startswith('['):
+                # Look for account numbers mentioned in descriptive text
+                import re
+                numbers = re.findall(r'\b\d{8,10}\b', clean_response)
+                if numbers:
+                    print(f"[LLM_EXTRACT] ⚠️ LLM returned descriptive text, extracted numbers: {numbers}")
+                    return numbers
+            
             account_numbers = json.loads(clean_response)
             
             if isinstance(account_numbers, list):
@@ -94,6 +107,13 @@ If no account numbers found, return: []
         except json.JSONDecodeError as e:
             print(f"[LLM_EXTRACT] ❌ JSON parsing error: {str(e)}")
             print(f"[LLM_EXTRACT] Raw response: {llm_response}")
+            
+            # Fallback: try to extract numbers from the text
+            import re
+            numbers = re.findall(r'\b\d{8,10}\b', llm_response)
+            if numbers:
+                print(f"[LLM_EXTRACT] 🔧 Fallback extraction found: {numbers}")
+                return numbers
             return []
             
     except Exception as e:

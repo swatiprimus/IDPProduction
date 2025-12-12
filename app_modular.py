@@ -2729,9 +2729,10 @@ def process_job(job_id: str, file_bytes: bytes, filename: str, use_ocr: bool, do
             "progress": 80
         })
         
-        # Create placeholder document structure - FAST upload, no account extraction during upload
+        # Create placeholder document structure
         if detected_doc_type == "loan_document":
-            # For loan documents, create placeholder that will be populated when opened
+            # For loan documents, create simple placeholder - accounts will be extracted when document is opened
+            print(f"[UPLOAD] Creating loan document placeholder - accounts will be extracted when opened")
             placeholder_doc = {
                 "document_id": "loan_doc_001",
                 "document_type": "loan_document",
@@ -2740,10 +2741,9 @@ def process_job(job_id: str, file_bytes: bytes, filename: str, use_ocr: bool, do
                 "document_description": "Banking or loan account information",
                 "extracted_fields": {
                     "total_accounts": 0,
-                    "accounts_processed": 0,
-                    "needs_account_extraction": True  # Flag to indicate accounts need to be extracted
+                    "accounts_processed": 0
                 },
-                "accounts": [],  # Empty initially, will be populated when document is opened
+                "accounts": [],  # Empty - will be populated when document is opened
                 "accuracy_score": None,
                 "filled_fields": 0,
                 "total_fields": 0,
@@ -2931,19 +2931,29 @@ def process_loan_document_endpoint(doc_id):
             accounts = loan_doc_data.get("accounts", [])
             
             print(f"[LOAN_PROCESSING] ✓ Found {len(accounts)} accounts")
+            print(f"[LOAN_PROCESSING] Loan result structure: {loan_result}")
+            print(f"[LOAN_PROCESSING] Accounts to save: {accounts}")
             
             # Update the document with account information
-            doc["documents"][0].update({
+            update_data = {
                 "extracted_fields": loan_doc_data.get("extracted_fields", {}),
                 "accounts": accounts,
                 "total_fields": loan_doc_data.get("total_fields", 0),
                 "filled_fields": loan_doc_data.get("filled_fields", 0),
                 "needs_human_review": loan_doc_data.get("needs_human_review", False),
                 "optimized": True
-            })
+            }
+            
+            print(f"[LOAN_PROCESSING] Update data: {update_data}")
+            print(f"[LOAN_PROCESSING] Document before update: {doc['documents'][0]}")
+            
+            doc["documents"][0].update(update_data)
+            
+            print(f"[LOAN_PROCESSING] Document after update: {doc['documents'][0]}")
             
             # Save updated document
             save_documents_db(processed_documents)
+            print(f"[LOAN_PROCESSING] ✓ Document saved to database")
             
             return jsonify({
                 "success": True,

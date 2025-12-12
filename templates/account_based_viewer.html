@@ -1049,47 +1049,87 @@
                         console.log('Document status:', docStatus);
                         
                         if (docType === 'loan_document') {
-                            console.log('🏦 Loan document detected with no accounts - processing...');
-                            document.getElementById('accountsList').innerHTML = '<div class="loading">🏦 Extracting account numbers from document...</div>';
-                            document.getElementById('viewerContent').innerHTML = '<div class="loading">Analyzing document for account numbers...</div>';
-                            document.getElementById('dataContent').innerHTML = '<div class="loading">Please wait while we split the document by accounts...</div>';
+                            console.log('🏦 Loan document detected with no accounts');
                             
-                            // Call the loan processing endpoint to extract and store account numbers
-                            try {
-                                const processResponse = await fetch(`/api/document/${documentId}/process-loan`, {
-                                    method: 'POST',
-                                    headers: {
-                                        'Content-Type': 'application/json'
+                            // Check if document has error in extracted_fields (upload-time extraction failed)
+                            const extractedFields = docData.extracted_fields || {};
+                            if (extractedFields.error) {
+                                console.log('⚠️ Upload-time extraction failed, trying again...');
+                                document.getElementById('accountsList').innerHTML = '<div class="loading">🏦 Retrying account extraction...</div>';
+                                document.getElementById('viewerContent').innerHTML = '<div class="loading">Analyzing document for account numbers...</div>';
+                                document.getElementById('dataContent').innerHTML = '<div class="loading">Please wait while we extract account numbers...</div>';
+                                
+                                // Call the loan processing endpoint as fallback
+                                try {
+                                    const processResponse = await fetch(`/api/document/${documentId}/process-loan`, {
+                                        method: 'POST',
+                                        headers: {
+                                            'Content-Type': 'application/json'
+                                        }
+                                    });
+                                    
+                                    const processData = await processResponse.json();
+                                    console.log('Fallback processing result:', processData);
+                                    
+                                    if (processData.success && processData.accounts && processData.accounts.length > 0) {
+                                        console.log(`✅ Successfully processed ${processData.total_accounts} accounts`);
+                                        accounts = processData.accounts;
+                                        renderAccountsList();
+                                        selectAccount(0);
+                                        showNotification(`✅ Found ${processData.total_accounts} accounts in document`, 'success');
+                                    } else {
+                                        console.log('❌ No accounts found after fallback processing');
+                                        document.getElementById('accountsList').innerHTML = '<div class="loading">❌ No account numbers found in this document</div>';
+                                        document.getElementById('viewerContent').innerHTML = '<div class="loading">This document does not contain recognizable account numbers</div>';
+                                        document.getElementById('dataContent').innerHTML = '<div class="loading">Please upload a loan document with account numbers to use account-based view</div>';
+                                        showNotification('No accounts found in document', 'warning');
                                     }
-                                });
-                                
-                                const processData = await processResponse.json();
-                                console.log('Loan processing result:', processData);
-                                
-                                if (processData.success && processData.accounts && processData.accounts.length > 0) {
-                                    console.log(`✅ Successfully processed ${processData.total_accounts} accounts`);
-                                    
-                                    // Update the local accounts and render
-                                    accounts = processData.accounts;
-                                    renderAccountsList();
-                                    selectAccount(0);
-                                    showNotification(`✅ Found ${processData.total_accounts} accounts in document`, 'success');
-                                    
-                                    // The accounts are now stored in the document, so future loads will be instant
-                                    console.log('✅ Account numbers extracted and stored in document');
-                                } else {
-                                    console.log('❌ No accounts found after processing');
-                                    document.getElementById('accountsList').innerHTML = '<div class="loading">❌ No account numbers found in this document</div>';
-                                    document.getElementById('viewerContent').innerHTML = '<div class="loading">This document does not contain recognizable account numbers</div>';
-                                    document.getElementById('dataContent').innerHTML = '<div class="loading">Please upload a loan document with account numbers to use account-based view</div>';
-                                    showNotification('No accounts found in document', 'warning');
+                                } catch (processError) {
+                                    console.error('Error in fallback processing:', processError);
+                                    document.getElementById('accountsList').innerHTML = '<div class="loading">❌ Error processing document</div>';
+                                    document.getElementById('viewerContent').innerHTML = '<div class="loading">Failed to process loan document</div>';
+                                    document.getElementById('dataContent').innerHTML = '<div class="loading">Error: ' + processError.message + '</div>';
+                                    showNotification('Failed to process loan document: ' + processError.message, 'error');
                                 }
-                            } catch (processError) {
-                                console.error('Error processing loan document:', processError);
-                                document.getElementById('accountsList').innerHTML = '<div class="loading">❌ Error processing document</div>';
-                                document.getElementById('viewerContent').innerHTML = '<div class="loading">Failed to process loan document</div>';
-                                document.getElementById('dataContent').innerHTML = '<div class="loading">Error: ' + processError.message + '</div>';
-                                showNotification('Failed to process loan document: ' + processError.message, 'error');
+                            } else {
+                                // Upload-time extraction failed, try fallback processing
+                                console.log('⚠️ Upload-time extraction found no accounts, trying fallback processing...');
+                                document.getElementById('accountsList').innerHTML = '<div class="loading">🏦 Trying enhanced account extraction...</div>';
+                                document.getElementById('viewerContent').innerHTML = '<div class="loading">Analyzing document with OCR...</div>';
+                                document.getElementById('dataContent').innerHTML = '<div class="loading">Please wait while we use OCR to find account numbers...</div>';
+                                
+                                // Call the loan processing endpoint as fallback
+                                try {
+                                    const processResponse = await fetch(`/api/document/${documentId}/process-loan`, {
+                                        method: 'POST',
+                                        headers: {
+                                            'Content-Type': 'application/json'
+                                        }
+                                    });
+                                    
+                                    const processData = await processResponse.json();
+                                    console.log('Fallback OCR processing result:', processData);
+                                    
+                                    if (processData.success && processData.accounts && processData.accounts.length > 0) {
+                                        console.log(`✅ Fallback processing found ${processData.total_accounts} accounts`);
+                                        accounts = processData.accounts;
+                                        renderAccountsList();
+                                        selectAccount(0);
+                                        showNotification(`✅ Found ${processData.total_accounts} accounts using OCR`, 'success');
+                                    } else {
+                                        console.log('❌ No accounts found even with OCR fallback');
+                                        document.getElementById('accountsList').innerHTML = '<div class="loading">❌ No account numbers found in this document</div>';
+                                        document.getElementById('viewerContent').innerHTML = '<div class="loading">This document does not contain recognizable account numbers</div>';
+                                        document.getElementById('dataContent').innerHTML = '<div class="loading">Please upload a loan document with account numbers to use account-based view</div>';
+                                        showNotification('No accounts found in document', 'warning');
+                                    }
+                                } catch (processError) {
+                                    console.error('Error in fallback OCR processing:', processError);
+                                    document.getElementById('accountsList').innerHTML = '<div class="loading">❌ Error processing document</div>';
+                                    document.getElementById('viewerContent').innerHTML = '<div class="loading">Failed to process loan document</div>';
+                                    document.getElementById('dataContent').innerHTML = '<div class="loading">Error: ' + processError.message + '</div>';
+                                    showNotification('Failed to process loan document: ' + processError.message, 'error');
+                                }
                             }
                         } else {
                             document.getElementById('accountsList').innerHTML = '<div class="loading">No accounts found in this document</div>';
