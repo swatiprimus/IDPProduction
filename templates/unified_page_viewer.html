@@ -615,8 +615,7 @@
 </head>
 <body>
     <div class="header">
-        <a href="/dashboard" class="back-btn">← Back to Dashboard</a>
-        <h1>{{ document.document_name or document.filename }}</h1>
+        <a href="/dashboard" class="back-btn">← {{ document.document_name or document.filename }}</a>
     </div>
 
     {% if document.needs_review %}
@@ -844,6 +843,11 @@
             }
         }
 
+        // Progressive Page Extraction System
+        let extractionProgress = new Map(); // Track extraction progress per page
+        let extractionQueue = []; // Queue of pages to extract
+        let isExtracting = false; // Flag to prevent concurrent extractions
+
         // Load pages on page load
         async function loadPages() {
             try {
@@ -873,6 +877,10 @@
                         document.getElementById('pageCount').textContent = `${totalPages} page(s)`;
                         renderPagesList();
                         showPage(0);
+                        
+                        // Start progressive extraction for regular documents
+                        console.log('🚀 [PROGRESSIVE] Starting progressive extraction for unified viewer...');
+                        startProgressiveExtraction();
                     }
                     
                     // Show controls
@@ -887,6 +895,195 @@
                 console.error('Error loading pages:', error);
                 showNotification('Failed to load pages', 'error');
             }
+        }
+
+        async function startProgressiveExtraction() {
+            console.log('🚀 [PROGRESSIVE] Starting progressive page extraction for unified viewer...');
+            
+            // Build extraction queue - only pages that need extraction
+            extractionQueue = [];
+            
+            for (let pageIndex = 0; pageIndex < totalPages; pageIndex++) {
+                const progressKey = `${pageIndex}`;
+                
+                // Check if already extracted in this session
+                if (extractionProgress.has(progressKey)) {
+                    console.log(`📋 [PROGRESSIVE] Page ${pageIndex + 1} already in progress, skipping`);
+                    continue;
+                }
+                
+                // Priority: current page = 1 (highest), next page = 2, others = 3
+                let priority = 3;
+                if (pageIndex === currentPageIndex) {
+                    priority = 1;
+                } else if (pageIndex === currentPageIndex + 1) {
+                    priority = 2;
+                }
+                
+                extractionQueue.push({
+                    pageIndex: pageIndex,
+                    priority: priority,
+                    progressKey: progressKey
+                });
+                
+                // Mark as queued
+                extractionProgress.set(progressKey, {
+                    status: 'queued',
+                    priority: priority,
+                    queuedAt: new Date().toISOString()
+                });
+            }
+            
+            // Sort by priority (1 = highest priority)
+            extractionQueue.sort((a, b) => a.priority - b.priority);
+            
+            console.log(`📋 [PROGRESSIVE] Extraction queue built: ${extractionQueue.length} pages to extract`);
+            console.log(`🎯 [PROGRESSIVE] Queue contents:`, extractionQueue.map(item => `Page ${item.pageIndex + 1} (Priority ${item.priority})`));
+            
+            if (extractionQueue.length === 0) {
+                console.log('✅ [PROGRESSIVE] No pages queued for extraction');
+                return;
+            }
+            
+            // Start processing queue
+            processExtractionQueue();
+        }
+
+        async function processExtractionQueue() {
+            if (isExtracting || extractionQueue.length === 0) {
+                return;
+            }
+            
+            isExtracting = true;
+            console.log(`⚡ [PROGRESSIVE] Processing extraction queue (${extractionQueue.length} items remaining)`);
+            
+            // Process items in parallel (up to 3 at a time for performance)
+            const maxConcurrent = 3;
+            const promises = [];
+            
+            for (let i = 0; i < Math.min(maxConcurrent, extractionQueue.length); i++) {
+                const item = extractionQueue.shift();
+                if (item) {
+                    promises.push(extractSinglePageAsync(item, item.progressKey));
+                }
+            }
+            
+            // Wait for all current extractions to complete
+            await Promise.allSettled(promises);
+            
+            isExtracting = false;
+            
+            // Continue processing if there are more items
+            if (extractionQueue.length > 0) {
+                setTimeout(() => processExtractionQueue(), 100);
+            } else {
+                console.log('✅ [PROGRESSIVE] All pages extracted!');
+            }
+        }
+
+        async function extractSinglePageAsync(item, key) {
+            try {
+                console.log(`🚀 [PROGRESSIVE] Starting extraction for page ${item.pageIndex + 1}...`);
+                
+                // OPTIMIZATION: Check cache first before extracting
+                try {
+                    console.log(`🔍 [PROGRESSIVE] Quick cache check for page ${item.pageIndex + 1}...`);
+                    const cacheResponse = await fetch(`/api/document/${documentId}/page/${item.pageIndex + 1}/extract`);
+                    const cacheResult = await cacheResponse.json();
+                    
+                    if (cacheResult.success && cacheResult.cached) {
+                        console.log(`✅ [PROGRESSIVE] Page ${item.pageIndex + 1} found in cache, skipping extraction`);
+                        extractionProgress.set(key, {
+                            status: 'completed',
+                            cached: true,
+                            completedAt: new Date().toISOString()
+                        });
+                        return; // Skip extraction
+                    }
+                } catch (cacheError) {
+                    console.log(`⚠️ [PROGRESSIVE] Cache check failed, proceeding with extraction: ${cacheError.message}`);
+                }
+                
+                // Mark as extracting
+                extractionProgress.set(key, {
+                    status: 'extracting',
+                    priority: item.priority,
+                    startedAt: new Date().toISOString()
+                });
+                
+                // Call the page extraction API
+                const response = await fetch(`/api/document/${documentId}/page/${item.pageIndex}/extract-progressive`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        priority: item.priority
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    console.log(`✅ [PROGRESSIVE] Page ${item.pageIndex + 1} extracted successfully (${result.fieldsExtracted} fields)`);
+                    
+                    // Mark as completed
+                    extractionProgress.set(key, {
+                        status: 'completed',
+                        priority: item.priority,
+                        completedAt: new Date().toISOString(),
+                        fieldsExtracted: result.fieldsExtracted,
+                        extractionTime: result.extractionTime
+                    });
+                    
+                    // Update UI if this is the current page
+                    if (item.pageIndex === currentPageIndex) {
+                        console.log(`🔄 [PROGRESSIVE] Refreshing current page ${item.pageIndex + 1} with new data`);
+                        renderPageData();
+                    }
+                    
+                } else {
+                    console.error(`❌ [PROGRESSIVE] Page ${item.pageIndex + 1} extraction failed:`, result.message);
+                    
+                    // Mark as failed
+                    extractionProgress.set(key, {
+                        status: 'failed',
+                        priority: item.priority,
+                        failedAt: new Date().toISOString(),
+                        error: result.message
+                    });
+                }
+                
+            } catch (error) {
+                console.error(`❌ [PROGRESSIVE] Page ${item.pageIndex + 1} extraction error:`, error);
+                
+                // Mark as failed
+                extractionProgress.set(key, {
+                    status: 'failed',
+                    priority: item.priority,
+                    failedAt: new Date().toISOString(),
+                    error: error.message
+                });
+            }
+        }
+
+        // Wait for progressive extraction to complete for a specific page
+        async function waitForProgressiveExtraction(progressKey) {
+            return new Promise((resolve) => {
+                const checkInterval = setInterval(() => {
+                    const progress = extractionProgress.get(progressKey);
+                    if (progress && (progress.status === 'completed' || progress.status === 'failed')) {
+                        clearInterval(checkInterval);
+                        resolve(progress);
+                    }
+                }, 500); // Check every 500ms
+                
+                // Timeout after 30 seconds
+                setTimeout(() => {
+                    clearInterval(checkInterval);
+                    resolve({ status: 'timeout' });
+                }, 30000);
+            });
         }
 
         function renderAccountsList() {
@@ -942,11 +1139,11 @@
             for (let i = 0; i < totalPages; i++) {
                 const thumbnailUrl = hasAccounts && currentAccountIndex >= 0
                     ? `/api/document/${documentId}/account/${currentAccountIndex}/page/${i}`
-                    : `/api/document/${documentId}/page/${i}`;
+                    : `/api/document/${documentId}/page/${i + 1}/image`;
                 
                 html += `
                     <div class="page-item ${i === 0 ? 'active' : ''}" onclick="selectPage(${i})" id="page-${i}">
-                        <img src="${thumbnailUrl}" alt="Page ${i + 1}" class="page-thumbnail" loading="lazy">
+                        <img src="${thumbnailUrl}" alt="Page ${i + 1}" class="page-thumbnail" loading="lazy" onerror="console.error('❌ Thumbnail failed to load:', this.src)">
                         <div class="page-number">${i + 1}</div>
                     </div>
                 `;
@@ -992,9 +1189,14 @@
             // Load page image
             const viewer = document.getElementById('viewerContent');
             if (hasAccounts && currentAccountIndex >= 0) {
-                viewer.innerHTML = `<img src="/api/document/${documentId}/account/${currentAccountIndex}/page/${pageIndex}" alt="Page ${pageIndex + 1}">`;
+                const imageUrl = `/api/document/${documentId}/account/${currentAccountIndex}/page/${pageIndex}`;
+                console.log(`[IMAGE] Loading account page image: ${imageUrl}`);
+                viewer.innerHTML = `<img src="${imageUrl}" alt="Page ${pageIndex + 1}" onload="console.log('✅ Image loaded successfully')" onerror="console.error('❌ Image failed to load:', this.src)">`;
             } else {
-                viewer.innerHTML = `<img src="/api/document/${documentId}/page/${pageIndex}" alt="Page ${pageIndex + 1}">`;
+                // Use 1-based page numbers for the API and include /image endpoint
+                const imageUrl = `/api/document/${documentId}/page/${pageIndex + 1}/image`;
+                console.log(`[IMAGE] Loading regular page image: ${imageUrl}`);
+                viewer.innerHTML = `<img src="${imageUrl}" alt="Page ${pageIndex + 1}" onload="console.log('✅ Image loaded successfully')" onerror="console.error('❌ Image failed to load:', this.src)">`;
             }
             
             // Reset zoom and rotation
