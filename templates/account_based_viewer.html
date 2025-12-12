@@ -771,8 +771,7 @@
 </head>
 <body>
     <div class="header">
-        <a href="/dashboard" class="back-btn">← Back to Dashboard</a>
-        <h1>{{ document.document_name or document.filename }}</h1>
+        <a href="/dashboard" class="back-btn">← {{ document.document_name or document.filename }}</a>
     </div>
 
     {% if document.needs_review %}
@@ -1010,20 +1009,93 @@
                 console.log('API Response:', data);
                 
                 if (data.success) {
+                    console.log('=== DEBUGGING ACCOUNT DETECTION ===');
+                    console.log('Full API Response:', JSON.stringify(data, null, 2));
                     console.log('Document structure:', data.document);
-                    const docData = data.document.documents[0];
-                    console.log('Document data:', docData);
-                    console.log('Accounts:', docData.accounts);
+                    console.log('Document ID:', data.document.id);
+                    console.log('Document type:', data.document.document_type_info?.type);
+                    console.log('Documents array:', data.document.documents);
+                    console.log('Documents array length:', data.document.documents?.length);
                     
-                    if (docData.accounts && docData.accounts.length > 0) {
+                    const docData = data.document.documents[0];
+                    console.log('First document data:', JSON.stringify(docData, null, 2));
+                    console.log('Document type:', docData?.document_type);
+                    console.log('Accounts exists:', 'accounts' in docData);
+                    console.log('Accounts value:', docData.accounts);
+                    console.log('Accounts type:', typeof docData.accounts);
+                    console.log('Accounts is array:', Array.isArray(docData.accounts));
+                    console.log('Accounts length:', docData.accounts ? docData.accounts.length : 'undefined');
+                    console.log('Accounts check result:', docData && docData.accounts && Array.isArray(docData.accounts) && docData.accounts.length > 0);
+                    console.log('=== END DEBUGGING ===');
+                    
+                    // Check if accounts exist and are populated
+                    if (docData && docData.accounts && Array.isArray(docData.accounts) && docData.accounts.length > 0) {
+                        console.log('✅ Found accounts, rendering list...');
                         accounts = docData.accounts;
                         renderAccountsList();
                         // Auto-select first account
                         selectAccount(0);
                     } else {
-                        document.getElementById('accountsList').innerHTML = '<div class="loading">No accounts found in this document</div>';
-                        document.getElementById('viewerContent').innerHTML = '<div class="loading">No accounts to display</div>';
-                        document.getElementById('dataContent').innerHTML = '<div class="loading">Upload a loan document with account numbers to see account-based view</div>';
+                        console.log('❌ No accounts found or accounts array is empty');
+                        console.log('docData exists:', !!docData);
+                        console.log('docData.accounts exists:', !!docData?.accounts);
+                        console.log('docData.accounts is array:', Array.isArray(docData?.accounts));
+                        console.log('docData.accounts length:', docData?.accounts?.length);
+                        
+                        // Check if this is a loan document that needs processing
+                        const docType = data.document.document_type_info?.type;
+                        const docStatus = data.document.status;
+                        console.log('Document type:', docType);
+                        console.log('Document status:', docStatus);
+                        
+                        if (docType === 'loan_document') {
+                            console.log('🏦 Loan document detected with no accounts - processing...');
+                            document.getElementById('accountsList').innerHTML = '<div class="loading">🏦 Extracting account numbers from document...</div>';
+                            document.getElementById('viewerContent').innerHTML = '<div class="loading">Analyzing document for account numbers...</div>';
+                            document.getElementById('dataContent').innerHTML = '<div class="loading">Please wait while we split the document by accounts...</div>';
+                            
+                            // Call the loan processing endpoint to extract and store account numbers
+                            try {
+                                const processResponse = await fetch(`/api/document/${documentId}/process-loan`, {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json'
+                                    }
+                                });
+                                
+                                const processData = await processResponse.json();
+                                console.log('Loan processing result:', processData);
+                                
+                                if (processData.success && processData.accounts && processData.accounts.length > 0) {
+                                    console.log(`✅ Successfully processed ${processData.total_accounts} accounts`);
+                                    
+                                    // Update the local accounts and render
+                                    accounts = processData.accounts;
+                                    renderAccountsList();
+                                    selectAccount(0);
+                                    showNotification(`✅ Found ${processData.total_accounts} accounts in document`, 'success');
+                                    
+                                    // The accounts are now stored in the document, so future loads will be instant
+                                    console.log('✅ Account numbers extracted and stored in document');
+                                } else {
+                                    console.log('❌ No accounts found after processing');
+                                    document.getElementById('accountsList').innerHTML = '<div class="loading">❌ No account numbers found in this document</div>';
+                                    document.getElementById('viewerContent').innerHTML = '<div class="loading">This document does not contain recognizable account numbers</div>';
+                                    document.getElementById('dataContent').innerHTML = '<div class="loading">Please upload a loan document with account numbers to use account-based view</div>';
+                                    showNotification('No accounts found in document', 'warning');
+                                }
+                            } catch (processError) {
+                                console.error('Error processing loan document:', processError);
+                                document.getElementById('accountsList').innerHTML = '<div class="loading">❌ Error processing document</div>';
+                                document.getElementById('viewerContent').innerHTML = '<div class="loading">Failed to process loan document</div>';
+                                document.getElementById('dataContent').innerHTML = '<div class="loading">Error: ' + processError.message + '</div>';
+                                showNotification('Failed to process loan document: ' + processError.message, 'error');
+                            }
+                        } else {
+                            document.getElementById('accountsList').innerHTML = '<div class="loading">No accounts found in this document</div>';
+                            document.getElementById('viewerContent').innerHTML = '<div class="loading">No accounts to display</div>';
+                            document.getElementById('dataContent').innerHTML = '<div class="loading">Upload a loan document with account numbers to see account-based view</div>';
+                        }
                     }
                 } else {
                     document.getElementById('accountsList').innerHTML = '<div class="loading">Error loading document</div>';
