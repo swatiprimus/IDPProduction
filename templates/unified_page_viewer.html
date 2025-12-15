@@ -1220,12 +1220,13 @@
                 if (hasAccounts && currentAccountIndex >= 0) {
                     response = await fetch(`/api/document/${documentId}/account/${currentAccountIndex}/page/${currentPageIndex}/data`);
                 } else {
-                    response = await fetch(`/api/document/${documentId}/page/${currentPageIndex}/extract`);
+                    // Fix: Use 1-based page numbers for the API (currentPageIndex is 0-based)
+                    response = await fetch(`/api/document/${documentId}/page/${currentPageIndex + 1}/extract`);
                 }
                 result = await response.json();
                 
                 if (result.success) {
-                    let fields = result.data || {};
+                    let fields = result.extracted_fields || result.data || {};
                     
                     // STEP 1: Process confidence objects recursively - keep both value and confidence for inline display
                     const processedFields = {};
@@ -1720,8 +1721,8 @@
                 // Update currentPageData
                 currentPageData = dataToSave;
                 
-                // Save to backend and update S3 cache
-                const response = await fetch(`/api/document/${documentId}/page/${currentPageIndex}/update`, {
+                // Save to backend and update S3 cache (Fix: Use 1-based page numbers)
+                const response = await fetch(`/api/document/${documentId}/page/${currentPageIndex + 1}/update`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -1823,8 +1824,8 @@
                 // Update currentPageData
                 currentPageData = dataToSave;
                 
-                // Save to backend and update S3 cache
-                const response = await fetch(`/api/document/${documentId}/page/${currentPageIndex}/update`, {
+                // Save to backend and update S3 cache (Fix: Use 1-based page numbers)
+                const response = await fetch(`/api/document/${documentId}/page/${currentPageIndex + 1}/update`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -1873,13 +1874,13 @@
             const allPagesData = [];
             for (let i = 0; i < totalPages; i++) {
                 try {
-                    const response = await fetch(`/api/document/${documentId}/page/${i}/extract`);
+                    const response = await fetch(`/api/document/${documentId}/page/${i + 1}/extract`);
                     const result = await response.json();
                     
                     if (result.success) {
                         allPagesData.push({
                             page_number: i + 1,
-                            data: result.data
+                            data: result.extracted_fields || result.data
                         });
                     }
                 } catch (error) {
@@ -2025,8 +2026,8 @@
                     delete currentPageData[fieldName];
                 });
                 
-                // Save updated data to backend
-                const response = await fetch(`/api/document/${documentId}/page/${currentPageIndex}/update`, {
+                // Save updated data to backend (Fix: Use 1-based page numbers)
+                const response = await fetch(`/api/document/${documentId}/page/${currentPageIndex + 1}/update`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({

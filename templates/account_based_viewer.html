@@ -865,11 +865,6 @@
                     
                     <div class="data-meta" id="dataMeta">Select an account to view data</div>
                     
-                    <!-- Account Number Display (Fallback) -->
-                    <div id="accountNumberDisplay" style="background:rgba(255,255,255,0.2);padding:8px 12px;border-radius:6px;margin-top:10px;display:none;">
-                        <strong>🏦 Account: <span id="currentAccountNumber">Loading...</span></strong>
-                    </div>
-                    
                     <!-- Fields Header with Search -->
                     <div id="fieldsSection" style="display:none;">
                         <div class="fields-header">
@@ -1356,11 +1351,7 @@
                 item.classList.toggle('active', i === index);
             });
             
-            // ALWAYS SHOW ACCOUNT NUMBER
-            const account = accounts[index];
-            const accountNumber = account.accountNumber || 'Unknown';
-            document.getElementById('currentAccountNumber').textContent = accountNumber;
-            document.getElementById('accountNumberDisplay').style.display = 'block';
+            // Account selected - no need for separate display since it's in the data meta
             
             // Load account pages
             await loadAccountPages();
@@ -1744,16 +1735,7 @@
                         return div.innerHTML;
                     }
                     
-                    // ALWAYS DISPLAY ACCOUNT NUMBER FIRST
-                    const finalAccountNumber = accountNumber !== 'Unknown' ? accountNumber : 
-                        (account.accountNumber || result.account_number || accounts[currentAccountIndex]?.accountNumber || 'No Account Number Found');
-                    
-                    html += `
-                        <div class="field-item" style="background:linear-gradient(135deg, #e0f2fe 0%, #b3e5fc 100%);border-left-color:#0277bd;">
-                            <div class="field-label" style="color:#01579b;font-weight:700;">🏦 Account Number</div>
-                            <div class="field-value" style="color:#01579b;font-weight:700;font-size:1.1em;">${finalAccountNumber}</div>
-                        </div>
-                    `;
+                    // Account number is already displayed in the data meta header, no need to duplicate
                     
                     // Display regular fields first (only fields with values)
                     console.log('=== DISPLAYING REGULAR FIELDS ===');

@@ -136,80 +136,97 @@ class BackgroundDocumentProcessor:
                 time.sleep(1.0)
     
     def _process_document_pipeline(self, doc_id: str):
-        """Complete processing pipeline for a document"""
+        """Complete processing pipeline for a document with OPTIMIZED page-by-page OCR"""
         try:
             status = self.document_status[doc_id]
             pdf_path = status["pdf_path"]
             
-            print(f"[BG_PROCESSOR] 🚀 Starting complete processing pipeline for document {doc_id}")
+            print(f"[BG_PROCESSOR] 🚀 Starting OPTIMIZED processing pipeline for document {doc_id}")
             
             # Determine document type from the main document record
             doc_type = self._get_document_type(doc_id)
             print(f"[BG_PROCESSOR] 📋 Document type detected: {doc_type}")
             
-            # Stage 1: OCR Extraction (common for all document types)
-            print(f"[BG_PROCESSOR] 📄 Stage 1/4: Starting OCR extraction...")
-            self._update_stage_status(doc_id, DocumentProcessingStage.OCR_EXTRACTION, "processing", 0)
-            full_text, total_pages = self._stage_ocr_extraction(doc_id, pdf_path)
-            
-            if not full_text:
-                raise Exception("OCR extraction failed")
-            
-            print(f"[BG_PROCESSOR] ✅ Stage 1/4: OCR extraction completed ({total_pages} pages, {len(full_text)} chars)")
-            self._update_stage_status(doc_id, DocumentProcessingStage.OCR_EXTRACTION, "completed", 100)
-            status["total_pages"] = total_pages
-            
-            # Different processing paths based on document type
+            # NEW OPTIMIZED PIPELINE: Page-by-page OCR with smart caching
             if doc_type == "loan_document":
-                # LOAN DOCUMENT PIPELINE: OCR → Account Splitting → Page Analysis → LLM Extraction
-                print(f"[BG_PROCESSOR] 🏦 Using loan document pipeline for {doc_id}")
+                # LOAN DOCUMENT PIPELINE: Page-by-page OCR → Account Splitting → LLM Extraction
+                print(f"[BG_PROCESSOR] 🏦 Using OPTIMIZED loan document pipeline for {doc_id}")
                 
-                # Stage 2: Account Splitting
-                print(f"[BG_PROCESSOR] 🔍 Stage 2/4: Starting account splitting...")
+                # Stage 1: Page-by-page OCR with caching
+                print(f"[BG_PROCESSOR] ⚡ Stage 1/4: Starting page-by-page OCR with smart caching...")
+                self._update_stage_status(doc_id, DocumentProcessingStage.OCR_EXTRACTION, "processing", 0)
+                
+                page_ocr_results, total_pages = self._stage_page_by_page_ocr(doc_id, pdf_path)
+                
+                if not page_ocr_results:
+                    raise Exception("Page-by-page OCR extraction failed")
+                
+                print(f"[BG_PROCESSOR] ✅ Stage 1/4: Page-by-page OCR completed ({total_pages} pages, {len(page_ocr_results)} pages processed)")
+                self._update_stage_status(doc_id, DocumentProcessingStage.OCR_EXTRACTION, "completed", 100)
+                status["total_pages"] = total_pages
+                
+                # Stage 2: Account splitting from OCR results
+                print(f"[BG_PROCESSOR] 🔍 Stage 2/4: Starting account splitting from OCR results...")
                 self._update_stage_status(doc_id, DocumentProcessingStage.ACCOUNT_SPLITTING, "processing", 0)
-                accounts = self._stage_account_splitting(doc_id, full_text)
-                print(f"[BG_PROCESSOR] ✅ Stage 2/4: Account splitting completed ({len(accounts)} accounts found)")
+                
+                accounts, page_mapping = self._stage_account_splitting_from_text(doc_id, page_ocr_results, total_pages)
+                
+                if not accounts:
+                    raise Exception("Account splitting failed - no accounts found")
+                
+                print(f"[BG_PROCESSOR] ✅ Stage 2/4: Account splitting completed ({len(accounts)} accounts, {len(page_mapping)} pages mapped)")
                 self._update_stage_status(doc_id, DocumentProcessingStage.ACCOUNT_SPLITTING, "completed", 100)
                 status["accounts"] = accounts
                 
-                # Stage 3: Page Analysis
-                print(f"[BG_PROCESSOR] 🗺️  Stage 3/4: Starting page analysis and mapping...")
-                self._update_stage_status(doc_id, DocumentProcessingStage.PAGE_ANALYSIS, "processing", 0)
-                page_mapping = self._stage_page_analysis(doc_id, pdf_path, accounts, total_pages)
-                print(f"[BG_PROCESSOR] ✅ Stage 3/4: Page analysis completed ({len(page_mapping)} pages mapped)")
+                # Stage 3: Skip separate page analysis (already done in splitting)
+                print(f"[BG_PROCESSOR] ⏭️ Stage 3/4: Skipping separate page analysis (already done in account splitting)")
                 self._update_stage_status(doc_id, DocumentProcessingStage.PAGE_ANALYSIS, "completed", 100)
                 
-                # Stage 4: LLM Extraction
-                print(f"[BG_PROCESSOR] 🤖 Stage 4/4: Starting LLM extraction (page-by-page)...")
+                # Stage 4: LLM Extraction using cached OCR
+                print(f"[BG_PROCESSOR] 🤖 Stage 4/4: Starting LLM extraction using cached OCR...")
                 self._update_stage_status(doc_id, DocumentProcessingStage.LLM_EXTRACTION, "processing", 0)
-                self._stage_llm_extraction(doc_id, pdf_path, accounts, page_mapping, total_pages)
+                self._stage_llm_extraction_from_cached_ocr(doc_id, page_ocr_results, accounts, page_mapping, total_pages)
                 print(f"[BG_PROCESSOR] ✅ Stage 4/4: LLM extraction completed for all {total_pages} pages")
                 self._update_stage_status(doc_id, DocumentProcessingStage.LLM_EXTRACTION, "completed", 100)
                 
-                # Update document record with accounts
-                print(f"[BG_PROCESSOR] 💾 Updating main document record with {len(accounts)} accounts...")
+                # IMMEDIATE UPDATE: Save accounts to document record right after splitting
+                print(f"[BG_PROCESSOR] 💾 IMMEDIATE UPDATE: Saving {len(accounts)} accounts to document record...")
                 self._update_main_document_record(doc_id, accounts, total_pages, doc_type)
+                print(f"[BG_PROCESSOR] ✅ IMMEDIATE UPDATE: Accounts now available in UI!")
                 
             else:
-                # REGULAR DOCUMENT PIPELINE: OCR → Direct LLM Extraction
-                print(f"[BG_PROCESSOR] 📄 Using regular document pipeline for {doc_id} ({doc_type})")
+                # DEATH CERTIFICATE / OTHER DOCUMENT PIPELINE: Page-by-page OCR → Page-by-page LLM Extraction
+                print(f"[BG_PROCESSOR] 📄 Using OPTIMIZED death certificate pipeline for {doc_id} ({doc_type})")
                 
-                # Skip account splitting and page analysis for non-loan documents
-                print(f"[BG_PROCESSOR] ⏭️  Stage 2/4: Skipping account splitting (not applicable for {doc_type})")
-                print(f"[BG_PROCESSOR] ⏭️  Stage 3/4: Skipping page analysis (not applicable for {doc_type})")
+                # Stage 1: Page-by-page OCR with caching
+                print(f"[BG_PROCESSOR] ⚡ Stage 1/4: Starting page-by-page OCR with smart caching...")
+                self._update_stage_status(doc_id, DocumentProcessingStage.OCR_EXTRACTION, "processing", 0)
+                
+                page_ocr_results, total_pages = self._stage_page_by_page_ocr(doc_id, pdf_path)
+                
+                if not page_ocr_results:
+                    raise Exception("Page-by-page OCR extraction failed")
+                
+                print(f"[BG_PROCESSOR] ✅ Stage 1/4: Page-by-page OCR completed ({total_pages} pages, {len(page_ocr_results)} pages processed)")
+                self._update_stage_status(doc_id, DocumentProcessingStage.OCR_EXTRACTION, "completed", 100)
+                status["total_pages"] = total_pages
+                
+                # Skip account splitting and page analysis for death certificates
+                print(f"[BG_PROCESSOR] ⏭️ Stage 2/4: Skipping account splitting (not applicable for {doc_type})")
+                print(f"[BG_PROCESSOR] ⏭️ Stage 3/4: Skipping page analysis (not applicable for {doc_type})")
                 self._update_stage_status(doc_id, DocumentProcessingStage.ACCOUNT_SPLITTING, "skipped", 100)
                 self._update_stage_status(doc_id, DocumentProcessingStage.PAGE_ANALYSIS, "skipped", 100)
                 
-                # Stage 4: Direct LLM Extraction for the entire document
-                print(f"[BG_PROCESSOR] 🤖 Stage 4/4: Starting direct LLM extraction (full document)...")
+                # Stage 4: Page-by-page LLM Extraction for death certificates
+                print(f"[BG_PROCESSOR] 🤖 Stage 4/4: Starting page-by-page LLM extraction for death certificate...")
                 self._update_stage_status(doc_id, DocumentProcessingStage.LLM_EXTRACTION, "processing", 0)
-                extracted_fields = self._stage_direct_llm_extraction(doc_id, full_text, doc_type)
-                print(f"[BG_PROCESSOR] ✅ Stage 4/4: Direct LLM extraction completed ({len(extracted_fields)} fields extracted)")
+                self._stage_llm_extraction_death_certificate(doc_id, page_ocr_results, total_pages)
+                print(f"[BG_PROCESSOR] ✅ Stage 4/4: Page-by-page LLM extraction completed for all {total_pages} pages")
                 self._update_stage_status(doc_id, DocumentProcessingStage.LLM_EXTRACTION, "completed", 100)
                 
-                # Update document record with extracted fields
-                print(f"[BG_PROCESSOR] 💾 Updating main document record with extracted fields...")
-                self._update_main_document_record(doc_id, [], total_pages, doc_type, extracted_fields)
+                # Update document record with page-by-page results
+                print(f"[BG_PROCESSOR] 💾 Updating main document record with page-by-page results...")
+                self._update_main_document_record(doc_id, [], total_pages, doc_type)
             
             # Mark as completed
             status["stage"] = DocumentProcessingStage.COMPLETED
@@ -227,8 +244,123 @@ class BackgroundDocumentProcessor:
             if doc_id in self.document_threads:
                 del self.document_threads[doc_id]
     
+    def _stage_page_by_page_ocr(self, doc_id: str, pdf_path: str) -> Tuple[Dict[int, str], int]:
+        """NEW: Stage 1 - Page-by-page OCR with smart S3 caching (OCR only runs ONCE per page)"""
+        print(f"[BG_PROCESSOR] 📄 PAGE-BY-PAGE OCR: Starting optimized OCR for {os.path.basename(pdf_path)}")
+        
+        try:
+            # Get page count
+            import fitz
+            pdf_doc = fitz.open(pdf_path)
+            total_pages = len(pdf_doc)
+            pdf_doc.close()
+            
+            page_ocr_results = {}
+            pages_cached = 0
+            pages_processed = 0
+            
+            print(f"[BG_PROCESSOR] 📄 PAGE-BY-PAGE OCR: Processing {total_pages} pages with smart caching...")
+            
+            # Process each page individually with caching
+            for page_num in range(total_pages):
+                try:
+                    # Check if this page is already cached
+                    cache_key = f"page_ocr/{doc_id}/page_{page_num}.json"
+                    
+                    try:
+                        cached_result = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+                        cached_data = json.loads(cached_result['Body'].read())
+                        page_ocr_results[page_num] = cached_data["page_text"]
+                        pages_cached += 1
+                        print(f"[BG_PROCESSOR] 📄 PAGE-BY-PAGE OCR: Page {page_num + 1}/{total_pages} - Using cached OCR ({len(cached_data['page_text'])} chars)")
+                        continue
+                    except:
+                        pass  # Cache miss, need to process
+                    
+                    # Extract text from this page
+                    pdf_doc = fitz.open(pdf_path)
+                    page = pdf_doc[page_num]
+                    page_text = page.get_text()
+                    pdf_doc.close()
+                    
+                    # Check if page has watermark or needs OCR
+                    has_watermark = "PDF-XChange" in page_text or "Click to BUY NOW" in page_text
+                    
+                    # If no text, has watermark, or very little text - do OCR
+                    if not page_text or len(page_text.strip()) < 20 or has_watermark:
+                        try:
+                            pdf_doc = fitz.open(pdf_path)
+                            page = pdf_doc[page_num]
+                            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))  # 2x zoom for better quality
+                            pdf_doc.close()
+                            
+                            temp_image_path = os.path.join(OUTPUT_DIR, f"temp_page_ocr_{doc_id}_{page_num}.png")
+                            pix.save(temp_image_path)
+                            
+                            with open(temp_image_path, 'rb') as f:
+                                image_bytes = f.read()
+                            
+                            print(f"[BG_PROCESSOR] 📄 PAGE-BY-PAGE OCR: Page {page_num + 1}/{total_pages} - Running OCR (watermark: {has_watermark})")
+                            
+                            # Use Textract for OCR
+                            response = textract.detect_document_text(Document={'Bytes': image_bytes})
+                            
+                            ocr_text = ""
+                            for block in response.get('Blocks', []):
+                                if block['BlockType'] == 'LINE':
+                                    ocr_text += block.get('Text', '') + "\n"
+                            
+                            # Clean up temp file
+                            if os.path.exists(temp_image_path):
+                                os.remove(temp_image_path)
+                            
+                            if ocr_text.strip():
+                                page_text = ocr_text
+                                print(f"[BG_PROCESSOR] 📄 PAGE-BY-PAGE OCR: Page {page_num + 1}/{total_pages} - OCR extracted {len(page_text)} chars")
+                            
+                        except Exception as ocr_err:
+                            print(f"[BG_PROCESSOR] ❌ PAGE-BY-PAGE OCR: OCR failed on page {page_num + 1}: {str(ocr_err)}")
+                    
+                    # Store result
+                    page_ocr_results[page_num] = page_text
+                    pages_processed += 1
+                    
+                    # Cache this page's OCR result
+                    cache_data = {
+                        "page_text": page_text,
+                        "page_number": page_num,
+                        "extraction_time": time.time(),
+                        "cache_version": "page_ocr_v1"
+                    }
+                    
+                    try:
+                        s3_client.put_object(
+                            Bucket=S3_BUCKET,
+                            Key=cache_key,
+                            Body=json.dumps(cache_data),
+                            ContentType='application/json'
+                        )
+                        print(f"[BG_PROCESSOR] 📄 PAGE-BY-PAGE OCR: Page {page_num + 1}/{total_pages} - Cached OCR result ({len(page_text)} chars)")
+                    except Exception as e:
+                        print(f"[BG_PROCESSOR] ⚠️ PAGE-BY-PAGE OCR: Failed to cache page {page_num + 1}: {str(e)}")
+                    
+                    # Update progress
+                    progress = int(((pages_cached + pages_processed) / total_pages) * 100)
+                    self._update_stage_status(doc_id, DocumentProcessingStage.OCR_EXTRACTION, "processing", progress)
+                    
+                except Exception as e:
+                    print(f"[BG_PROCESSOR] ❌ PAGE-BY-PAGE OCR: Failed to process page {page_num + 1}: {str(e)}")
+                    page_ocr_results[page_num] = ""  # Empty text for failed pages
+            
+            print(f"[BG_PROCESSOR] ✅ PAGE-BY-PAGE OCR: Completed - {pages_cached} cached, {pages_processed} processed, {total_pages} total pages")
+            return page_ocr_results, total_pages
+            
+        except Exception as e:
+            print(f"[BG_PROCESSOR] ❌ PAGE-BY-PAGE OCR: Failed for {doc_id}: {str(e)}")
+            raise
+    
     def _stage_ocr_extraction(self, doc_id: str, pdf_path: str) -> Tuple[str, int]:
-        """Stage 1: Extract full text from PDF using OCR"""
+        """Stage 1: Extract full text from PDF using OCR (LEGACY - kept for compatibility)"""
         print(f"[BG_PROCESSOR] 📄 OCR: Extracting text from PDF: {os.path.basename(pdf_path)}")
         
         try:
@@ -283,8 +415,316 @@ class BackgroundDocumentProcessor:
             print(f"[BG_PROCESSOR] OCR extraction failed for {doc_id}: {str(e)}")
             raise
     
+    def _stage_combined_ocr_and_splitting(self, doc_id: str, pdf_path: str) -> Tuple[str, int, List[Dict]]:
+        """ULTRA-OPTIMIZED: Combined OCR + Account Detection + Page Mapping in ONE STEP"""
+        print(f"[BG_PROCESSOR] 🚀 ULTRA-FAST: Starting OCR + Account Detection + Page Mapping for {os.path.basename(pdf_path)}")
+        
+        try:
+            # Check if already cached
+            cache_key = f"ultra_cache/{doc_id}/complete_processing.json"
+            try:
+                cached_result = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+                cached_data = json.loads(cached_result['Body'].read())
+                print(f"[BG_PROCESSOR] 🚀 ULTRA-FAST: Using complete cached result ({cached_data['total_pages']} pages, {len(cached_data['accounts'])} accounts)")
+                
+                # Also cache the page mapping immediately
+                page_mapping_key = f"page_mapping/{doc_id}/mapping.json"
+                try:
+                    s3_client.put_object(
+                        Bucket=S3_BUCKET,
+                        Key=page_mapping_key,
+                        Body=json.dumps(cached_data["page_mapping"]),
+                        ContentType='application/json'
+                    )
+                except:
+                    pass
+                
+                return cached_data["full_text"], cached_data["total_pages"], cached_data["accounts"]
+            except:
+                pass  # Cache miss, proceed with processing
+            
+            # Step 1: OCR Extraction
+            with open(pdf_path, 'rb') as f:
+                pdf_bytes = f.read()
+            
+            import fitz
+            pdf_doc = fitz.open(pdf_path)
+            total_pages = len(pdf_doc)
+            pdf_doc.close()
+            
+            # Extract text using existing function
+            full_text, _ = extract_text_with_textract(pdf_bytes, os.path.basename(pdf_path))
+            
+            # Fallback to PyPDF if OCR fails
+            if not full_text or len(full_text.strip()) < 100:
+                full_text, _ = try_extract_pdf_with_pypdf(pdf_bytes, os.path.basename(pdf_path))
+            
+            print(f"[BG_PROCESSOR] 🚀 ULTRA-FAST: OCR completed ({total_pages} pages, {len(full_text)} chars)")
+            
+            # Step 2: Account Detection
+            print(f"[BG_PROCESSOR] 🚀 ULTRA-FAST: Starting account detection...")
+            
+            loan_result = process_loan_document(full_text)
+            
+            if not loan_result or "documents" not in loan_result:
+                print(f"[BG_PROCESSOR] 🚀 ULTRA-FAST: No accounts found in {doc_id}")
+                accounts = []
+                page_mapping = {}
+            else:
+                raw_accounts = loan_result["documents"][0].get("accounts", [])
+                accounts = normalize_and_merge_accounts(raw_accounts)
+                print(f"[BG_PROCESSOR] 🚀 ULTRA-FAST: Found {len(accounts)} accounts")
+                
+                # Step 3: IMMEDIATE Page Mapping (while we have the OCR data)
+                print(f"[BG_PROCESSOR] 🚀 ULTRA-FAST: Creating page mapping from OCR data...")
+                page_mapping = self._create_page_mapping_from_ocr(doc_id, pdf_path, accounts, total_pages)
+                print(f"[BG_PROCESSOR] 🚀 ULTRA-FAST: Page mapping completed ({len(page_mapping)} pages mapped)")
+            
+            # Cache EVERYTHING together for maximum speed
+            cache_data = {
+                "full_text": full_text,
+                "total_pages": total_pages,
+                "accounts": accounts,
+                "page_mapping": page_mapping,
+                "processing_time": time.time(),
+                "cache_version": "ultra_v1"
+            }
+            
+            try:
+                # Cache the complete result
+                s3_client.put_object(
+                    Bucket=S3_BUCKET,
+                    Key=cache_key,
+                    Body=json.dumps(cache_data),
+                    ContentType='application/json'
+                )
+                
+                # Also cache page mapping separately for API access
+                page_mapping_key = f"page_mapping/{doc_id}/mapping.json"
+                s3_client.put_object(
+                    Bucket=S3_BUCKET,
+                    Key=page_mapping_key,
+                    Body=json.dumps(page_mapping),
+                    ContentType='application/json'
+                )
+                
+                print(f"[BG_PROCESSOR] 🚀 ULTRA-FAST: Cached complete result + page mapping to S3")
+            except Exception as e:
+                print(f"[BG_PROCESSOR] ⚠️ ULTRA-FAST: Failed to cache: {str(e)}")
+            
+            return full_text, total_pages, accounts
+            
+        except Exception as e:
+            print(f"[BG_PROCESSOR] 🚀 ULTRA-FAST: Processing failed for {doc_id}: {str(e)}")
+            raise
+    
+    def _create_page_mapping_from_ocr(self, doc_id: str, pdf_path: str, accounts: List[Dict], total_pages: int) -> Dict[int, str]:
+        """Create page mapping using SMART OCR (reuse existing OCR data when possible)"""
+        import fitz
+        import re
+        
+        page_mapping = {}
+        
+        # Check if we already have OCR cache from the main OCR process
+        ocr_cache_key = f"ocr_cache/{doc_id}/text_cache.json"
+        existing_ocr = {}
+        
+        try:
+            cached_result = s3_client.get_object(Bucket=S3_BUCKET, Key=ocr_cache_key)
+            existing_ocr = json.loads(cached_result['Body'].read())
+            print(f"[ULTRA_PAGE_MAP] ✅ Found existing OCR cache for {len(existing_ocr)} pages")
+        except:
+            print(f"[ULTRA_PAGE_MAP] No existing OCR cache, will extract as needed")
+        
+        # Process pages efficiently
+        for page_num in range(total_pages):
+            try:
+                # Use cached OCR if available, otherwise extract
+                if page_num in existing_ocr:
+                    page_text = existing_ocr[page_num]
+                    print(f"[ULTRA_PAGE_MAP] 📋 Page {page_num + 1}: Using cached OCR")
+                else:
+                    # Extract text from this page
+                    pdf_doc = fitz.open(pdf_path)
+                    page = pdf_doc[page_num]
+                    page_text = page.get_text()
+                    pdf_doc.close()
+                    
+                    # If no text or very little, skip OCR for now (we'll handle it later if needed)
+                    if not page_text or len(page_text.strip()) < 20:
+                        print(f"[ULTRA_PAGE_MAP] ⏭️ Page {page_num + 1}: Skipping (little text)")
+                        continue
+                    
+                    # Cache this OCR result
+                    existing_ocr[page_num] = page_text
+                
+                # Check for account numbers on this page
+                for acc in accounts:
+                    acc_num = acc.get("accountNumber", "").strip()
+                    if not acc_num:
+                        continue
+                    
+                    # Quick exact match
+                    normalized_text = re.sub(r'[\s\-\.]', '', page_text)
+                    normalized_acc = re.sub(r'[\s\-\.]', '', acc_num)
+                    
+                    if normalized_acc in normalized_text:
+                        page_mapping[page_num] = acc_num
+                        print(f"[ULTRA_PAGE_MAP] ✅ Page {page_num + 1} -> Account {acc_num}")
+                        break
+                        
+            except Exception as e:
+                print(f"[ULTRA_PAGE_MAP] ❌ Error processing page {page_num + 1}: {str(e)}")
+        
+        # Update OCR cache with any new extractions
+        try:
+            s3_client.put_object(
+                Bucket=S3_BUCKET,
+                Key=ocr_cache_key,
+                Body=json.dumps(existing_ocr),
+                ContentType='application/json'
+            )
+            print(f"[ULTRA_PAGE_MAP] 💾 Updated OCR cache with {len(existing_ocr)} pages")
+        except Exception as e:
+            print(f"[ULTRA_PAGE_MAP] ⚠️ Failed to update OCR cache: {str(e)}")
+        
+        return page_mapping
+    
+    def _stage_account_splitting_from_text(self, doc_id: str, page_ocr_results: Dict[int, str], total_pages: int) -> Tuple[List[Dict], Dict[int, str]]:
+        """NEW: Stage 2 - Account splitting from page OCR results with page mapping"""
+        print(f"[BG_PROCESSOR] 🔍 ACCOUNT SPLITTING: Analyzing {total_pages} pages to identify accounts and create page mapping...")
+        
+        try:
+            # Check if already cached
+            cache_key = f"account_splitting_cache/{doc_id}/accounts_and_mapping.json"
+            try:
+                cached_result = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+                cached_data = json.loads(cached_result['Body'].read())
+                accounts = cached_data["accounts"]
+                page_mapping = {int(k): v for k, v in cached_data["page_mapping"].items()}
+                print(f"[BG_PROCESSOR] 🔍 ACCOUNT SPLITTING: Using cached result ({len(accounts)} accounts, {len(page_mapping)} pages mapped)")
+                return accounts, page_mapping
+            except:
+                pass  # Cache miss, proceed with splitting
+            
+            # Combine all page text for account detection
+            full_text = "\n".join([page_ocr_results.get(page_num, "") for page_num in range(total_pages)])
+            
+            # Process with loan processor to find accounts
+            loan_result = process_loan_document(full_text)
+            
+            if not loan_result or "documents" not in loan_result:
+                print(f"[BG_PROCESSOR] 🔍 ACCOUNT SPLITTING: No accounts found in {doc_id}")
+                return [], {}
+            
+            raw_accounts = loan_result["documents"][0].get("accounts", [])
+            
+            # Normalize and merge duplicate accounts (e.g., "0000927800" and "927800")
+            accounts = normalize_and_merge_accounts(raw_accounts)
+            print(f"[BG_PROCESSOR] 🔍 ACCOUNT SPLITTING: Account normalization: {len(raw_accounts)} -> {len(accounts)} accounts")
+            
+            # Create page mapping using the user's requested logic
+            page_mapping = self._create_page_mapping_from_ocr_results(doc_id, page_ocr_results, accounts, total_pages)
+            
+            # Cache the result
+            cache_data = {
+                "accounts": accounts,
+                "page_mapping": page_mapping,
+                "split_time": time.time(),
+                "total_accounts": len(accounts),
+                "total_pages_mapped": len(page_mapping),
+                "cache_version": "account_splitting_v1"
+            }
+            
+            try:
+                s3_client.put_object(
+                    Bucket=S3_BUCKET,
+                    Key=cache_key,
+                    Body=json.dumps(cache_data),
+                    ContentType='application/json'
+                )
+                print(f"[BG_PROCESSOR] 🔍 ACCOUNT SPLITTING: Cached {len(accounts)} accounts and {len(page_mapping)} page mappings to S3")
+            except Exception as e:
+                print(f"[BG_PROCESSOR] ⚠️ ACCOUNT SPLITTING: Failed to cache: {str(e)}")
+            
+            return accounts, page_mapping
+            
+        except Exception as e:
+            print(f"[BG_PROCESSOR] ❌ ACCOUNT SPLITTING: Failed for {doc_id}: {str(e)}")
+            return [], {}
+    
+    def _create_page_mapping_from_ocr_results(self, doc_id: str, page_ocr_results: Dict[int, str], accounts: List[Dict], total_pages: int) -> Dict[int, str]:
+        """Create page mapping using user's requested logic: account xyz owns all pages until account abc is found"""
+        import re
+        
+        print(f"[BG_PROCESSOR] 🗺️ PAGE MAPPING: Creating smart page mapping for {total_pages} pages using account boundary logic...")
+        
+        page_mapping = {}
+        current_account = None
+        
+        # Extract account numbers for easier matching
+        account_numbers = [acc.get("accountNumber", "").strip() for acc in accounts if acc.get("accountNumber")]
+        print(f"[BG_PROCESSOR] 🗺️ PAGE MAPPING: Looking for account numbers: {account_numbers}")
+        
+        # Process pages in order to find account boundaries
+        for page_num in range(total_pages):
+            page_text = page_ocr_results.get(page_num, "")
+            
+            if not page_text or len(page_text.strip()) < 10:
+                # Empty page - assign to current account if we have one
+                if current_account:
+                    page_mapping[page_num] = current_account
+                    print(f"[BG_PROCESSOR] 🗺️ PAGE MAPPING: Page {page_num + 1} (empty) -> Account {current_account} (inherited)")
+                continue
+            
+            # Check if this page contains a new account number
+            found_new_account = None
+            for acc_num in account_numbers:
+                if not acc_num:
+                    continue
+                
+                # Normalize text and account number for matching
+                normalized_text = re.sub(r'[\s\-\.]', '', page_text.upper())
+                normalized_acc = re.sub(r'[\s\-\.]', '', acc_num.upper())
+                
+                # Check for exact match
+                if normalized_acc in normalized_text:
+                    # Only switch accounts if this is a different account
+                    if found_new_account is None or len(acc_num) > len(found_new_account):
+                        found_new_account = acc_num
+            
+            # Update current account if we found a new one
+            if found_new_account and found_new_account != current_account:
+                current_account = found_new_account
+                print(f"[BG_PROCESSOR] 🗺️ PAGE MAPPING: Page {page_num + 1} - NEW ACCOUNT BOUNDARY: {current_account}")
+            
+            # Assign page to current account
+            if current_account:
+                page_mapping[page_num] = current_account
+                print(f"[BG_PROCESSOR] 🗺️ PAGE MAPPING: Page {page_num + 1} -> Account {current_account}")
+            else:
+                # No account found yet - this could be a cover page or document without account info
+                print(f"[BG_PROCESSOR] 🗺️ PAGE MAPPING: Page {page_num + 1} - No account assigned (cover page or general document)")
+        
+        print(f"[BG_PROCESSOR] 🗺️ PAGE MAPPING: Completed - {len(page_mapping)} pages mapped to accounts")
+        
+        # Cache the page mapping separately for API access
+        try:
+            mapping_cache_key = f"page_mapping/{doc_id}/mapping.json"
+            s3_client.put_object(
+                Bucket=S3_BUCKET,
+                Key=mapping_cache_key,
+                Body=json.dumps(page_mapping),
+                ContentType='application/json'
+            )
+            print(f"[BG_PROCESSOR] 🗺️ PAGE MAPPING: Cached page mapping to S3 for API access")
+        except Exception as e:
+            print(f"[BG_PROCESSOR] ⚠️ PAGE MAPPING: Failed to cache page mapping: {str(e)}")
+        
+        return page_mapping
+    
     def _stage_account_splitting(self, doc_id: str, full_text: str) -> List[Dict]:
-        """Stage 2: Split document into accounts"""
+        """Stage 2: Split document into accounts (LEGACY - kept for compatibility)"""
         print(f"[BG_PROCESSOR] 🔍 ACCOUNTS: Analyzing document text to identify accounts...")
         
         try:
@@ -378,9 +818,86 @@ class BackgroundDocumentProcessor:
             print(f"[BG_PROCESSOR] Page analysis failed for {doc_id}: {str(e)}")
             return {}
     
+    def _stage_llm_extraction_from_cached_ocr(self, doc_id: str, page_ocr_results: Dict[int, str], 
+                                            accounts: List[Dict], page_mapping: Dict[int, str], total_pages: int):
+        """NEW: Stage 4 - LLM extraction using cached OCR results (for loan documents)"""
+        print(f"[BG_PROCESSOR] 🤖 LLM FROM CACHED OCR: Starting extraction for {total_pages} pages using cached OCR...")
+        
+        pages_processed = 0
+        pages_cached = 0
+        pages_queued = 0
+        
+        for page_num in range(total_pages):
+            try:
+                # Check if page is already cached
+                cache_key = f"page_data/{doc_id}/page_{page_num}.json"
+                
+                try:
+                    cached_result = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+                    # Page already processed and cached
+                    pages_processed += 1
+                    pages_cached += 1
+                    print(f"[BG_PROCESSOR] 🤖 LLM FROM CACHED OCR: Page {page_num + 1}/{total_pages} already cached ✓")
+                    self._update_extraction_progress(doc_id, pages_processed, total_pages)
+                    continue
+                except:
+                    pass  # Not cached, need to process
+                
+                # Submit page for processing using cached OCR
+                print(f"[BG_PROCESSOR] 🤖 LLM FROM CACHED OCR: Queuing page {page_num + 1}/{total_pages} for extraction...")
+                future = self.executor.submit(self._process_single_page_from_cached_ocr, doc_id, page_num, page_ocr_results, page_mapping)
+                
+                # Don't wait for completion - let it run in background
+                pages_processed += 1
+                pages_queued += 1
+                self._update_extraction_progress(doc_id, pages_processed, total_pages)
+                
+            except Exception as e:
+                print(f"[BG_PROCESSOR] ❌ LLM FROM CACHED OCR: Failed to queue page {page_num + 1}: {str(e)}")
+        
+        print(f"[BG_PROCESSOR] 🤖 LLM FROM CACHED OCR: Processing summary - {pages_cached} cached, {pages_queued} queued for extraction")
+    
+    def _stage_llm_extraction_death_certificate(self, doc_id: str, page_ocr_results: Dict[int, str], total_pages: int):
+        """NEW: Stage 4 - Page-by-page LLM extraction for death certificates (each page gets unique processing)"""
+        print(f"[BG_PROCESSOR] 🤖 DEATH CERT LLM: Starting page-by-page extraction for {total_pages} pages...")
+        
+        pages_processed = 0
+        pages_cached = 0
+        pages_queued = 0
+        
+        for page_num in range(total_pages):
+            try:
+                # Use unique cache key for death certificate pages to avoid same-result issue
+                cache_key = f"death_cert_page_data/{doc_id}/page_{page_num}.json"
+                
+                try:
+                    cached_result = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+                    # Page already processed and cached
+                    pages_processed += 1
+                    pages_cached += 1
+                    print(f"[BG_PROCESSOR] 🤖 DEATH CERT LLM: Page {page_num + 1}/{total_pages} already cached ✓")
+                    self._update_extraction_progress(doc_id, pages_processed, total_pages)
+                    continue
+                except:
+                    pass  # Not cached, need to process
+                
+                # Submit page for processing with death certificate specific logic
+                print(f"[BG_PROCESSOR] 🤖 DEATH CERT LLM: Queuing page {page_num + 1}/{total_pages} for death certificate extraction...")
+                future = self.executor.submit(self._process_death_certificate_page, doc_id, page_num, page_ocr_results)
+                
+                # Don't wait for completion - let it run in background
+                pages_processed += 1
+                pages_queued += 1
+                self._update_extraction_progress(doc_id, pages_processed, total_pages)
+                
+            except Exception as e:
+                print(f"[BG_PROCESSOR] ❌ DEATH CERT LLM: Failed to queue page {page_num + 1}: {str(e)}")
+        
+        print(f"[BG_PROCESSOR] 🤖 DEATH CERT LLM: Processing summary - {pages_cached} cached, {pages_queued} queued for extraction")
+    
     def _stage_llm_extraction(self, doc_id: str, pdf_path: str, accounts: List[Dict], 
                              page_mapping: Dict[int, str], total_pages: int):
-        """Stage 4: Extract data from pages using LLM (parallel processing)"""
+        """Stage 4: Extract data from pages using LLM (parallel processing) - LEGACY"""
         print(f"[BG_PROCESSOR] 🤖 LLM: Starting extraction for {total_pages} pages...")
         
         # Process pages in parallel batches
@@ -419,8 +936,99 @@ class BackgroundDocumentProcessor:
         
         print(f"[BG_PROCESSOR] 🤖 LLM: Processing summary - {pages_cached} cached, {pages_queued} queued for extraction")
     
+    def _process_single_page_from_cached_ocr(self, doc_id: str, page_num: int, page_ocr_results: Dict[int, str], page_mapping: Dict[int, str]):
+        """NEW: Process a single page using cached OCR results (for loan documents)"""
+        try:
+            cache_key = f"page_data/{doc_id}/page_{page_num}.json"
+            
+            # Check cache again (race condition protection)
+            try:
+                cached_result = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+                return  # Already processed
+            except:
+                pass
+            
+            # Get cached OCR text for this page
+            page_text = page_ocr_results.get(page_num, "")
+            
+            if not page_text or len(page_text.strip()) < 10:
+                print(f"[BG_PROCESSOR] 🤖 CACHED OCR LLM: Page {page_num + 1} has no OCR text, skipping...")
+                return
+            
+            # Get account for this page
+            account_number = page_mapping.get(page_num, "Unknown")
+            
+            # Extract data using LLM
+            extracted_data = self._extract_with_llm(page_text, account_number)
+            
+            # Cache the result
+            cache_data = {
+                "extracted_data": extracted_data,
+                "page_text": page_text[:500],  # Store preview
+                "account_number": account_number,
+                "extraction_time": time.time(),
+                "cache_version": "cached_ocr_v1"
+            }
+            
+            s3_client.put_object(
+                Bucket=S3_BUCKET,
+                Key=cache_key,
+                Body=json.dumps(cache_data),
+                ContentType='application/json'
+            )
+            
+            print(f"[BG_PROCESSOR] 🤖 CACHED OCR LLM: ✅ Processed and cached page {page_num + 1} (account: {account_number})")
+            
+        except Exception as e:
+            print(f"[BG_PROCESSOR] 🤖 CACHED OCR LLM: ❌ Failed to process page {page_num + 1}: {str(e)}")
+    
+    def _process_death_certificate_page(self, doc_id: str, page_num: int, page_ocr_results: Dict[int, str]):
+        """NEW: Process a single death certificate page with unique caching (fixes same-result issue)"""
+        try:
+            # Use unique cache key for death certificate pages
+            cache_key = f"death_cert_page_data/{doc_id}/page_{page_num}.json"
+            
+            # Check cache again (race condition protection)
+            try:
+                cached_result = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+                return  # Already processed
+            except:
+                pass
+            
+            # Get cached OCR text for this page
+            page_text = page_ocr_results.get(page_num, "")
+            
+            if not page_text or len(page_text.strip()) < 10:
+                print(f"[BG_PROCESSOR] 🤖 DEATH CERT: Page {page_num + 1} has no OCR text, skipping...")
+                return
+            
+            # Extract data using LLM with death certificate specific prompt
+            extracted_data = self._extract_with_llm(page_text, "N/A", get_comprehensive_extraction_prompt())
+            
+            # Cache the result with unique key structure
+            cache_data = {
+                "extracted_data": extracted_data,
+                "page_text": page_text[:500],  # Store preview
+                "page_number": page_num,
+                "document_type": "death_certificate",
+                "extraction_time": time.time(),
+                "cache_version": "death_cert_v1"
+            }
+            
+            s3_client.put_object(
+                Bucket=S3_BUCKET,
+                Key=cache_key,
+                Body=json.dumps(cache_data),
+                ContentType='application/json'
+            )
+            
+            print(f"[BG_PROCESSOR] 🤖 DEATH CERT: ✅ Processed and cached page {page_num + 1} with unique data")
+            
+        except Exception as e:
+            print(f"[BG_PROCESSOR] 🤖 DEATH CERT: ❌ Failed to process page {page_num + 1}: {str(e)}")
+    
     def _process_single_page(self, doc_id: str, pdf_path: str, page_num: int, page_mapping: Dict[int, str]):
-        """Process a single page with LLM extraction"""
+        """Process a single page with LLM extraction - LEGACY"""
         try:
             cache_key = f"page_data/{doc_id}/page_{page_num}.json"
             
@@ -1006,6 +1614,85 @@ def merge_document_fields(existing_doc, new_doc):
     
     return existing_doc, changes
 
+def _process_single_page_scan_optimized(args):
+    """OPTIMIZED: Helper function to process a single page with cached OCR"""
+    page_num, pdf_path, doc_id, accounts, cached_ocr_text = args
+    import fitz
+    import re
+    
+    try:
+        # OPTIMIZATION: Use cached OCR text if available
+        if cached_ocr_text:
+            page_text = cached_ocr_text
+            print(f"[SCAN_OPTIMIZED] 📋 Page {page_num + 1}: Using cached OCR ({len(page_text)} chars)")
+        else:
+            # Extract text from PDF
+            pdf_doc = fitz.open(pdf_path)
+            page = pdf_doc[page_num]
+            page_text = page.get_text()
+            pdf_doc.close()
+            
+            # Check if page has watermark or needs OCR
+            has_watermark = "PDF-XChange" in page_text or "Click to BUY NOW" in page_text
+            
+            # If no text, has watermark, or very little text - do OCR
+            if not page_text or len(page_text.strip()) < 20 or has_watermark:
+                try:
+                    pdf_doc = fitz.open(pdf_path)
+                    page = pdf_doc[page_num]
+                    pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+                    pdf_doc.close()
+                    
+                    temp_image_path = os.path.join(OUTPUT_DIR, f"temp_scan_{doc_id}_{page_num}.png")
+                    pix.save(temp_image_path)
+                    
+                    with open(temp_image_path, 'rb') as image_file:
+                        image_bytes = image_file.read()
+                    
+                    print(f"[SCAN_OPTIMIZED] 🔍 Page {page_num + 1}: Running OCR (watermark: {has_watermark})")
+                    
+                    textract_response = textract.detect_document_text(Document={'Bytes': image_bytes})
+                    
+                    ocr_text = ""
+                    for block in textract_response.get('Blocks', []):
+                        if block['BlockType'] == 'LINE':
+                            ocr_text += block.get('Text', '') + "\n"
+                    
+                    if os.path.exists(temp_image_path):
+                        os.remove(temp_image_path)
+                    
+                    if ocr_text.strip():
+                        page_text = ocr_text
+                        print(f"[SCAN_OPTIMIZED] ✅ Page {page_num + 1}: OCR extracted {len(page_text)} chars")
+                    
+                except Exception as ocr_err:
+                    print(f"[SCAN_OPTIMIZED] ❌ OCR failed on page {page_num + 1}: {str(ocr_err)}")
+                    return page_num, None, None
+        
+        if not page_text or len(page_text.strip()) < 20:
+            return page_num, page_text, None
+        
+        # Check which account appears on this page - use optimized matching
+        matched_account = None
+        for acc in accounts:
+            acc_num = acc.get("accountNumber", "").strip()
+            if not acc_num:
+                continue
+                
+            # Quick exact match first (most common case)
+            normalized_text = re.sub(r'[\s\-\.]', '', page_text)
+            normalized_acc = re.sub(r'[\s\-\.]', '', acc_num)
+            if normalized_acc in normalized_text:
+                matched_account = acc_num
+                print(f"[SCAN_OPTIMIZED] ✅ Page {page_num + 1}: Found account {acc_num}")
+                break
+        
+        return page_num, page_text, matched_account
+        
+    except Exception as e:
+        print(f"[SCAN_OPTIMIZED] ❌ Failed to process page {page_num + 1}: {str(e)}")
+        return page_num, None, None
+
 def _process_single_page_scan(args):
     """Helper function to process a single page (for parallel processing)"""
     page_num, pdf_path, doc_id, accounts = args
@@ -1115,7 +1802,7 @@ def _process_single_page_scan(args):
 
 
 def scan_and_map_pages(doc_id, pdf_path, accounts):
-    """Scan pages and create a mapping of page_num -> account_number (PARALLEL + CACHED)"""
+    """Scan pages and create a mapping of page_num -> account_number (OPTIMIZED + CACHED)"""
     import fitz
     
     pdf_doc = fitz.open(pdf_path)
@@ -1124,41 +1811,49 @@ def scan_and_map_pages(doc_id, pdf_path, accounts):
     
     page_to_account = {}
     accounts_found = set()
+    
+    print(f"[SCAN_OPTIMIZED] 🚀 FAST scanning {total_pages} pages to find account boundaries")
+    print(f"[SCAN_OPTIMIZED] Looking for accounts: {[acc.get('accountNumber', 'N/A') for acc in accounts]}")
+    
+    # OPTIMIZATION 1: Check if OCR cache exists first
     ocr_text_cache = {}
+    try:
+        cache_key = f"ocr_cache/{doc_id}/text_cache.json"
+        cached_result = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+        ocr_text_cache = json.loads(cached_result['Body'].read())
+        print(f"[SCAN_OPTIMIZED] ✅ Using cached OCR for {len(ocr_text_cache)} pages")
+    except:
+        print(f"[SCAN_OPTIMIZED] No OCR cache found, will extract as needed")
     
-    print(f"[INFO] FAST PARALLEL scanning {total_pages} pages to find account boundaries")
-    print(f"[INFO] Looking for accounts: {[acc.get('accountNumber', 'N/A') for acc in accounts]}")
-    
-    # SPEED OPTIMIZATION: Process pages in parallel (up to 10 workers)
-    max_workers = min(10, total_pages)
+    # OPTIMIZATION 2: Process pages in parallel but use cached OCR when available
+    max_workers = min(8, total_pages)  # Reduced workers to avoid overwhelming
     
     # Prepare arguments for parallel processing
-    page_args = [(page_num, pdf_path, doc_id, accounts) for page_num in range(total_pages)]
+    page_args = [(page_num, pdf_path, doc_id, accounts, ocr_text_cache.get(page_num)) for page_num in range(total_pages)]
     
     # Process pages in parallel
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(_process_single_page_scan, args) for args in page_args]
+        futures = [executor.submit(_process_single_page_scan_optimized, args) for args in page_args]
         
         for future in as_completed(futures):
             try:
                 page_num, page_text, matched_account = future.result()
                 
-                if page_text:
+                if page_text and page_num not in ocr_text_cache:
                     ocr_text_cache[page_num] = page_text
                 
                 if matched_account:
                     page_to_account[page_num] = matched_account
                     accounts_found.add(matched_account)
-                    print(f"[INFO] Page {page_num + 1} -> Account {matched_account}")
+                    print(f"[SCAN_OPTIMIZED] ✅ Page {page_num + 1} -> Account {matched_account}")
                     
             except Exception as e:
-                print(f"[ERROR] Future failed: {str(e)}")
+                print(f"[SCAN_OPTIMIZED] ❌ Future failed: {str(e)}")
     
-    print(f"[INFO] PARALLEL scan complete: Found {len(accounts_found)} accounts on {len(page_to_account)} pages")
-    print(f"[INFO] Page to account mapping: {page_to_account}")
-    print(f"[INFO] Accounts found: {accounts_found}")
+    print(f"[SCAN_OPTIMIZED] 🎯 COMPLETE: Found {len(accounts_found)} accounts on {len(page_to_account)} pages")
+    print(f"[SCAN_OPTIMIZED] Page mapping: {page_to_account}")
     
-    # OPTIMIZATION: Save OCR cache to S3 to avoid re-running OCR
+    # Save updated OCR cache
     try:
         cache_key = f"ocr_cache/{doc_id}/text_cache.json"
         s3_client.put_object(
@@ -1167,9 +1862,9 @@ def scan_and_map_pages(doc_id, pdf_path, accounts):
             Body=json.dumps(ocr_text_cache),
             ContentType='application/json'
         )
-        print(f"[INFO] Cached OCR text for {len(ocr_text_cache)} pages to S3")
+        print(f"[SCAN_OPTIMIZED] 💾 Updated OCR cache with {len(ocr_text_cache)} pages")
     except Exception as e:
-        print(f"[WARNING] Failed to cache OCR text: {str(e)}")
+        print(f"[SCAN_OPTIMIZED] ⚠️ Failed to cache OCR: {str(e)}")
     
     return page_to_account
 
@@ -3683,9 +4378,17 @@ def get_all_documents():
 
 @app.route("/api/document/<doc_id>")
 def get_document_detail(doc_id):
-    """Get details of a specific document"""
+    """Get details of a specific document with real-time account availability"""
     doc = next((d for d in processed_documents if d["id"] == doc_id), None)
     if doc:
+        # Check if background processing has found accounts even if not fully complete
+        bg_status = background_processor.get_document_status(doc_id)
+        if bg_status and bg_status.get("accounts"):
+            # Update document with latest accounts from background processing
+            if doc.get("documents") and len(doc["documents"]) > 0:
+                doc["documents"][0]["accounts"] = bg_status["accounts"]
+                print(f"[API] 🔄 Updated document {doc_id} with {len(bg_status['accounts'])} accounts from background processing")
+        
         return jsonify({"success": True, "document": doc})
     return jsonify({"success": False, "message": "Document not found"}), 404
 
@@ -4141,19 +4844,79 @@ def get_account_pages(doc_id, account_index):
         page_to_account = None
         
         try:
-            print(f"[INFO] Checking cache for page mapping: {cache_key}")
+            print(f"[CACHE_LOAD] 🔍 Checking cache for page mapping: {cache_key}")
             cache_response = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
-            cached_mapping = json.loads(cache_response['Body'].read().decode('utf-8'))
-            page_to_account = {int(k): v for k, v in cached_mapping.items()}
-            print(f"[INFO] Loaded cached page mapping with {len(page_to_account)} pages")
+            cached_data = cache_response['Body'].read().decode('utf-8')
+            cached_mapping = json.loads(cached_data)
+            
+            # Handle both old format (direct mapping) and new format (with metadata)
+            if isinstance(cached_mapping, dict):
+                # Try to parse as page mapping - handle string keys properly
+                try:
+                    # Filter out non-numeric keys and convert to int
+                    page_to_account = {}
+                    for k, v in cached_mapping.items():
+                        if str(k).isdigit():
+                            page_to_account[int(k)] = v
+                    
+                    if page_to_account:
+                        print(f"[CACHE_LOAD] ✅ Loaded cached page mapping with {len(page_to_account)} pages: {page_to_account}")
+                    else:
+                        print(f"[CACHE_LOAD] ⚠️ Cache exists but no valid page mappings found")
+                        page_to_account = None
+                        
+                except (ValueError, TypeError) as parse_error:
+                    print(f"[CACHE_LOAD] ❌ Cache parsing failed: {str(parse_error)}, will scan pages")
+                    page_to_account = None
+            else:
+                print(f"[CACHE_LOAD] ❌ Invalid cache format (not dict), will scan pages")
+                page_to_account = None
         except s3_client.exceptions.NoSuchKey:
-            print(f"[INFO] No cached mapping found, will scan pages")
+            print(f"[CACHE_LOAD] ℹ️ No cached mapping found, will scan pages")
         except Exception as cache_error:
-            print(f"[WARNING] Cache load failed: {str(cache_error)}, will scan pages")
+            print(f"[CACHE_LOAD] ❌ Cache load failed: {str(cache_error)}, will scan pages")
         
-        # If no cache, scan pages and create mapping
+        # If no cache, scan pages and create mapping (with lock to prevent duplicates)
         if page_to_account is None:
-            page_to_account = scan_and_map_pages(doc_id, pdf_path, accounts)
+            # Check if another process is already scanning
+            lock_key = f"scan_lock/{doc_id}/scanning.lock"
+            try:
+                # Try to create a lock
+                s3_client.put_object(
+                    Bucket=S3_BUCKET,
+                    Key=lock_key,
+                    Body=json.dumps({"start_time": time.time(), "process_id": os.getpid()}),
+                    ContentType='application/json'
+                )
+                
+                print(f"[SCAN_LOCK] 🔒 Acquired scan lock for {doc_id}")
+                
+                try:
+                    page_to_account = scan_and_map_pages(doc_id, pdf_path, accounts)
+                finally:
+                    # Always release the lock
+                    try:
+                        s3_client.delete_object(Bucket=S3_BUCKET, Key=lock_key)
+                        print(f"[SCAN_LOCK] 🔓 Released scan lock for {doc_id}")
+                    except:
+                        pass
+                        
+            except Exception as lock_error:
+                # Lock might already exist, wait and retry cache
+                print(f"[SCAN_LOCK] ⏳ Another process is scanning, waiting...")
+                time.sleep(2)
+                
+                # Try cache again
+                try:
+                    cache_response = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+                    cached_data = cache_response['Body'].read().decode('utf-8')
+                    cached_mapping = json.loads(cached_data)
+                    page_to_account = {int(k): v for k, v in cached_mapping.items() if k.isdigit()}
+                    print(f"[SCAN_LOCK] ✅ Got cached result after waiting")
+                except:
+                    # If still no cache, do a quick fallback scan
+                    print(f"[SCAN_LOCK] ⚠️ No cache after waiting, doing fallback scan")
+                    page_to_account = scan_and_map_pages(doc_id, pdf_path, accounts)
             
             # Save to cache
             try:
@@ -4167,54 +4930,62 @@ def get_account_pages(doc_id, account_index):
             except Exception as s3_error:
                 print(f"[WARNING] Failed to cache mapping: {str(s3_error)}")
         
-        # Now assign pages to the target account using the mapping
+        # Now assign pages to the target account using IMPROVED BOUNDARY LOGIC
         pdf_doc = fitz.open(pdf_path)
         total_pages = len(pdf_doc)
         pdf_doc.close()
         
-        # Assign pages to the target account using the correct logic:
-        # 1. Find the first page where this account appears
-        # 2. Assign all pages from that point until the next account appears
-        # 3. Exclude pages before any account is found
-        
         account_pages = []
         
-        print(f"[DEBUG] Page to account mapping: {page_to_account}")
-        print(f"[DEBUG] Looking for account: {target_account_number}")
+        print(f"[BOUNDARY] Page to account mapping: {page_to_account}")
+        print(f"[BOUNDARY] Looking for account: {target_account_number}")
+        print(f"[BOUNDARY] Total pages in document: {total_pages}")
         
-        # Get all pages where any account is found, sorted by page number
-        all_account_pages = sorted([p for p in page_to_account.keys()])
-        print(f"[DEBUG] All pages with accounts: {all_account_pages}")
-        
-        if all_account_pages:
-            # Find the first page where this specific account appears
-            target_account_pages = [p for p in all_account_pages if page_to_account[p] == target_account_number]
-            print(f"[DEBUG] Pages with target account {target_account_number}: {target_account_pages}")
+        # IMPROVED ALGORITHM: Assign ALL pages between account boundaries
+        if page_to_account:
+            # Get all account boundary pages (where account numbers are found)
+            boundary_pages = sorted(page_to_account.keys())
+            print(f"[BOUNDARY] Account boundary pages: {boundary_pages}")
             
-            if target_account_pages:
-                first_page = target_account_pages[0]
-                print(f"[DEBUG] First page with account {target_account_number}: {first_page}")
+            # Find account boundaries for this specific account
+            account_boundaries = []
+            for page_num in boundary_pages:
+                if page_to_account[page_num] == target_account_number:
+                    account_boundaries.append(page_num)
+            
+            print(f"[BOUNDARY] Account {target_account_number} found on pages: {account_boundaries}")
+            
+            if account_boundaries:
+                # For each boundary where this account appears, assign pages until next different account
+                for boundary_page in account_boundaries:
+                    start_page = boundary_page
+                    
+                    # Find the end boundary (next different account or end of document)
+                    end_page = total_pages  # Default to end of document
+                    
+                    # Look for the next page with a different account number
+                    for check_page in range(boundary_page + 1, total_pages):
+                        if check_page in page_to_account:
+                            if page_to_account[check_page] != target_account_number:
+                                end_page = check_page
+                                print(f"[BOUNDARY] Found next different account at page {check_page + 1}")
+                                break
+                    
+                    # Assign ALL pages in this range (including pages without account numbers)
+                    range_pages = list(range(start_page, end_page))
+                    account_pages.extend(range_pages)
+                    
+                    print(f"[BOUNDARY] Assigned pages {start_page + 1} to {end_page} to account {target_account_number}")
                 
-                # Find where the next different account starts (or end of document)
-                next_account_page = total_pages  # Default to end of document
+                # Remove duplicates and sort
+                account_pages = sorted(list(set(account_pages)))
                 
-                for page_num in range(first_page + 1, total_pages):
-                    # If we find a page with a different account, that's where this account ends
-                    if page_num in page_to_account and page_to_account[page_num] != target_account_number:
-                        next_account_page = page_num
-                        print(f"[DEBUG] Next different account found at page {page_num + 1}")
-                        break
-                
-                # Include all pages from first_page to next_account_page (exclusive)
-                account_pages = list(range(first_page, next_account_page))
-                
-                print(f"[DEBUG] Account {target_account_number} range: {first_page} to {next_account_page}")
-                print(f"[DEBUG] Final assigned pages (0-based): {account_pages}")
-                print(f"[DEBUG] Final assigned pages (1-based): {[p+1 for p in account_pages]}")
+                print(f"[BOUNDARY] ✅ FINAL ASSIGNMENT: Account {target_account_number} gets pages {[p+1 for p in account_pages]}")
+                print(f"[BOUNDARY] This includes ALL pages between boundaries (driver licenses, forms, etc.)")
             else:
-                print(f"[DEBUG] Account {target_account_number} not found on any page")
+                print(f"[BOUNDARY] ❌ Account {target_account_number} not found on any page")
         else:
-            print(f"[DEBUG] No accounts found on any pages - page_to_account is empty")
+            print(f"[BOUNDARY] ❌ No account boundaries found - page_to_account is empty")
         
         # If no pages found, fall back to even distribution but exclude obvious non-account pages
         if not account_pages:
@@ -4796,7 +5567,32 @@ def extract_page_data(doc_id, page_num):
     
     print(f"[DEBUG] extract_page_data called: doc_id={doc_id}, page_num={page_num}")
     
-    # 🚀 PRIORITY 1: Check background processor cache first (convert 1-based to 0-based)
+    # 🚀 PRIORITY 1: Check death certificate cache first (for death certificates)
+    doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+    if doc:
+        doc_type = doc.get("document_type_info", {}).get("type", "unknown")
+        
+        if doc_type == "death_certificate":
+            try:
+                # Check death certificate cache (convert 1-based to 0-based)
+                cache_key = f"death_cert_page_data/{doc_id}/page_{page_num - 1}.json"
+                cached_result = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+                cached_data = json.loads(cached_result['Body'].read())
+                
+                print(f"[DEBUG] ✅ Using DEATH CERTIFICATE cached result for page {page_num}")
+                return jsonify({
+                    "success": True,
+                    "extracted_fields": cached_data.get("extracted_data", {}),
+                    "page_number": cached_data.get("page_number", page_num - 1),
+                    "document_type": cached_data.get("document_type", "death_certificate"),
+                    "cache_source": "death_certificate_cache",
+                    "extraction_time": cached_data.get("extraction_time"),
+                    "cached": True
+                })
+            except Exception as e:
+                print(f"[DEBUG] No death certificate cache found for page {page_num}: {str(e)}")
+    
+    # 🚀 PRIORITY 2: Check background processor cache (convert 1-based to 0-based)
     if background_processor.is_page_cached(doc_id, page_num - 1):
         cached_data = background_processor.get_cached_page_data(doc_id, page_num - 1)
         if cached_data and cached_data.get("extracted_data"):
@@ -6199,9 +6995,36 @@ def get_background_processing_status(doc_id):
 def get_cached_page_data_endpoint(doc_id, page_num):
     """Get cached page data if available, otherwise return processing status"""
     try:
+        # Determine document type to use correct cache key
+        doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+        doc_type = "unknown"
+        if doc:
+            doc_type = doc.get("document_type_info", {}).get("type", "unknown")
+        
         # Check if page is cached (convert 1-based to 0-based)
-        if background_processor.is_page_cached(doc_id, page_num - 1):
-            cached_data = background_processor.get_cached_page_data(doc_id, page_num - 1)
+        page_index = page_num - 1
+        
+        # Try death certificate cache first if it's a death certificate
+        if doc_type == "death_certificate":
+            try:
+                cache_key = f"death_cert_page_data/{doc_id}/page_{page_index}.json"
+                cached_result = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+                cached_data = json.loads(cached_result['Body'].read())
+                
+                return jsonify({
+                    "success": True,
+                    "cached": True,
+                    "data": cached_data.get("extracted_data", {}),
+                    "page_number": cached_data.get("page_number", page_index),
+                    "document_type": cached_data.get("document_type", "death_certificate"),
+                    "extraction_time": cached_data.get("extraction_time")
+                })
+            except:
+                pass  # Fall through to regular cache check
+        
+        # Check regular page cache
+        if background_processor.is_page_cached(doc_id, page_index):
+            cached_data = background_processor.get_cached_page_data(doc_id, page_index)
             if cached_data:
                 return jsonify({
                     "success": True,
