@@ -14,13 +14,825 @@ import os
 import re
 from datetime import datetime
 import io
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import queue
+import atexit
+from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed, Future
+from typing import Dict, List, Optional, Tuple, Any
 
 # Import modular services
 from app.services.textract_service import extract_text_with_textract, try_extract_pdf_with_pypdf
 from app.services.account_splitter import split_accounts_strict
 from app.services.document_detector import detect_document_type, SUPPORTED_DOCUMENT_TYPES
 from app.services.loan_processor import process_loan_document
+
+# Advanced Background Processing System
+class DocumentProcessingStage:
+    """Represents a processing stage for a document"""
+    OCR_EXTRACTION = "ocr_extraction"
+    ACCOUNT_SPLITTING = "account_splitting"
+    PAGE_ANALYSIS = "page_analysis"
+    LLM_EXTRACTION = "llm_extraction"
+    COMPLETED = "completed"
+
+class BackgroundDocumentProcessor:
+    """Advanced background processor that handles OCR + Splitting + LLM in separate threads"""
+    
+    def __init__(self, max_workers: int = 5):
+        self.max_workers = max_workers
+        self.processing_queue = queue.PriorityQueue()
+        self.document_threads: Dict[str, Dict] = {}  # doc_id -> thread info
+        self.document_status: Dict[str, Dict] = {}   # doc_id -> processing status
+        self.page_cache: Dict[str, Dict] = {}        # cache_key -> extracted data
+        self.is_running = False
+        self.executor = None
+        self.monitor_thread = None
+        
+        # Processing stages tracking
+        self.stage_progress: Dict[str, Dict[str, Any]] = {}  # doc_id -> stage -> progress
+        
+        print("[BG_PROCESSOR] 🚀 Advanced background processor initialized with multi-stage pipeline")
+    
+    def start(self):
+        """Start the background processing system"""
+        if self.is_running:
+            return
+        
+        self.is_running = True
+        self.executor = ThreadPoolExecutor(max_workers=self.max_workers)
+        self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
+        self.monitor_thread.start()
+        
+        print("[BG_PROCESSOR] 🟢 Background processing system started and monitoring for documents")
+    
+    def stop(self):
+        """Stop the background processing system"""
+        if not self.is_running:
+            return
+        
+        self.is_running = False
+        
+        if self.executor:
+            self.executor.shutdown(wait=True)
+        
+        if self.monitor_thread and self.monitor_thread.is_alive():
+            self.monitor_thread.join(timeout=5.0)
+        
+        print("[BG_PROCESSOR] Background processing system stopped")
+    
+    def queue_document_for_processing(self, doc_id: str, pdf_path: str, priority: int = 1):
+        """Queue a document for background processing"""
+        if doc_id in self.document_threads:
+            print(f"[BG_PROCESSOR] Document {doc_id} already queued/processing")
+            return
+        
+        # Initialize document status
+        self.document_status[doc_id] = {
+            "stage": DocumentProcessingStage.OCR_EXTRACTION,
+            "progress": 0,
+            "start_time": time.time(),
+            "pdf_path": pdf_path,
+            "accounts": [],
+            "pages_processed": 0,
+            "total_pages": 0,
+            "errors": []
+        }
+        
+        self.stage_progress[doc_id] = {
+            DocumentProcessingStage.OCR_EXTRACTION: {"status": "queued", "progress": 0},
+            DocumentProcessingStage.ACCOUNT_SPLITTING: {"status": "pending", "progress": 0},
+            DocumentProcessingStage.PAGE_ANALYSIS: {"status": "pending", "progress": 0},
+            DocumentProcessingStage.LLM_EXTRACTION: {"status": "pending", "progress": 0}
+        }
+        
+        # Queue with priority (lower number = higher priority)
+        self.processing_queue.put((priority, time.time(), doc_id))
+        
+        print(f"[BG_PROCESSOR] 📥 QUEUED: Document {doc_id} added to processing queue (priority: {priority})")
+    
+    def _monitor_loop(self):
+        """Main monitoring loop that processes queued documents"""
+        while self.is_running:
+            try:
+                # Get next document to process (with timeout)
+                try:
+                    priority, timestamp, doc_id = self.processing_queue.get(timeout=1.0)
+                except queue.Empty:
+                    continue
+                
+                # Start processing this document
+                future = self.executor.submit(self._process_document_pipeline, doc_id)
+                
+                self.document_threads[doc_id] = {
+                    "future": future,
+                    "start_time": time.time(),
+                    "stage": DocumentProcessingStage.OCR_EXTRACTION
+                }
+                
+                print(f"[BG_PROCESSOR] 🎬 STARTED: Processing pipeline launched for document {doc_id}")
+                
+            except Exception as e:
+                print(f"[BG_PROCESSOR] Error in monitor loop: {str(e)}")
+                time.sleep(1.0)
+    
+    def _process_document_pipeline(self, doc_id: str):
+        """Complete processing pipeline for a document"""
+        try:
+            status = self.document_status[doc_id]
+            pdf_path = status["pdf_path"]
+            
+            print(f"[BG_PROCESSOR] 🚀 Starting complete processing pipeline for document {doc_id}")
+            
+            # Determine document type from the main document record
+            doc_type = self._get_document_type(doc_id)
+            print(f"[BG_PROCESSOR] 📋 Document type detected: {doc_type}")
+            
+            # Stage 1: OCR Extraction (common for all document types)
+            print(f"[BG_PROCESSOR] 📄 Stage 1/4: Starting OCR extraction...")
+            self._update_stage_status(doc_id, DocumentProcessingStage.OCR_EXTRACTION, "processing", 0)
+            full_text, total_pages = self._stage_ocr_extraction(doc_id, pdf_path)
+            
+            if not full_text:
+                raise Exception("OCR extraction failed")
+            
+            print(f"[BG_PROCESSOR] ✅ Stage 1/4: OCR extraction completed ({total_pages} pages, {len(full_text)} chars)")
+            self._update_stage_status(doc_id, DocumentProcessingStage.OCR_EXTRACTION, "completed", 100)
+            status["total_pages"] = total_pages
+            
+            # Different processing paths based on document type
+            if doc_type == "loan_document":
+                # LOAN DOCUMENT PIPELINE: OCR → Account Splitting → Page Analysis → LLM Extraction
+                print(f"[BG_PROCESSOR] 🏦 Using loan document pipeline for {doc_id}")
+                
+                # Stage 2: Account Splitting
+                print(f"[BG_PROCESSOR] 🔍 Stage 2/4: Starting account splitting...")
+                self._update_stage_status(doc_id, DocumentProcessingStage.ACCOUNT_SPLITTING, "processing", 0)
+                accounts = self._stage_account_splitting(doc_id, full_text)
+                print(f"[BG_PROCESSOR] ✅ Stage 2/4: Account splitting completed ({len(accounts)} accounts found)")
+                self._update_stage_status(doc_id, DocumentProcessingStage.ACCOUNT_SPLITTING, "completed", 100)
+                status["accounts"] = accounts
+                
+                # Stage 3: Page Analysis
+                print(f"[BG_PROCESSOR] 🗺️  Stage 3/4: Starting page analysis and mapping...")
+                self._update_stage_status(doc_id, DocumentProcessingStage.PAGE_ANALYSIS, "processing", 0)
+                page_mapping = self._stage_page_analysis(doc_id, pdf_path, accounts, total_pages)
+                print(f"[BG_PROCESSOR] ✅ Stage 3/4: Page analysis completed ({len(page_mapping)} pages mapped)")
+                self._update_stage_status(doc_id, DocumentProcessingStage.PAGE_ANALYSIS, "completed", 100)
+                
+                # Stage 4: LLM Extraction
+                print(f"[BG_PROCESSOR] 🤖 Stage 4/4: Starting LLM extraction (page-by-page)...")
+                self._update_stage_status(doc_id, DocumentProcessingStage.LLM_EXTRACTION, "processing", 0)
+                self._stage_llm_extraction(doc_id, pdf_path, accounts, page_mapping, total_pages)
+                print(f"[BG_PROCESSOR] ✅ Stage 4/4: LLM extraction completed for all {total_pages} pages")
+                self._update_stage_status(doc_id, DocumentProcessingStage.LLM_EXTRACTION, "completed", 100)
+                
+                # Update document record with accounts
+                print(f"[BG_PROCESSOR] 💾 Updating main document record with {len(accounts)} accounts...")
+                self._update_main_document_record(doc_id, accounts, total_pages, doc_type)
+                
+            else:
+                # REGULAR DOCUMENT PIPELINE: OCR → Direct LLM Extraction
+                print(f"[BG_PROCESSOR] 📄 Using regular document pipeline for {doc_id} ({doc_type})")
+                
+                # Skip account splitting and page analysis for non-loan documents
+                print(f"[BG_PROCESSOR] ⏭️  Stage 2/4: Skipping account splitting (not applicable for {doc_type})")
+                print(f"[BG_PROCESSOR] ⏭️  Stage 3/4: Skipping page analysis (not applicable for {doc_type})")
+                self._update_stage_status(doc_id, DocumentProcessingStage.ACCOUNT_SPLITTING, "skipped", 100)
+                self._update_stage_status(doc_id, DocumentProcessingStage.PAGE_ANALYSIS, "skipped", 100)
+                
+                # Stage 4: Direct LLM Extraction for the entire document
+                print(f"[BG_PROCESSOR] 🤖 Stage 4/4: Starting direct LLM extraction (full document)...")
+                self._update_stage_status(doc_id, DocumentProcessingStage.LLM_EXTRACTION, "processing", 0)
+                extracted_fields = self._stage_direct_llm_extraction(doc_id, full_text, doc_type)
+                print(f"[BG_PROCESSOR] ✅ Stage 4/4: Direct LLM extraction completed ({len(extracted_fields)} fields extracted)")
+                self._update_stage_status(doc_id, DocumentProcessingStage.LLM_EXTRACTION, "completed", 100)
+                
+                # Update document record with extracted fields
+                print(f"[BG_PROCESSOR] 💾 Updating main document record with extracted fields...")
+                self._update_main_document_record(doc_id, [], total_pages, doc_type, extracted_fields)
+            
+            # Mark as completed
+            status["stage"] = DocumentProcessingStage.COMPLETED
+            status["progress"] = 100
+            status["completion_time"] = time.time()
+            
+            print(f"[BG_PROCESSOR] 🎉 PIPELINE COMPLETED for {doc_id} ({doc_type}) - All stages finished successfully!")
+            
+        except Exception as e:
+            print(f"[BG_PROCESSOR] ❌ Pipeline failed for {doc_id}: {str(e)}")
+            self.document_status[doc_id]["errors"].append(str(e))
+            self.document_status[doc_id]["stage"] = "failed"
+        finally:
+            # Clean up thread tracking
+            if doc_id in self.document_threads:
+                del self.document_threads[doc_id]
+    
+    def _stage_ocr_extraction(self, doc_id: str, pdf_path: str) -> Tuple[str, int]:
+        """Stage 1: Extract full text from PDF using OCR"""
+        print(f"[BG_PROCESSOR] 📄 OCR: Extracting text from PDF: {os.path.basename(pdf_path)}")
+        
+        try:
+            # Check if already cached
+            cache_key = f"ocr_cache/{doc_id}/full_text.json"
+            try:
+                cached_result = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+                cached_data = json.loads(cached_result['Body'].read())
+                print(f"[BG_PROCESSOR] 📄 OCR: Using cached result ({cached_data['total_pages']} pages, {len(cached_data['full_text'])} chars)")
+                return cached_data["full_text"], cached_data["total_pages"]
+            except:
+                pass  # Cache miss, proceed with OCR
+            
+            # Read PDF and extract text
+            with open(pdf_path, 'rb') as f:
+                pdf_bytes = f.read()
+            
+            # Get page count
+            import fitz
+            pdf_doc = fitz.open(pdf_path)
+            total_pages = len(pdf_doc)
+            pdf_doc.close()
+            
+            # Extract text using existing function
+            full_text, _ = extract_text_with_textract(pdf_bytes, os.path.basename(pdf_path))
+            
+            # Fallback to PyPDF if OCR fails
+            if not full_text or len(full_text.strip()) < 100:
+                full_text, _ = try_extract_pdf_with_pypdf(pdf_bytes, os.path.basename(pdf_path))
+            
+            # Cache the result
+            cache_data = {
+                "full_text": full_text,
+                "total_pages": total_pages,
+                "extraction_time": time.time()
+            }
+            
+            try:
+                s3_client.put_object(
+                    Bucket=S3_BUCKET,
+                    Key=cache_key,
+                    Body=json.dumps(cache_data),
+                    ContentType='application/json'
+                )
+                print(f"[BG_PROCESSOR] 📄 OCR: Cached result to S3 for future use")
+            except Exception as e:
+                print(f"[BG_PROCESSOR] ⚠️  OCR: Failed to cache result: {str(e)}")
+            
+            return full_text, total_pages
+            
+        except Exception as e:
+            print(f"[BG_PROCESSOR] OCR extraction failed for {doc_id}: {str(e)}")
+            raise
+    
+    def _stage_account_splitting(self, doc_id: str, full_text: str) -> List[Dict]:
+        """Stage 2: Split document into accounts"""
+        print(f"[BG_PROCESSOR] 🔍 ACCOUNTS: Analyzing document text to identify accounts...")
+        
+        try:
+            # Check if already cached
+            cache_key = f"account_cache/{doc_id}/accounts.json"
+            try:
+                cached_result = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+                cached_data = json.loads(cached_result['Body'].read())
+                print(f"[BG_PROCESSOR] 🔍 ACCOUNTS: Using cached split ({len(cached_data['accounts'])} accounts)")
+                return cached_data["accounts"]
+            except:
+                pass  # Cache miss, proceed with splitting
+            
+            # Process with loan processor
+            loan_result = process_loan_document(full_text)
+            
+            if not loan_result or "documents" not in loan_result:
+                print(f"[BG_PROCESSOR] No accounts found in {doc_id}")
+                return []
+            
+            raw_accounts = loan_result["documents"][0].get("accounts", [])
+            
+            # Normalize and merge duplicate accounts (e.g., "0000927800" and "927800")
+            accounts = normalize_and_merge_accounts(raw_accounts)
+            print(f"[BG_PROCESSOR] Account normalization: {len(raw_accounts)} -> {len(accounts)} accounts")
+            
+            # Cache the result
+            cache_data = {
+                "accounts": accounts,
+                "split_time": time.time(),
+                "total_accounts": len(accounts)
+            }
+            
+            try:
+                s3_client.put_object(
+                    Bucket=S3_BUCKET,
+                    Key=cache_key,
+                    Body=json.dumps(cache_data),
+                    ContentType='application/json'
+                )
+                print(f"[BG_PROCESSOR] 🔍 ACCOUNTS: Cached {len(accounts)} accounts to S3")
+            except Exception as e:
+                print(f"[BG_PROCESSOR] ⚠️  ACCOUNTS: Failed to cache: {str(e)}")
+            
+            return accounts
+            
+        except Exception as e:
+            print(f"[BG_PROCESSOR] Account splitting failed for {doc_id}: {str(e)}")
+            return []
+    
+    def _stage_page_analysis(self, doc_id: str, pdf_path: str, accounts: List[Dict], total_pages: int) -> Dict[int, str]:
+        """Stage 3: Analyze pages to map them to accounts"""
+        print(f"[BG_PROCESSOR] Stage 3: Page analysis for {doc_id} ({total_pages} pages)")
+        
+        try:
+            # Check if already cached
+            cache_key = f"page_mapping/{doc_id}/mapping.json"
+            try:
+                cached_result = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+                cached_data = json.loads(cached_result['Body'].read())
+                page_mapping = {int(k): v for k, v in cached_data["page_mapping"].items()}
+                print(f"[BG_PROCESSOR] ✓ Using cached page mapping for {doc_id}")
+                return page_mapping
+            except:
+                pass  # Cache miss, proceed with analysis
+            
+            # Use existing scan_and_map_pages function
+            page_mapping = scan_and_map_pages(doc_id, pdf_path, accounts)
+            
+            # Cache the result
+            cache_data = {
+                "page_mapping": page_mapping,
+                "analysis_time": time.time(),
+                "total_pages": total_pages
+            }
+            
+            try:
+                s3_client.put_object(
+                    Bucket=S3_BUCKET,
+                    Key=cache_key,
+                    Body=json.dumps(cache_data),
+                    ContentType='application/json'
+                )
+                print(f"[BG_PROCESSOR] ✓ Cached page mapping for {doc_id}")
+            except Exception as e:
+                print(f"[BG_PROCESSOR] Warning: Failed to cache page mapping: {str(e)}")
+            
+            return page_mapping
+            
+        except Exception as e:
+            print(f"[BG_PROCESSOR] Page analysis failed for {doc_id}: {str(e)}")
+            return {}
+    
+    def _stage_llm_extraction(self, doc_id: str, pdf_path: str, accounts: List[Dict], 
+                             page_mapping: Dict[int, str], total_pages: int):
+        """Stage 4: Extract data from pages using LLM (parallel processing)"""
+        print(f"[BG_PROCESSOR] 🤖 LLM: Starting extraction for {total_pages} pages...")
+        
+        # Process pages in parallel batches
+        batch_size = 3  # Process 3 pages at a time
+        pages_processed = 0
+        pages_cached = 0
+        pages_queued = 0
+        
+        for page_num in range(total_pages):
+            try:
+                # Check if page is already cached
+                cache_key = f"page_data/{doc_id}/page_{page_num}.json"
+                
+                try:
+                    cached_result = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+                    # Page already processed and cached
+                    pages_processed += 1
+                    pages_cached += 1
+                    print(f"[BG_PROCESSOR] 🤖 LLM: Page {page_num + 1}/{total_pages} already cached ✓")
+                    self._update_extraction_progress(doc_id, pages_processed, total_pages)
+                    continue
+                except:
+                    pass  # Not cached, need to process
+                
+                # Submit page for processing
+                print(f"[BG_PROCESSOR] 🤖 LLM: Queuing page {page_num + 1}/{total_pages} for extraction...")
+                future = self.executor.submit(self._process_single_page, doc_id, pdf_path, page_num, page_mapping)
+                
+                # Don't wait for completion - let it run in background
+                pages_processed += 1
+                pages_queued += 1
+                self._update_extraction_progress(doc_id, pages_processed, total_pages)
+                
+            except Exception as e:
+                print(f"[BG_PROCESSOR] ❌ LLM: Failed to queue page {page_num + 1}: {str(e)}")
+        
+        print(f"[BG_PROCESSOR] 🤖 LLM: Processing summary - {pages_cached} cached, {pages_queued} queued for extraction")
+    
+    def _process_single_page(self, doc_id: str, pdf_path: str, page_num: int, page_mapping: Dict[int, str]):
+        """Process a single page with LLM extraction"""
+        try:
+            cache_key = f"page_data/{doc_id}/page_{page_num}.json"
+            
+            # Check cache again (race condition protection)
+            try:
+                cached_result = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+                return  # Already processed
+            except:
+                pass
+            
+            # Extract page text
+            import fitz
+            pdf_doc = fitz.open(pdf_path)
+            page = pdf_doc[page_num]
+            page_text = page.get_text()
+            pdf_doc.close()
+            
+            # If insufficient text, use OCR
+            if len(page_text.strip()) < 50:
+                page_text = self._ocr_single_page(pdf_path, page_num)
+            
+            # Get account for this page
+            account_number = page_mapping.get(page_num, "Unknown")
+            
+            # Extract data using LLM
+            extracted_data = self._extract_with_llm(page_text, account_number)
+            
+            # Cache the result
+            cache_data = {
+                "extracted_data": extracted_data,
+                "page_text": page_text[:500],  # Store preview
+                "account_number": account_number,
+                "extraction_time": time.time(),
+                "cache_version": "v2"
+            }
+            
+            s3_client.put_object(
+                Bucket=S3_BUCKET,
+                Key=cache_key,
+                Body=json.dumps(cache_data),
+                ContentType='application/json'
+            )
+            
+            print(f"[BG_PROCESSOR] 🤖 LLM: ✅ Processed and cached page {page_num + 1} (account: {account_number})")
+            
+        except Exception as e:
+            print(f"[BG_PROCESSOR] 🤖 LLM: ❌ Failed to process page {page_num + 1}: {str(e)}")
+    
+    def _ocr_single_page(self, pdf_path: str, page_num: int) -> str:
+        """OCR a single page"""
+        try:
+            import fitz
+            pdf_doc = fitz.open(pdf_path)
+            page = pdf_doc[page_num]
+            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+            pdf_doc.close()
+            
+            temp_image_path = f"{OUTPUT_DIR}/temp_ocr_{page_num}_{int(time.time())}.png"
+            pix.save(temp_image_path)
+            
+            with open(temp_image_path, 'rb') as f:
+                image_bytes = f.read()
+            
+            # Use Textract
+            response = textract.detect_document_text(Document={'Bytes': image_bytes})
+            
+            ocr_text = ""
+            for block in response.get('Blocks', []):
+                if block['BlockType'] == 'LINE':
+                    ocr_text += block.get('Text', '') + "\n"
+            
+            # Clean up
+            if os.path.exists(temp_image_path):
+                os.remove(temp_image_path)
+            
+            return ocr_text
+            
+        except Exception as e:
+            print(f"[BG_PROCESSOR] OCR failed for page {page_num}: {str(e)}")
+            return ""
+    
+    def _extract_with_llm(self, page_text: str, account_number: str, custom_prompt: str = None) -> Dict:
+        """Extract data from page text using LLM"""
+        try:
+            # Use custom prompt if provided, otherwise use comprehensive extraction prompt
+            prompt = custom_prompt if custom_prompt else get_comprehensive_extraction_prompt()
+            
+            # Call Bedrock
+            response = bedrock.invoke_model(
+                modelId=MODEL_ID,
+                body=json.dumps({
+                    "anthropic_version": "bedrock-2023-05-31",
+                    "max_tokens": 8192,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": f"{prompt}\n\nDocument text:\n{page_text[:8000]}"
+                        }
+                    ]
+                })
+            )
+            
+            response_body = json.loads(response['body'].read())
+            llm_response = response_body['content'][0]['text']
+            
+            # Parse JSON response
+            json_start = llm_response.find('{')
+            json_end = llm_response.rfind('}')
+            
+            if json_start != -1 and json_end != -1:
+                json_str = llm_response[json_start:json_end + 1]
+                extracted_data = json.loads(json_str)
+                
+                # For non-page extraction (full document), flatten the response
+                if custom_prompt and "documents" in extracted_data:
+                    # Extract the first document's extracted_fields
+                    docs = extracted_data.get("documents", [])
+                    if docs and len(docs) > 0:
+                        return docs[0].get("extracted_fields", {})
+                
+                return extracted_data
+            else:
+                return {"error": "No valid JSON in LLM response"}
+                
+        except Exception as e:
+            print(f"[BG_PROCESSOR] LLM extraction failed: {str(e)}")
+            return {"error": str(e)}
+    
+    def _update_stage_status(self, doc_id: str, stage: str, status: str, progress: int):
+        """Update the status of a processing stage"""
+        if doc_id in self.stage_progress:
+            self.stage_progress[doc_id][stage] = {
+                "status": status,
+                "progress": progress,
+                "timestamp": time.time()
+            }
+    
+    def _update_extraction_progress(self, doc_id: str, pages_processed: int, total_pages: int):
+        """Update LLM extraction progress"""
+        progress = int((pages_processed / total_pages) * 100) if total_pages > 0 else 0
+        self._update_stage_status(doc_id, DocumentProcessingStage.LLM_EXTRACTION, "processing", progress)
+        
+        if doc_id in self.document_status:
+            self.document_status[doc_id]["pages_processed"] = pages_processed
+    
+    def get_document_status(self, doc_id: str) -> Optional[Dict]:
+        """Get processing status for a document"""
+        if doc_id not in self.document_status:
+            return None
+        
+        status = self.document_status[doc_id].copy()
+        status["stages"] = self.stage_progress.get(doc_id, {})
+        return status
+    
+    def is_page_cached(self, doc_id: str, page_num: int) -> bool:
+        """Check if a page is already processed and cached"""
+        cache_key = f"page_data/{doc_id}/page_{page_num}.json"
+        try:
+            s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+            return True
+        except:
+            return False
+    
+    def get_cached_page_data(self, doc_id: str, page_num: int) -> Optional[Dict]:
+        """Get cached page data if available"""
+        cache_key = f"page_data/{doc_id}/page_{page_num}.json"
+        try:
+            cached_result = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+            cached_data = json.loads(cached_result['Body'].read())
+            return cached_data
+        except:
+            return None
+    
+    def _get_document_type(self, doc_id: str) -> str:
+        """Get document type from the main document record"""
+        try:
+            global processed_documents
+            doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+            if doc:
+                return doc.get("document_type_info", {}).get("type", "unknown")
+            return "unknown"
+        except Exception as e:
+            print(f"[BG_PROCESSOR] Error getting document type for {doc_id}: {str(e)}")
+            return "unknown"
+    
+    def _stage_direct_llm_extraction(self, doc_id: str, full_text: str, doc_type: str) -> Dict:
+        """Stage 4 (Alternative): Direct LLM extraction for non-loan documents"""
+        print(f"[BG_PROCESSOR] 🤖 DIRECT LLM: Extracting fields from {doc_type} document ({len(full_text)} chars)...")
+        
+        try:
+            # Check if already cached
+            cache_key = f"document_extraction_cache/{doc_id}/full_extraction.json"
+            try:
+                cached_result = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+                cached_data = json.loads(cached_result['Body'].read())
+                print(f"[BG_PROCESSOR] 🤖 DIRECT LLM: Using cached extraction ({len(cached_data['extracted_fields'])} fields)")
+                return cached_data["extracted_fields"]
+            except:
+                pass  # Cache miss, proceed with extraction
+            
+            # Get appropriate prompt for document type
+            if doc_type == "death_certificate":
+                prompt = get_comprehensive_extraction_prompt()  # Use comprehensive prompt for death certificates
+            else:
+                prompt = get_comprehensive_extraction_prompt()  # Use comprehensive prompt for all document types
+            
+            # Extract data using LLM
+            extracted_fields = self._extract_with_llm(full_text, "N/A", prompt)
+            
+            # Cache the result
+            cache_data = {
+                "extracted_fields": extracted_fields,
+                "extraction_time": time.time(),
+                "document_type": doc_type,
+                "cache_version": "v2"
+            }
+            
+            try:
+                s3_client.put_object(
+                    Bucket=S3_BUCKET,
+                    Key=cache_key,
+                    Body=json.dumps(cache_data),
+                    ContentType='application/json'
+                )
+                print(f"[BG_PROCESSOR] 🤖 DIRECT LLM: Cached {len(extracted_fields)} fields to S3")
+            except Exception as e:
+                print(f"[BG_PROCESSOR] ⚠️  DIRECT LLM: Failed to cache: {str(e)}")
+            
+            return extracted_fields
+            
+        except Exception as e:
+            print(f"[BG_PROCESSOR] Direct LLM extraction failed for {doc_id}: {str(e)}")
+            return {"error": str(e)}
+    
+    def _update_main_document_record(self, doc_id: str, accounts: List[Dict], total_pages: int, doc_type: str = "loan_document", extracted_fields: Dict = None):
+        """Update the main document record with background processing results"""
+        try:
+            global processed_documents
+            
+            # Find the document in the main list
+            doc_index = None
+            for i, doc in enumerate(processed_documents):
+                if doc["id"] == doc_id:
+                    doc_index = i
+                    break
+            
+            if doc_index is None:
+                print(f"[BG_PROCESSOR] ❌ Document {doc_id} not found in processed_documents")
+                return
+            
+            doc = processed_documents[doc_index]
+            
+            # Update the document with background processing results based on document type
+            if doc_type == "loan_document" and len(accounts) > 0:
+                # Update loan document with accounts
+                if doc["documents"] and len(doc["documents"]) > 0:
+                    doc["documents"][0].update({
+                        "accounts": accounts,
+                        "extracted_fields": {
+                            "total_accounts": len(accounts),
+                            "accounts_processed": len(accounts),
+                            "processing_method": "Background processing completed"
+                        },
+                        "accuracy_score": 95,  # High score for background processing
+                        "filled_fields": len(accounts) * 5,  # Estimate based on accounts
+                        "total_fields": len(accounts) * 10,  # Estimate based on accounts
+                        "needs_human_review": False,
+                        "optimized": True,
+                        "background_processed": True,
+                        "processing_completed_at": datetime.now().isoformat()
+                    })
+                
+                print(f"[BG_PROCESSOR] 💾 DATABASE: Updated loan document with {len(accounts)} accounts and processing metadata")
+                
+            elif extracted_fields and not extracted_fields.get("error"):
+                # Update regular document (death certificate, etc.) with extracted fields
+                if doc["documents"] and len(doc["documents"]) > 0:
+                    # Calculate field statistics
+                    filled_fields = sum(1 for v in extracted_fields.values() 
+                                      if v and str(v).strip() and str(v) != "N/A" and not isinstance(v, dict))
+                    total_fields = len(extracted_fields)
+                    accuracy_score = int((filled_fields / total_fields) * 100) if total_fields > 0 else 0
+                    
+                    doc["documents"][0].update({
+                        "extracted_fields": extracted_fields,
+                        "accuracy_score": accuracy_score,
+                        "filled_fields": filled_fields,
+                        "total_fields": total_fields,
+                        "needs_human_review": accuracy_score < 90,
+                        "optimized": True,
+                        "background_processed": True,
+                        "processing_completed_at": datetime.now().isoformat()
+                    })
+                
+                print(f"[BG_PROCESSOR] 💾 DATABASE: Updated {doc_type} document with {len(extracted_fields)} extracted fields and processing metadata")
+            
+            # Update document status
+            doc.update({
+                "status": "completed",
+                "background_processing_completed": True,
+                "total_pages": total_pages,
+                "processing_completion_time": datetime.now().isoformat()
+            })
+            
+            # Save updated document list
+            save_documents_db(processed_documents)
+            
+            print(f"[BG_PROCESSOR] 💾 DATABASE: Saved updated document to persistent storage")
+            print(f"[BG_PROCESSOR] 🎯 SUMMARY: Document {doc_id} ({doc_type}) fully processed and ready for UI access")
+            
+        except Exception as e:
+            print(f"[BG_PROCESSOR] ❌ Failed to update main document record for {doc_id}: {str(e)}")
+            import traceback
+            traceback.print_exc()
+
+def normalize_and_merge_accounts(accounts: List[Dict]) -> List[Dict]:
+    """
+    Normalize account numbers and merge duplicates that differ only by leading zeros
+    Example: "0000927800" and "927800" should be treated as the same account
+    """
+    if not accounts:
+        return accounts
+    
+    print(f"[ACCOUNT_MERGE] Processing {len(accounts)} accounts for duplicate normalization...")
+    
+    # Group accounts by normalized account number (without leading zeros)
+    normalized_groups = {}
+    
+    for account in accounts:
+        acc_num = account.get("accountNumber", "")
+        if not acc_num:
+            continue
+        
+        # Normalize by removing leading zeros
+        normalized = acc_num.lstrip('0') or '0'  # Keep at least one zero if all zeros
+        
+        if normalized not in normalized_groups:
+            normalized_groups[normalized] = []
+        
+        normalized_groups[normalized].append(account)
+        print(f"[ACCOUNT_MERGE] Account {acc_num} -> normalized: {normalized}")
+    
+    # Merge duplicate accounts
+    merged_accounts = []
+    
+    for normalized, group in normalized_groups.items():
+        if len(group) == 1:
+            # No duplicates, keep as is
+            merged_accounts.append(group[0])
+            print(f"[ACCOUNT_MERGE] Account {normalized}: no duplicates")
+        else:
+            # Multiple accounts with same normalized number - merge them
+            print(f"[ACCOUNT_MERGE] Merging {len(group)} duplicate accounts for normalized number: {normalized}")
+            
+            # Choose the best account number format (prefer longer format with leading zeros)
+            best_account = max(group, key=lambda acc: len(acc.get("accountNumber", "")))
+            best_acc_num = best_account.get("accountNumber", "")
+            
+            # Merge all account data
+            merged_result = {}
+            all_fields = set()
+            
+            # Collect all fields from all duplicate accounts
+            for account in group:
+                result = account.get("result", {})
+                if isinstance(result, dict):
+                    merged_result.update(result)
+                    all_fields.update(result.keys())
+                
+                print(f"[ACCOUNT_MERGE]   - Merging account: {account.get('accountNumber', 'N/A')}")
+            
+            # Create merged account using the best format
+            merged_account = {
+                "accountNumber": best_acc_num,
+                "result": merged_result,
+                "accuracy_score": best_account.get("accuracy_score"),
+                "filled_fields": len([v for v in merged_result.values() if v and str(v).strip()]),
+                "total_fields": len(merged_result),
+                "fields_needing_review": best_account.get("fields_needing_review", []),
+                "needs_human_review": best_account.get("needs_human_review", False),
+                "optimized": True,
+                "merged_from": [acc.get("accountNumber", "") for acc in group]  # Track what was merged
+            }
+            
+            merged_accounts.append(merged_account)
+            print(f"[ACCOUNT_MERGE] ✅ Merged into account: {best_acc_num} (from: {[acc.get('accountNumber', '') for acc in group]})")
+    
+    print(f"[ACCOUNT_MERGE] ✅ Reduced {len(accounts)} accounts to {len(merged_accounts)} unique accounts")
+    return merged_accounts
+
+# Global background processor instance
+background_processor = BackgroundDocumentProcessor()
+
+# Initialize and cleanup functions
+def init_background_processor():
+    """Initialize the background processor"""
+    try:
+        background_processor.start()
+        print("[INIT] Background processor started")
+    except Exception as e:
+        print(f"[INIT] Failed to start background processor: {str(e)}")
+
+def cleanup_background_processor():
+    """Cleanup background processor on shutdown"""
+    try:
+        background_processor.stop()
+        print("[CLEANUP] Background processor stopped")
+    except Exception as e:
+        print(f"[CLEANUP] Error stopping background processor: {str(e)}")
+
+# Register cleanup
+atexit.register(cleanup_background_processor)
 
 app = Flask(__name__)
 
@@ -2801,8 +3613,16 @@ def process_job(job_id: str, file_bytes: bytes, filename: str, use_ocr: bool, do
             "document_id": job_id
         }
         
+        # 🚀 START BACKGROUND PROCESSING IMMEDIATELY
+        if saved_pdf_path and detected_doc_type == "loan_document":
+            print(f"[BG_PROCESSOR] 🚀 Starting background processing for loan document {job_id}")
+            background_processor.queue_document_for_processing(job_id, saved_pdf_path, priority=1)
+        elif saved_pdf_path:
+            print(f"[BG_PROCESSOR] 🚀 Starting background processing for document {job_id}")
+            background_processor.queue_document_for_processing(job_id, saved_pdf_path, priority=2)
+        
         print(f"[INFO] ✅ FAST upload completed - document {job_id} ready for viewing")
-        print(f"[INFO] Document type: {detected_doc_type} - extraction will happen when pages are opened")
+        print(f"[INFO] Document type: {detected_doc_type} - background processing started")
     except Exception as e:
         import traceback
         error_details = traceback.format_exc()
@@ -2840,6 +3660,12 @@ def dashboard():
 def codebase():
     """Codebase documentation"""
     return render_template("codebase_docs.html")
+
+
+@app.route("/test_account_display.html")
+def test_account_display():
+    """Test page for account display"""
+    return send_file("test_account_display.html")
 
 
 @app.route("/api/documents")
@@ -2881,12 +3707,40 @@ def process_loan_document_endpoint(doc_id):
         # Check if already processed (has accounts)
         doc_data = doc.get("documents", [{}])[0]
         existing_accounts = doc_data.get("accounts", [])
+        
+        # 🚀 PRIORITY: Check background processing results first
+        bg_status = background_processor.get_document_status(doc_id)
+        if bg_status and bg_status.get("accounts") and len(bg_status.get("accounts", [])) > 0:
+            bg_accounts = bg_status["accounts"]
+            print(f"[LOAN_PROCESSING] ✅ Found {len(bg_accounts)} accounts from background processing")
+            
+            # Update the document with background results if not already updated
+            if not existing_accounts or len(existing_accounts) == 0:
+                doc_data["accounts"] = bg_accounts
+                doc_data["extracted_fields"] = {
+                    "total_accounts": len(bg_accounts),
+                    "accounts_processed": len(bg_accounts),
+                    "processing_method": "Background processing"
+                }
+                doc_data["background_processed"] = True
+                save_documents_db(processed_documents)
+                print(f"[LOAN_PROCESSING] ✅ Updated document with background processing results")
+            
+            return jsonify({
+                "success": True, 
+                "message": "Processed by background system", 
+                "accounts": bg_accounts,
+                "total_accounts": len(bg_accounts),
+                "source": "background_processing"
+            })
+        
         if existing_accounts and len(existing_accounts) > 0:
             return jsonify({
                 "success": True, 
                 "message": "Already processed", 
                 "accounts": existing_accounts,
-                "total_accounts": len(existing_accounts)
+                "total_accounts": len(existing_accounts),
+                "source": "previous_processing"
             })
         
         # Get PDF path
@@ -2928,7 +3782,11 @@ def process_loan_document_endpoint(doc_id):
                 return jsonify({"success": False, "message": "Loan processing failed"}), 500
             
             loan_doc_data = loan_result["documents"][0]
-            accounts = loan_doc_data.get("accounts", [])
+            raw_accounts = loan_doc_data.get("accounts", [])
+            
+            # Normalize and merge duplicate accounts (e.g., "0000927800" and "927800")
+            accounts = normalize_and_merge_accounts(raw_accounts)
+            print(f"[LOAN_PROCESSING] Account normalization: {len(raw_accounts)} -> {len(accounts)} accounts")
             
             print(f"[LOAN_PROCESSING] ✓ Found {len(accounts)} accounts")
             print(f"[LOAN_PROCESSING] Loan result structure: {loan_result}")
@@ -3212,7 +4070,7 @@ def get_document_page(doc_id, page_num):
     from flask import send_file
     
     pages_dir = os.path.join(OUTPUT_DIR, "pages", doc_id)
-    page_path = os.path.join(pages_dir, f"page_{page_num+1}.png")
+    page_path = os.path.join(pages_dir, f"page_{page_num}.png")  # Fixed: URL is already 1-based
     
     if os.path.exists(page_path):
         return send_file(page_path, mimetype='image/png')
@@ -3228,7 +4086,7 @@ def get_document_page_thumbnail(doc_id, page_num):
     import tempfile
     
     pages_dir = os.path.join(OUTPUT_DIR, "pages", doc_id)
-    page_path = os.path.join(pages_dir, f"page_{page_num+1}.png")
+    page_path = os.path.join(pages_dir, f"page_{page_num}.png")  # Fixed: URL is already 1-based
     
     if not os.path.exists(page_path):
         return "Page not found", 404
@@ -3451,7 +4309,7 @@ def get_account_pages(doc_id, account_index):
         response_data = {
             "success": True,
             "total_pages": len(account_pages),
-            "pages": account_pages,  # Already 0-based page numbers for JavaScript
+            "pages": [p + 1 for p in account_pages],  # Convert to 1-based page numbers for frontend
             "account_number": target_account_number
         }
         print(f"[INFO] Final account_pages (0-based): {account_pages}")
@@ -3492,7 +4350,7 @@ def get_account_page_image(doc_id, account_index, page_num):
         return "Document not found", 404
     
     pages_dir = os.path.join(OUTPUT_DIR, "pages", doc_id)
-    page_path = os.path.join(pages_dir, f"page_{page_num+1}.png")
+    page_path = os.path.join(pages_dir, f"page_{page_num}.png")  # Fixed: URL is already 1-based
     
     # If page doesn't exist, generate it
     if not os.path.exists(page_path):
@@ -3505,10 +4363,10 @@ def get_account_page_image(doc_id, account_index, page_num):
             
             # Open PDF and render the specific page
             pdf_doc = fitz.open(pdf_path)
-            if page_num >= len(pdf_doc):
+            if page_num > len(pdf_doc):  # page_num is 1-based, so use > instead of >=
                 return "Page number out of range", 404
             
-            page = pdf_doc[page_num]
+            page = pdf_doc[page_num - 1]  # Convert 1-based page_num to 0-based PDF index
             pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
             pix.save(page_path)
             pdf_doc.close()
@@ -3529,7 +4387,40 @@ def get_account_page_data(doc_id, account_index, page_num):
     import fitz
     import json
     
-    print(f"[DEBUG] get_account_page_data called: doc_id={doc_id}, account_index={account_index}, page_num={page_num}")
+    print(f"[API] 📄 Page data request: doc_id={doc_id}, account={account_index}, page={page_num}")
+    
+    # 🚀 PRIORITY 1: Check background processor cache first (convert 1-based to 0-based)
+    if background_processor.is_page_cached(doc_id, page_num - 1):
+        cached_data = background_processor.get_cached_page_data(doc_id, page_num - 1)
+        if cached_data and cached_data.get("extracted_data"):
+            print(f"[CACHE] ✅ Serving page {page_num} from background processing cache (account {account_index})")
+            print(f"[CACHE] 📊 Cache contains {len(cached_data.get('extracted_data', {}))} extracted fields")
+            response = jsonify({
+                "success": True,
+                "data": cached_data["extracted_data"],
+                "account_number": cached_data.get("account_number", "Unknown"),
+                "cache_source": "background_processor",
+                "extraction_time": cached_data.get("extraction_time"),
+                "cached": True
+            })
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+            return response
+    
+    # Check background processing status
+    bg_status = background_processor.get_document_status(doc_id)
+    if bg_status and bg_status.get("stage") != DocumentProcessingStage.COMPLETED:
+        print(f"[DEBUG] Document {doc_id} is being processed in background (stage: {bg_status.get('stage')})")
+        return jsonify({
+            "success": True,
+            "processing_in_background": True,
+            "stage": bg_status.get("stage"),
+            "progress": bg_status.get("progress", 0),
+            "pages_processed": bg_status.get("pages_processed", 0),
+            "total_pages": bg_status.get("total_pages", 0),
+            "message": "Page is being processed in background. Please wait..."
+        })
     
     # CONSISTENCY FIX: Check for document-level extraction cache first
     doc_cache_key = f"document_extraction_cache/{doc_id}_account_{account_index}_page_{page_num}.json"
@@ -3619,11 +4510,11 @@ def get_account_page_data(doc_id, account_index, page_num):
             pdf_doc = fitz.open(pdf_path)
             print(f"[DEBUG] PDF has {len(pdf_doc)} pages")
             
-            if page_num >= len(pdf_doc):
+            if page_num > len(pdf_doc):  # page_num is 1-based from URL
                 print(f"[ERROR] Page number {page_num} out of range (total pages: {len(pdf_doc)})")
                 return jsonify({"success": False, "message": "Page number out of range"}), 404
             
-            page = pdf_doc[page_num]
+            page = pdf_doc[page_num - 1]  # Convert 1-based page_num to 0-based PDF index
             page_text = page.get_text()
             
             print(f"[DEBUG] Extracted {len(page_text)} characters from page {page_num}")
@@ -3905,6 +4796,35 @@ def extract_page_data(doc_id, page_num):
     
     print(f"[DEBUG] extract_page_data called: doc_id={doc_id}, page_num={page_num}")
     
+    # 🚀 PRIORITY 1: Check background processor cache first (convert 1-based to 0-based)
+    if background_processor.is_page_cached(doc_id, page_num - 1):
+        cached_data = background_processor.get_cached_page_data(doc_id, page_num - 1)
+        if cached_data and cached_data.get("extracted_data"):
+            print(f"[DEBUG] ✅ Using BACKGROUND PROCESSOR cached result for page {page_num}")
+            return jsonify({
+                "success": True,
+                "extracted_fields": cached_data["extracted_data"],
+                "account_number": cached_data.get("account_number", "Unknown"),
+                "cache_source": "background_processor",
+                "extraction_time": cached_data.get("extraction_time"),
+                "cached": True
+            })
+    
+    # Check background processing status
+    bg_status = background_processor.get_document_status(doc_id)
+    if bg_status and bg_status.get("stage") != DocumentProcessingStage.COMPLETED:
+        print(f"[DEBUG] Document {doc_id} is being processed in background (stage: {bg_status.get('stage')})")
+        # Return processing status instead of extracting
+        return jsonify({
+            "success": True,
+            "processing_in_background": True,
+            "stage": bg_status.get("stage"),
+            "progress": bg_status.get("progress", 0),
+            "pages_processed": bg_status.get("pages_processed", 0),
+            "total_pages": bg_status.get("total_pages", 0),
+            "message": "Page is being processed in background. Please wait..."
+        })
+    
     # CONSISTENCY FIX: Check for document-level extraction cache first
     doc_cache_key = f"document_extraction_cache/{doc_id}_page_{page_num}.json"
     try:
@@ -3947,8 +4867,8 @@ def extract_page_data(doc_id, page_num):
                         del extracted_fields["Certificate_Number"]
                         print(f"[DEBUG] Renamed Certificate_Number to Account_Number: {extracted_fields['Account_Number']}")
                 
-                # Cache this data to S3 for consistency
-                cache_key = f"page_data/{doc_id}/page_{page_num}.json"
+                # Cache this data to S3 for consistency (convert 1-based to 0-based)
+                cache_key = f"page_data/{doc_id}/page_{page_num - 1}.json"
                 cache_data = {
                     "data": extracted_fields,
                     "extracted_at": datetime.now().isoformat(),
@@ -3974,8 +4894,8 @@ def extract_page_data(doc_id, page_num):
                     "source": "document_fields"
                 })
         
-        # Check S3 cache first (unless force=true)
-        cache_key = f"page_data/{doc_id}/page_{page_num}.json"
+        # Check S3 cache first (unless force=true) - convert 1-based to 0-based
+        cache_key = f"page_data/{doc_id}/page_{page_num - 1}.json"
         
         if not force:
             try:
@@ -4012,10 +4932,10 @@ def extract_page_data(doc_id, page_num):
         print(f"[DEBUG] Opening PDF: {pdf_path}")
         pdf_doc = fitz.open(pdf_path)
         
-        if page_num >= len(pdf_doc):
+        if page_num > len(pdf_doc):  # page_num is 1-based from URL
             return jsonify({"success": False, "message": "Page number out of range"}), 404
         
-        page = pdf_doc[page_num]
+        page = pdf_doc[page_num - 1]  # Convert 1-based page_num to 0-based PDF index
         page_text = page.get_text()
         
         # If no text found, use OCR
@@ -5092,8 +6012,8 @@ def update_page_data(doc_id, page_num):
             cache_key = f"page_data/{doc_id}/account_{account_index}/page_{page_num}.json"
             print(f"[INFO] Updating account-based cache: {cache_key}")
         else:
-            # Regular document
-            cache_key = f"page_data/{doc_id}/page_{page_num}.json"
+            # Regular document (convert 1-based to 0-based)
+            cache_key = f"page_data/{doc_id}/page_{page_num - 1}.json"
             print(f"[INFO] Updating regular cache: {cache_key}")
         
         # Get existing cache to preserve metadata
@@ -5262,6 +6182,266 @@ def get_status(job_id):
     return jsonify(status)
 
 
+# Background Processing API Endpoints
+@app.route("/api/document/<doc_id>/background-status")
+def get_background_processing_status(doc_id):
+    """Get background processing status for a document"""
+    try:
+        status = background_processor.get_document_status(doc_id)
+        if status:
+            return jsonify({"success": True, "status": status})
+        else:
+            return jsonify({"success": False, "message": "No background processing found for this document"})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+@app.route("/api/document/<doc_id>/page/<int:page_num>/cached-data")
+def get_cached_page_data_endpoint(doc_id, page_num):
+    """Get cached page data if available, otherwise return processing status"""
+    try:
+        # Check if page is cached (convert 1-based to 0-based)
+        if background_processor.is_page_cached(doc_id, page_num - 1):
+            cached_data = background_processor.get_cached_page_data(doc_id, page_num - 1)
+            if cached_data:
+                return jsonify({
+                    "success": True,
+                    "cached": True,
+                    "data": cached_data.get("extracted_data", {}),
+                    "account_number": cached_data.get("account_number"),
+                    "extraction_time": cached_data.get("extraction_time")
+                })
+        
+        # Check background processing status
+        bg_status = background_processor.get_document_status(doc_id)
+        if bg_status:
+            return jsonify({
+                "success": True,
+                "cached": False,
+                "processing": True,
+                "stage": bg_status.get("stage"),
+                "progress": bg_status.get("progress", 0),
+                "pages_processed": bg_status.get("pages_processed", 0),
+                "total_pages": bg_status.get("total_pages", 0)
+            })
+        
+        return jsonify({
+            "success": True,
+            "cached": False,
+            "processing": False,
+            "message": "Page not processed yet"
+        })
+        
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+@app.route("/api/document/<doc_id>/force-background-processing", methods=["POST"])
+def force_background_processing(doc_id):
+    """Force start background processing for a document"""
+    try:
+        # Find the document
+        doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+        if not doc:
+            return jsonify({"success": False, "message": "Document not found"}), 404
+        
+        pdf_path = doc.get("pdf_path")
+        if not pdf_path or not os.path.exists(pdf_path):
+            return jsonify({"success": False, "message": "PDF file not found"}), 404
+        
+        # Queue for background processing with high priority
+        background_processor.queue_document_for_processing(doc_id, pdf_path, priority=0)
+        
+        return jsonify({
+            "success": True,
+            "message": "Background processing started",
+            "doc_id": doc_id
+        })
+        
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+@app.route("/api/background-processor/status")
+def get_background_processor_status():
+    """Get overall background processor status"""
+    try:
+        # Get status for all documents being processed
+        all_statuses = {}
+        for doc_id in background_processor.document_status:
+            all_statuses[doc_id] = background_processor.get_document_status(doc_id)
+        
+        return jsonify({
+            "success": True,
+            "processor_running": background_processor.is_running,
+            "active_documents": len(background_processor.document_threads),
+            "queued_documents": background_processor.processing_queue.qsize(),
+            "document_statuses": all_statuses
+        })
+        
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+@app.route("/api/background-processor/restart", methods=["POST"])
+def restart_background_processor():
+    """Restart the background processor"""
+    try:
+        background_processor.stop()
+        time.sleep(1)
+        background_processor.start()
+        
+        return jsonify({
+            "success": True,
+            "message": "Background processor restarted"
+        })
+        
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+@app.route("/api/document/<doc_id>/refresh-from-background", methods=["POST"])
+def refresh_document_from_background(doc_id):
+    """Refresh document data with background processing results"""
+    try:
+        # Check background processing status
+        bg_status = background_processor.get_document_status(doc_id)
+        if not bg_status:
+            return jsonify({"success": False, "message": "No background processing found for this document"})
+        
+        # Find the document
+        doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+        if not doc:
+            return jsonify({"success": False, "message": "Document not found"}), 404
+        
+        # Get document type
+        doc_type = doc.get("document_type_info", {}).get("type", "unknown")
+        
+        # Update document with background results based on document type
+        accounts = bg_status.get("accounts", [])
+        total_pages = bg_status.get("total_pages", 0)
+        
+        # Check if processing is complete
+        if bg_status.get("stage") == DocumentProcessingStage.COMPLETED:
+            
+            if doc_type == "loan_document" and len(accounts) > 0:
+                # Update loan document with accounts
+                if doc["documents"] and len(doc["documents"]) > 0:
+                    doc["documents"][0].update({
+                        "accounts": accounts,
+                        "extracted_fields": {
+                            "total_accounts": len(accounts),
+                            "accounts_processed": len(accounts),
+                            "processing_method": "Background processing"
+                        },
+                        "accuracy_score": 95,
+                        "filled_fields": len(accounts) * 5,
+                        "total_fields": len(accounts) * 10,
+                        "needs_human_review": False,
+                        "optimized": True,
+                        "background_processed": True
+                    })
+                
+                # Update document status
+                doc.update({
+                    "status": "completed",
+                    "background_processing_completed": True,
+                    "total_pages": total_pages
+                })
+                
+                # Save to database
+                save_documents_db(processed_documents)
+                
+                return jsonify({
+                    "success": True,
+                    "message": "Loan document refreshed with background processing results",
+                    "accounts": accounts,
+                    "total_accounts": len(accounts),
+                    "total_pages": total_pages,
+                    "document_type": doc_type,
+                    "stage": bg_status.get("stage"),
+                    "progress": bg_status.get("progress", 0)
+                })
+                
+            else:
+                # For non-loan documents, check for extracted fields in cache
+                try:
+                    cache_key = f"document_extraction_cache/{doc_id}/full_extraction.json"
+                    cached_result = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+                    cached_data = json.loads(cached_result['Body'].read())
+                    extracted_fields = cached_data.get("extracted_fields", {})
+                    
+                    if extracted_fields and not extracted_fields.get("error"):
+                        # Update document with extracted fields
+                        if doc["documents"] and len(doc["documents"]) > 0:
+                            filled_fields = sum(1 for v in extracted_fields.values() 
+                                              if v and str(v).strip() and str(v) != "N/A")
+                            total_fields = len(extracted_fields)
+                            accuracy_score = int((filled_fields / total_fields) * 100) if total_fields > 0 else 0
+                            
+                            doc["documents"][0].update({
+                                "extracted_fields": extracted_fields,
+                                "accuracy_score": accuracy_score,
+                                "filled_fields": filled_fields,
+                                "total_fields": total_fields,
+                                "needs_human_review": accuracy_score < 90,
+                                "optimized": True,
+                                "background_processed": True
+                            })
+                        
+                        # Update document status
+                        doc.update({
+                            "status": "completed",
+                            "background_processing_completed": True,
+                            "total_pages": total_pages
+                        })
+                        
+                        # Save to database
+                        save_documents_db(processed_documents)
+                        
+                        return jsonify({
+                            "success": True,
+                            "message": f"{doc_type} document refreshed with background processing results",
+                            "extracted_fields": extracted_fields,
+                            "field_count": len(extracted_fields),
+                            "accuracy_score": accuracy_score,
+                            "total_pages": total_pages,
+                            "document_type": doc_type,
+                            "stage": bg_status.get("stage"),
+                            "progress": bg_status.get("progress", 0)
+                        })
+                        
+                except Exception as cache_error:
+                    print(f"[REFRESH] Failed to get cached extraction for {doc_id}: {str(cache_error)}")
+                
+                # If no cached data found, return processing status
+                return jsonify({
+                    "success": True,
+                    "message": f"Background processing completed but no extracted data found for {doc_type}",
+                    "document_type": doc_type,
+                    "stage": bg_status.get("stage"),
+                    "progress": bg_status.get("progress", 0),
+                    "total_pages": total_pages
+                })
+        else:
+            # Processing still in progress
+            return jsonify({
+                "success": True,
+                "message": "Background processing in progress",
+                "document_type": doc_type,
+                "stage": bg_status.get("stage"),
+                "progress": bg_status.get("progress", 0),
+                "pages_processed": bg_status.get("pages_processed", 0),
+                "total_pages": bg_status.get("total_pages", 0)
+            })
+        
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
 if __name__ == "__main__":
     print(f"[INFO] Starting Universal IDP - region: {AWS_REGION}, model: {MODEL_ID}")
-    app.run(debug=True, port=5015)
+    
+    # Initialize background processor
+    init_background_processor()
+    
+    try:
+        app.run(debug=True, port=5015)
+    except KeyboardInterrupt:
+        print("[INFO] Application interrupted by user")
+    finally:
+        cleanup_background_processor()

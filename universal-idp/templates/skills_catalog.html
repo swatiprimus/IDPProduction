@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Universal IDP</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: linear-gradient(135deg, #f5f7fa 0%, #e8eef5 100%); color: #1f2937; min-height: 100vh; }
+        .sidebar { position: fixed; left: 0; top: 0; width: 280px; height: 100vh; background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%); color: white; padding: 0; z-index: 1000; box-shadow: 4px 0 20px rgba(0,0,0,0.15); overflow-y: auto; }
+        .sidebar-header { padding: 30px 25px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-bottom: 3px solid rgba(255,255,255,0.15); }
+        .sidebar-header h2 { font-size: 1.4em; font-weight: 800; margin: 0; letter-spacing: -0.5px; display: flex; align-items: center; gap: 12px; }
+        .sidebar-item { padding: 16px 25px; cursor: pointer; transition: all 0.3s ease; display: flex; align-items: center; gap: 14px; border-left: 4px solid transparent; margin: 4px 0; }
+        .sidebar-item:hover { background: rgba(102, 126, 234, 0.15); border-left-color: #667eea; transform: translateX(4px); }
+        .sidebar-item.active { background: rgba(102, 126, 234, 0.2); border-left-color: #667eea; font-weight: 600; }
+        .sidebar-item .icon { font-size: 1.2em; width: 24px; text-align: center; }
+        .sidebar-divider { height: 1px; background: rgba(255,255,255,0.1); margin: 15px 0; }
+        .sidebar-section { margin: 10px 0; }
+        .section-header { padding: 15px 20px; cursor: pointer; transition: all 0.3s ease; display: flex; align-items: center; gap: 12px; border-left: 4px solid transparent; position: relative; }
+        .section-header:hover { background: #334155; }
+        .section-header .arrow { position: absolute; right: 20px; transition: transform 0.3s ease; font-size: 0.8em; }
+        .section-header.expanded .arrow { transform: rotate(-180deg); }
+        .section-content { max-height: 0; overflow: hidden; transition: max-height 0.3s ease; background: #0f172a; }
+        .section-content.expanded { max-height: 500px; }
+        .sidebar-subitem { padding: 12px 20px 12px 56px; cursor: pointer; transition: all 0.3s ease; display: flex; align-items: center; gap: 10px; font-size: 0.95em; opacity: 0.9; }
+        .sidebar-subitem:hover { background: #1e293b; opacity: 1; padding-left: 60px; }
+        .sidebar-subitem .icon { font-size: 1.1em; }
+        .main-content { margin-left: 280px; padding: 40px; }
+        .header { background: white; padding: 35px 40px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); margin-bottom: 35px; border: 1px solid rgba(0,0,0,0.05); }
+        .header h1 { font-size: 2.2em; color: #111827; margin-bottom: 25px; font-weight: 800; letter-spacing: -1px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+        .stats { display: flex; gap: 35px; margin-bottom: 25px; flex-wrap: wrap; }
+        .stat-item { display: flex; align-items: center; gap: 14px; padding: 16px 24px; background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border-radius: 12px; border: 1px solid #bae6fd; }
+        .stat-number { font-size: 2em; font-weight: 800; background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+        .stat-label { font-size: 0.9em; color: #0c4a6e; font-weight: 600; }
+        .toolbar { display: flex; gap: 18px; align-items: center; }
+        .btn { padding: 13px 26px; border: none; border-radius: 10px; cursor: pointer; font-weight: 600; transition: all 0.3s; display: flex; align-items: center; gap: 10px; font-size: 0.95em; letter-spacing: 0.3px; }
+        .btn-primary { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3); }
+        .btn-primary:hover { transform: translateY(-3px); box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4); }
+        .search-box { flex: 1; max-width: 350px; position: relative; }
+        .search-box input { width: 100%; padding: 13px 18px 13px 48px; border: 2px solid #e5e7eb; border-radius: 10px; font-size: 0.95em; transition: all 0.3s; background: white; }
+        .search-box input:focus { outline: none; border-color: #667eea; box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1); }
+        .search-icon { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: #9ca3af; font-size: 1.1em; }
+        .skills-table { background: white; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); overflow: hidden; border: 1px solid rgba(0,0,0,0.05); }
+        table { width: 100%; border-collapse: collapse; }
+        thead { background: linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%); border-bottom: 2px solid #e5e7eb; }
+        th { padding: 18px 24px; text-align: left; font-weight: 700; color: #374151; font-size: 0.85em; cursor: pointer; user-select: none; position: relative; text-transform: uppercase; letter-spacing: 0.5px; }
+        th:hover { background: rgba(102, 126, 234, 0.05); }
+        th.sortable::after { content: ' ⇅'; opacity: 0.3; font-size: 0.8em; }
+        th.sort-asc::after { content: ' ▲'; opacity: 1; color: #667eea; }
+        th.sort-desc::after { content: ' ▼'; opacity: 1; color: #667eea; }
+        td { padding: 18px 24px; border-bottom: 1px solid #f3f4f6; }
+        tbody tr { cursor: pointer; transition: all 0.3s; }
+        tbody tr:hover { background: linear-gradient(135deg, #f9fafb 0%, #f0f9ff 100%); transform: scale(1.01); box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+        .pagination { display: flex; justify-content: space-between; align-items: center; padding: 24px; background: linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%); border-top: 2px solid #e5e7eb; }
+        .pagination-info { color: #6b7280; font-size: 0.9em; font-weight: 600; }
+        .pagination-controls { display: flex; gap: 8px; }
+        .page-btn { padding: 10px 16px; border: 2px solid #e5e7eb; background: white; cursor: pointer; border-radius: 8px; transition: all 0.3s; font-weight: 600; color: #374151; }
+        .page-btn:hover:not(:disabled) { background: #667eea; color: white; border-color: #667eea; transform: translateY(-2px); }
+        .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .page-btn.active { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-color: transparent; box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3); }
+        .per-page-select { padding: 10px 16px; border: 2px solid #e5e7eb; border-radius: 8px; cursor: pointer; font-weight: 600; background: white; color: #374151; }
+        .skill-name { 
+            font-weight: 600; 
+            color: #1e293b; 
+            font-size: 0.9em; 
+            background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%); 
+            padding: 8px 16px; 
+            border-radius: 20px; 
+            display: inline-block;
+            border: 1px solid #cbd5e1;
+        }
+        .version-badge { display: inline-block; padding: 6px 14px; background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%); color: #1e40af; border-radius: 20px; font-size: 0.8em; font-weight: 700; letter-spacing: 0.3px; border: 1px solid #93c5fd; }
+        .description { color: #6b7280; font-size: 0.9em; font-weight: 500; }
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
+        .modal.show { display: flex; }
+        .modal-content { background: white; border-radius: 16px; width: 90%; max-width: 650px; max-height: 90vh; overflow-y: auto; box-shadow: 0 25px 70px rgba(0,0,0,0.3); border: 1px solid rgba(0,0,0,0.1); }
+        .modal-header { padding: 30px 35px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-bottom: none; display: flex; justify-content: space-between; align-items: center; border-radius: 16px 16px 0 0; }
+        .modal-header h2 { font-size: 1.5em; color: white; display: flex; align-items: center; gap: 12px; font-weight: 700; letter-spacing: -0.5px; }
+        .close-btn { background: rgba(255,255,255,0.2); border: none; font-size: 1.3em; cursor: pointer; color: white; width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; transition: all 0.3s; }
+        .close-btn:hover { background: rgba(255,255,255,0.3); transform: rotate(90deg); }
+        .modal-body { padding: 35px; background: #fafbfc; }
+        .form-group { margin-bottom: 28px; }
+        .form-label { display: block; margin-bottom: 10px; font-weight: 600; color: #374151; font-size: 0.95em; letter-spacing: 0.3px; }
+        .required { color: #ef4444; margin-right: 4px; font-weight: 700; }
+        .form-input { width: 100%; padding: 14px 18px; border: 2px solid #e5e7eb; border-radius: 10px; font-size: 1em; transition: all 0.3s; background: white; }
+        .form-input:focus { outline: none; border-color: #667eea; box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1); }
+        .form-textarea { min-height: 120px; resize: vertical; font-family: inherit; }
+        .file-upload { border: 3px dashed #cbd5e0; border-radius: 12px; padding: 40px; text-align: center; cursor: pointer; transition: all 0.3s; background: white; }
+        .file-upload:hover { border-color: #667eea; background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); transform: scale(1.02); }
+        .file-input { display: none; }
+        .modal-footer { padding: 25px 35px; background: white; border-top: 2px solid #e5e7eb; display: flex; justify-content: flex-end; gap: 12px; border-radius: 0 0 16px 16px; }
+        .btn-cancel { background: white; color: #6b7280; border: 2px solid #d1d5db; font-weight: 600; }
+        .btn-cancel:hover { background: #f9fafb; border-color: #9ca3af; }
+        .btn-create { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3); font-weight: 600; }
+        .btn-create:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4); }
+        .btn-create:disabled { background: #cbd5e0; cursor: not-allowed; opacity: 0.6; transform: none; box-shadow: none; }
+        .needs-review-badge { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); color: #92400e; border-radius: 20px; font-size: 0.75em; font-weight: 700; border: 2px solid #fbbf24; letter-spacing: 0.3px; animation: pulse 2s ease-in-out infinite; }
+        .needs-review-badge .icon { font-size: 1.2em; }
+        .updated-row { background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%) !important; border-left: 5px solid #f59e0b; box-shadow: 0 2px 8px rgba(245, 158, 11, 0.15); }
+        .updated-row:hover { background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%) !important; transform: scale(1.02) !important; box-shadow: 0 4px 16px rgba(245, 158, 11, 0.25) !important; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.8; } }
+        .changes-tooltip { position: relative; cursor: help; }
+        .changes-tooltip:hover::after { content: attr(data-changes); position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: #1e293b; color: white; padding: 8px 12px; border-radius: 6px; font-size: 0.85em; white-space: nowrap; z-index: 1000; margin-bottom: 5px; }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <h2>📄 IDP System</h2>
+        </div>
+        
+        <div class="sidebar-item active" onclick="window.location.href='/dashboard'">
+            <span class="icon">📊</span>
+            <span>Dashboard</span>
+        </div>
+        
+        <div class="sidebar-item" onclick="window.location.href='/codebase'">
+            <span class="icon">📖</span>
+            <span>Codebase</span>
+        </div>
+        
+        <div class="sidebar-divider"></div>
+        
+        <div class="sidebar-section">
+            <div class="section-header" onclick="toggleSection('admin')">
+                <span class="icon">⚙️</span>
+                <span>Admin</span>
+                <span class="arrow" id="admin-arrow">▼</span>
+            </div>
+            <div class="section-content" id="admin-section">
+                <div class="sidebar-subitem" onclick="showComingSoon('Users')">
+                    <span class="icon">👥</span>
+                    <span>Users</span>
+                </div>
+                <div class="sidebar-subitem" onclick="showComingSoon('Configuration')">
+                    <span class="icon">🔧</span>
+                    <span>Configuration</span>
+                </div>
+                <div class="sidebar-subitem" onclick="showComingSoon('Settings')">
+                    <span class="icon">⚙️</span>
+                    <span>Settings</span>
+                </div>
+                <div class="sidebar-subitem" onclick="showComingSoon('Help')">
+                    <span class="icon">❓</span>
+                    <span>Help</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="main-content">
+        <div class="header">
+            <h1>📊 Dashboard</h1>
+            <div class="stats">
+                <div class="stat-item"><div><div class="stat-number" id="totalDocs">0</div><div class="stat-label">Total Documents</div></div></div>
+            </div>
+            <div class="toolbar">
+                <button class="btn btn-primary" onclick="openCreateModal()"><span>+</span><span>Create</span></button>
+                <button class="btn" onclick="deleteAllDocuments()" style="background:#ef4444;color:white;" title="Delete All Documents"><span>🗑️</span></button>
+                <div class="search-box"><span class="search-icon">🔍</span><input type="text" placeholder="Search..." id="searchInput" onkeyup="filterSkills()"></div>
+            </div>
+        </div>
+        <div class="skills-table">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width:50px;"></th>
+                        <th class="sortable" onclick="sortTable('name')">Document Name</th>
+                        <th class="sortable" onclick="sortTable('date')" style="width:150px;">Created Date</th>
+                        <th class="sortable" onclick="sortTable('type')">Document Type</th>
+                        <th style="width:120px;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="skillsTableBody"></tbody>
+            </table>
+            <div class="pagination">
+                <div class="pagination-info">
+                    Showing <span id="showingStart">0</span>-<span id="showingEnd">0</span> of <span id="totalCount">0</span> documents
+                    <select class="per-page-select" id="perPageSelect" onchange="changePerPage()">
+                        <option value="10">10 per page</option>
+                        <option value="25" selected>25 per page</option>
+                        <option value="50">50 per page</option>
+                        <option value="100">100 per page</option>
+                    </select>
+                </div>
+                <div class="pagination-controls" id="paginationControls"></div>
+            </div>
+        </div>
+    </div>
+    <div class="modal" id="createModal">
+        <div class="modal-content">
+            <div class="modal-header"><h2><span>📄</span><span>Process New Document</span></h2><button class="close-btn" onclick="closeCreateModal()">×</button></div>
+            <div class="modal-body">
+                <div class="form-group"><label class="form-label"><span class="required">*</span>Upload Documents</label><div class="file-upload" onclick="document.getElementById('fileInput').click()"><div style="font-size:3em;color:#cbd5e0;">📁</div><div>Click to upload or drag and drop</div><div style="font-size:0.85em;color:#adb5bd;">PDF, PNG, JPG, JPEG, TXT</div><div style="font-size:0.9em;color:#64748b;margin-top:8px;">Select multiple files to upload at once</div></div><input type="file" id="fileInput" class="file-input" accept=".pdf,.png,.jpg,.jpeg,.txt" multiple onchange="handleFileSelect(event)"><div id="selectedFileInfo" style="display:none;"></div></div>
+            </div>
+            <div class="modal-footer"><button class="btn btn-cancel" onclick="closeCreateModal()">Cancel</button><button class="btn btn-create" id="createBtn" onclick="processDocument()" disabled>Process Documents</button></div>
+        </div>
+    </div>
+    
+
+    <script>
+        let selectedFile=null;
+        let allSkills=[];
+        let filteredSkills=[];
+        let currentPage=1;
+        let perPage=25;
+        let sortColumn='date';
+        let sortDirection='desc';
+        
+        window.onload=function(){loadSkills();loadStats();};
+        
+        function toggleSection(sectionId) {
+            const section = document.getElementById(sectionId + '-section');
+            const header = event.currentTarget;
+            if (section.classList.contains('expanded')) {
+                section.classList.remove('expanded');
+                header.classList.remove('expanded');
+            } else {
+                section.classList.add('expanded');
+                header.classList.add('expanded');
+            }
+        }
+        
+        function showComingSoon(feature) {
+            alert(`${feature} feature coming soon! This will be implemented in a future update.`);
+        }
+        
+        async function loadSkills(){
+            try{
+                const response=await fetch('/api/documents');
+                const data=await response.json();
+                allSkills=data.documents||[];
+                filteredSkills=allSkills;
+                sortTable(sortColumn, true); // Apply default sort
+                displaySkills();
+            }catch(error){
+                console.error('Error loading skills:',error);
+                document.getElementById('skillsTableBody').innerHTML='<tr><td colspan="5" style="text-align:center;padding:40px;color:#7f8c8d;">No skills created yet. Click "Create" to add your first document processing skill.</td></tr>';
+            }
+        }
+        
+        function sortTable(column, skipToggle=false){
+            if(!skipToggle && sortColumn===column){
+                sortDirection=sortDirection==='asc'?'desc':'asc';
+            }else{
+                sortColumn=column;
+                if(skipToggle) sortDirection='desc';
+            }
+            
+            // Update header classes
+            document.querySelectorAll('th').forEach(th=>{
+                th.classList.remove('sort-asc','sort-desc');
+            });
+            const th=event?.currentTarget||document.querySelector(`th[onclick*="${column}"]`);
+            if(th) th.classList.add(sortDirection==='asc'?'sort-asc':'sort-desc');
+            
+            // Sort data
+            filteredSkills.sort((a,b)=>{
+                let aVal,bVal;
+                if(column==='name'){
+                    aVal=(a.document_name||a.filename||'').toLowerCase();
+                    bVal=(b.document_name||b.filename||'').toLowerCase();
+                }else if(column==='date'){
+                    aVal=new Date(a.processed_date||0);
+                    bVal=new Date(b.processed_date||0);
+                }else if(column==='type'){
+                    aVal=(a.document_type||'').toLowerCase();
+                    bVal=(b.document_type||'').toLowerCase();
+                }
+                
+                if(aVal<bVal) return sortDirection==='asc'?-1:1;
+                if(aVal>bVal) return sortDirection==='asc'?1:-1;
+                return 0;
+            });
+            
+            currentPage=1;
+            displaySkills();
+        }
+        
+        function changePerPage(){
+            perPage=parseInt(document.getElementById('perPageSelect').value);
+            currentPage=1;
+            displaySkills();
+        }
+        
+        function goToPage(page){
+            currentPage=page;
+            displaySkills();
+        }
+        
+        function displaySkills(){
+            const tbody=document.getElementById('skillsTableBody');
+            tbody.innerHTML='';
+            
+            const totalDocs=filteredSkills.length;
+            const totalPages=Math.ceil(totalDocs/perPage);
+            const start=(currentPage-1)*perPage;
+            const end=Math.min(start+perPage,totalDocs);
+            const pageSkills=filteredSkills.slice(start,end);
+            
+            // Update pagination info
+            document.getElementById('showingStart').textContent=totalDocs>0?start+1:0;
+            document.getElementById('showingEnd').textContent=end;
+            document.getElementById('totalCount').textContent=totalDocs;
+            
+            // Render pagination controls
+            renderPagination(totalPages);
+            
+            if(pageSkills.length===0){
+                tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:40px;color:#7f8c8d;">No skills created yet. Click "Create" to add your first document processing skill.</td></tr>';
+                return;
+            }
+            
+            pageSkills.forEach(skill=>{
+                const docTypeInfo=skill.document_type_info||{};
+                const icon=docTypeInfo.icon||'📄';
+                const docType=docTypeInfo.name||'Unknown';
+                const processedDate=new Date(skill.processed_date).toLocaleDateString();
+                
+                // Get accuracy (already calculated in backend with 1 decimal precision)
+                let accuracy=0;
+                if(skill.documents&&skill.documents.length>0){
+                    const doc=skill.documents[0];
+                    // Use the accuracy_score from backend
+                    accuracy=doc.accuracy_score||0;
+                }
+                
+                const row=document.createElement('tr');
+                row.style.cursor='pointer';
+                
+                // Check if document needs review (was updated)
+                const needsReview = skill.needs_review === true;
+                const changes = skill.changes || [];
+                const changesCount = changes.length;
+                
+                if (needsReview) {
+                    row.classList.add('updated-row');
+                }
+                
+                // Check if PDF is available
+                const hasPDF = skill.filename && skill.filename.toLowerCase().endsWith('.pdf');
+                
+                // Check if document has accounts
+                const hasAccounts = skill.documents && skill.documents[0] && skill.documents[0].accounts && skill.documents[0].accounts.length > 0;
+                
+                // Set row click handler based on document type
+                if (hasPDF && hasAccounts) {
+                    // Loan documents with accounts - open account-based viewer
+                    row.onclick = () => window.open(`/document/${skill.id}/accounts`, '_blank');
+                } else if (hasPDF) {
+                    // Other documents with PDF - open page viewer
+                    row.onclick = () => window.open(`/document/${skill.id}/pages`, '_blank');
+                } else {
+                    // No PDF - disable click
+                    row.style.cursor = 'default';
+                    row.onclick = null;
+                }
+                
+                // PDF view button
+                const pdfButton = hasPDF ? `<button onclick="event.stopPropagation();viewPDF('${skill.id}','${skill.filename}')" style="padding:6px 10px;background:transparent;color:#667eea;border:none;cursor:pointer;transition:all 0.3s;display:inline-flex;align-items:center;justify-content:center;" title="View PDF"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><path d="M10 12h4"></path><path d="M10 16h4"></path></svg></button>` : '';
+                
+                // Build review badge if needed
+                const reviewBadge = needsReview ? `
+                    <span class="needs-review-badge changes-tooltip" data-changes="${changesCount} field(s) updated - Click to review">
+                        <span class="icon">⚠️</span>
+                        Needs Review (${changesCount} changes)
+                    </span>
+                ` : `
+                    <span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;background:#d1fae5;color:#065f46;border-radius:12px;font-size:0.75em;font-weight:600;">
+                        <span style="width:6px;height:6px;background:#10b981;border-radius:50%;animation:blink 1.5s ease-in-out infinite;"></span>
+                        Ready
+                    </span>
+                `;
+                
+                row.innerHTML=`
+                    <td><span style="font-size:1.5em;">${icon}</span></td>
+                    <td>
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <span class="skill-name">${skill.document_name || skill.filename}</span>
+                            ${reviewBadge}
+                            ${pdfButton}
+                        </div>
+                    </td>
+                    <td><span class="version-badge">${processedDate}</span></td>
+                    <td><span class="description">${docType}</span></td>
+                    <td style="text-align:center;">
+                        <button onclick="event.stopPropagation();deleteDocument('${skill.id}','${skill.document_name || skill.filename}')" style="padding:8px 12px;background:transparent;color:#ef4444;border:none;cursor:pointer;transition:all 0.3s;font-size:1.2em;" title="Delete Document">
+                            🗑️
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+        function renderPagination(totalPages){
+            const controls=document.getElementById('paginationControls');
+            controls.innerHTML='';
+            
+            if(totalPages<=1) return;
+            
+            // Previous button
+            const prevBtn=document.createElement('button');
+            prevBtn.className='page-btn';
+            prevBtn.textContent='‹ Previous';
+            prevBtn.disabled=currentPage===1;
+            prevBtn.onclick=()=>goToPage(currentPage-1);
+            controls.appendChild(prevBtn);
+            
+            // Page numbers
+            const maxButtons=5;
+            let startPage=Math.max(1,currentPage-Math.floor(maxButtons/2));
+            let endPage=Math.min(totalPages,startPage+maxButtons-1);
+            
+            if(endPage-startPage<maxButtons-1){
+                startPage=Math.max(1,endPage-maxButtons+1);
+            }
+            
+            if(startPage>1){
+                const btn=document.createElement('button');
+                btn.className='page-btn';
+                btn.textContent='1';
+                btn.onclick=()=>goToPage(1);
+                controls.appendChild(btn);
+                if(startPage>2){
+                    const dots=document.createElement('span');
+                    dots.textContent='...';
+                    dots.style.padding='0 8px';
+                    controls.appendChild(dots);
+                }
+            }
+            
+            for(let i=startPage;i<=endPage;i++){
+                const btn=document.createElement('button');
+                btn.className='page-btn'+(i===currentPage?' active':'');
+                btn.textContent=i;
+                btn.onclick=()=>goToPage(i);
+                controls.appendChild(btn);
+            }
+            
+            if(endPage<totalPages){
+                if(endPage<totalPages-1){
+                    const dots=document.createElement('span');
+                    dots.textContent='...';
+                    dots.style.padding='0 8px';
+                    controls.appendChild(dots);
+                }
+                const btn=document.createElement('button');
+                btn.className='page-btn';
+                btn.textContent=totalPages;
+                btn.onclick=()=>goToPage(totalPages);
+                controls.appendChild(btn);
+            }
+            
+            // Next button
+            const nextBtn=document.createElement('button');
+            nextBtn.className='page-btn';
+            nextBtn.textContent='Next ›';
+            nextBtn.disabled=currentPage===totalPages;
+            nextBtn.onclick=()=>goToPage(currentPage+1);
+            controls.appendChild(nextBtn);
+        }
+        
+        function filterSkills(){
+            const searchTerm=document.getElementById('searchInput').value.toLowerCase();
+            if(!searchTerm){
+                filteredSkills=allSkills;
+            }else{
+                filteredSkills=allSkills.filter(skill=>
+                    (skill.document_name || skill.filename).toLowerCase().includes(searchTerm)||
+                    (skill.document_type_info&&skill.document_type_info.name.toLowerCase().includes(searchTerm))
+                );
+            }
+            currentPage=1;
+            displaySkills();
+        }
+        async function loadStats(){
+            try{
+                const response=await fetch('/api/documents');
+                const data=await response.json();
+                const total=data.total||0;
+                document.getElementById('totalDocs').textContent=total;
+                document.querySelector('.stat-number').textContent=total;
+            }catch(error){
+                console.error('Error:',error);
+            }
+        }
+        function openCreateModal(){
+            // Reset the modal state
+            selectedFile = null;
+            document.getElementById('fileInput').value = '';
+            document.getElementById('selectedFileInfo').style.display = 'none';
+            document.getElementById('selectedFileInfo').innerHTML = '';
+            document.getElementById('createBtn').disabled = true;
+            document.getElementById('createBtn').textContent = 'Process Documents';
+            document.getElementById('createModal').classList.add('show');
+        }
+        function closeCreateModal(){
+            document.getElementById('createModal').classList.remove('show');
+            selectedFile=null;
+            document.getElementById('fileInput').value = '';
+            document.getElementById('selectedFileInfo').style.display='none';
+            document.getElementById('selectedFileInfo').innerHTML = '';
+            document.getElementById('createBtn').disabled=true;
+            document.getElementById('createBtn').textContent = 'Process Documents';
+        }
+        function handleFileSelect(event){
+            const files=event.target.files;
+            if(files && files.length > 0){
+                selectedFile=files; // Store all files
+                let totalSize=0;
+                let fileListHTML='<div style="margin-top:15px;">';
+                for(let i=0;i<files.length;i++){
+                    const file=files[i];
+                    const fileSize=(file.size/1024/1024).toFixed(2);
+                    totalSize+=file.size;
+                    fileListHTML+=`<div style="padding:10px;background:#e3f2fd;border-radius:6px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;"><span><strong>${file.name}</strong></span><span style="color:#64748b;">${fileSize} MB</span></div>`;
+                }
+                const totalSizeMB=(totalSize/1024/1024).toFixed(2);
+                fileListHTML+=`<div style="padding:10px;background:#f0f9ff;border-radius:6px;font-weight:600;color:#667eea;"><span>${files.length} file(s) selected</span><span style="float:right;">Total: ${totalSizeMB} MB</span></div></div>`;
+                document.getElementById('selectedFileInfo').innerHTML=fileListHTML;
+                document.getElementById('selectedFileInfo').style.display='block';
+                validateForm();
+            }
+        }
+        function validateForm(){document.getElementById('createBtn').disabled=!selectedFile || selectedFile.length===0;}
+        async function processDocument(){
+            if(!selectedFile || selectedFile.length===0)return;
+            const createBtn=document.getElementById('createBtn');
+            createBtn.disabled=true;
+            createBtn.textContent=`Uploading ${selectedFile.length} file(s)...`;
+            
+            let successCount=0;
+            let failCount=0;
+            const uploadPromises = [];
+            
+            // Process all files in parallel
+            for(let i=0;i<selectedFile.length;i++){
+                const file=selectedFile[i];
+                const formData=new FormData();
+                formData.append('file',file);
+                
+                // Create promise for parallel processing
+                const uploadPromise = fetch('/process',{method:'POST',body:formData})
+                    .then(response => response.json())
+                    .then(data => {
+                        if(data.success){
+                            successCount++;
+                            showNotification(`✅ ${file.name} queued for processing`);
+                            // Start polling immediately for this job
+                            pollProcessing(data.job_id, file.name);
+                            return {success: true, filename: file.name, job_id: data.job_id};
+                        }else{
+                            failCount++;
+                            console.error(`Failed to upload ${file.name}:`,data.message);
+                            return {success: false, filename: file.name, error: data.message};
+                        }
+                    })
+                    .catch(error => {
+                        failCount++;
+                        console.error(`Error uploading ${file.name}:`,error.message);
+                        return {success: false, filename: file.name, error: error.message};
+                    });
+                
+                uploadPromises.push(uploadPromise);
+            }
+            
+            // Wait for all uploads to complete
+            try {
+                const results = await Promise.all(uploadPromises);
+                closeCreateModal();
+                
+                if(successCount>0){
+                    showNotification(`🚀 ${successCount} document(s) processing in parallel!`);
+                }
+                if(failCount>0){
+                    const failedFiles = results.filter(r => !r.success).map(r => r.filename).join(', ');
+                    alert(`❌ ${failCount} document(s) failed to upload: ${failedFiles}`);
+                }
+            } catch (error) {
+                closeCreateModal();
+                alert(`❌ Error during parallel upload: ${error.message}`);
+            }
+        }
+        function showNotification(message, type = 'success'){
+            const notification=document.createElement('div');
+            const bgColor = type === 'error' ? '#ef4444' : type === 'warning' ? '#f59e0b' : '#10b981';
+            notification.style.cssText=`position:fixed;top:20px;right:20px;background:${bgColor};color:white;padding:15px 25px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.2);z-index:2000;max-width:400px;word-wrap:break-word;`;
+            notification.textContent=message;
+            document.body.appendChild(notification);
+            const timeout = type === 'error' ? 5000 : 3000; // Show errors longer
+            setTimeout(()=>notification.remove(),timeout);
+        }
+        // Track processing documents
+        const processingDocs = new Map();
+        let totalProcessingJobs = 0;
+        let completedJobs = 0;
+        
+        async function pollProcessing(jobId, filename = 'Document'){
+            // Add to processing list immediately
+            addProcessingDocument(jobId, filename);
+            
+            let attempts=0;
+            const maxAttempts=600; // 10 minutes max (600 seconds)
+            const poll=async()=>{
+                try{
+                    attempts++;
+                    const response=await fetch(`/status/${jobId}`);
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    
+                    const status=await response.json();
+                    
+                    // Update progress in real-time
+                    if(status.progress !== undefined){
+                        updateProcessingDocument(jobId, status.progress, status.status, filename);
+                        console.log(`[${filename}] Processing: ${status.progress}% - ${status.status}`);
+                    }
+                    
+                    // Check for completion
+                    if(status.completed || status.progress===100){
+                        if(status.error){
+                            showNotification(`❌ ${filename} processing failed: ${status.error}`, 'error');
+                            console.error('Processing error:', status);
+                        } else {
+                            showNotification(`✅ ${filename} processed successfully!`);
+                        }
+                        removeProcessingDocument(jobId);
+                        // Refresh the document list
+                        setTimeout(() => {
+                            loadSkills();
+                            loadStats();
+                        }, 1000);
+                    }else if(status.error && !status.completed){
+                        showNotification(`❌ ${filename} processing failed: ${status.error}`, 'error');
+                        console.error('Processing error:', status);
+                        removeProcessingDocument(jobId);
+                    }else if(attempts>=maxAttempts){
+                        showNotification(`⚠️ ${filename} processing timeout - check server logs`, 'warning');
+                        console.error('Polling timeout after 10 minutes');
+                        removeProcessingDocument(jobId);
+                    }else{
+                        // Continue polling
+                        setTimeout(poll, 1000);
+                    }
+                }catch(error){
+                    console.error(`Polling error for ${filename}:`,error);
+                    if(attempts<maxAttempts){
+                        setTimeout(poll,2000); // Retry after 2 seconds on error
+                    }else{
+                        showNotification(`❌ ${filename} polling failed after ${maxAttempts} attempts`, 'error');
+                        removeProcessingDocument(jobId);
+                    }
+                }
+            };
+            poll();
+        }
+        
+        function addProcessingDocument(jobId, filename = 'Document'){
+            processingDocs.set(jobId, {
+                progress: 0, 
+                status: 'Queued for processing...', 
+                filename: filename,
+                startTime: Date.now()
+            });
+            totalProcessingJobs++;
+            displayProcessingDocuments();
+        }
+        
+        function updateProcessingDocument(jobId, progress, status, filename){
+            if(processingDocs.has(jobId)){
+                const existing = processingDocs.get(jobId);
+                processingDocs.set(jobId, {
+                    ...existing, 
+                    progress, 
+                    status,
+                    filename: filename || existing.filename
+                });
+                displayProcessingDocuments();
+            }
+        }
+        
+        function removeProcessingDocument(jobId){
+            processingDocs.delete(jobId);
+            completedJobs++;
+            displayProcessingDocuments();
+            
+            // Check if all jobs are complete
+            if (completedJobs === totalProcessingJobs && totalProcessingJobs > 1) {
+                setTimeout(() => {
+                    showNotification(`🎉 All ${totalProcessingJobs} documents processed! Processing complete.`);
+                    // Reset counters
+                    totalProcessingJobs = 0;
+                    completedJobs = 0;
+                }, 1000);
+            }
+        }
+        
+        function displayProcessingDocuments(){
+            const tbody=document.getElementById('skillsTableBody');
+            
+            // Remove old processing rows
+            tbody.querySelectorAll('.processing-row').forEach(row=>row.remove());
+            
+            // Add processing documents at the top
+            processingDocs.forEach((doc, jobId)=>{
+                const row=document.createElement('tr');
+                row.className='processing-row';
+                row.style.background='linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)';
+                row.style.borderLeft='4px solid #f59e0b';
+                row.style.animation='fadeIn 0.3s ease-in';
+                
+                const progressColor=doc.progress>=80?'#10b981':doc.progress>=40?'#3498db':'#f59e0b';
+                const elapsedTime = Math.floor((Date.now() - doc.startTime) / 1000);
+                const timeDisplay = elapsedTime > 60 ? `${Math.floor(elapsedTime/60)}m ${elapsedTime%60}s` : `${elapsedTime}s`;
+                
+                row.innerHTML=`
+                    <td><span style="font-size:1.5em;">⚡</span></td>
+                    <td>
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <span class="skill-name" style="background:linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);">${doc.filename}</span>
+                            <span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;background:#f59e0b;color:white;border-radius:12px;font-size:0.75em;font-weight:600;">
+                                <span style="width:6px;height:6px;background:white;border-radius:50%;animation:blink 1s ease-in-out infinite;"></span>
+                                Processing
+                            </span>
+                        </div>
+                        <div style="font-size:0.85em;color:#92400e;margin-top:4px;font-weight:500;">${doc.status}</div>
+                    </td>
+                    <td><span class="version-badge" style="background:#fef3c7;color:#92400e;">⏱️ ${timeDisplay}</span></td>
+                    <td><span class="description">Running complete pipeline...</span></td>
+                    <td>
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <div style="flex:1;height:10px;background:#e5e7eb;border-radius:10px;overflow:hidden;box-shadow:inset 0 1px 3px rgba(0,0,0,0.1);">
+                                <div style="height:100%;width:${doc.progress}%;background:linear-gradient(90deg, ${progressColor}, ${progressColor}dd);transition:width 0.5s ease;animation:shimmer 2s ease-in-out infinite;"></div>
+                            </div>
+                            <span style="font-weight:700;color:${progressColor};min-width:45px;font-size:0.9em;">${doc.progress}%</span>
+                        </div>
+                    </td>
+                `;
+                tbody.insertBefore(row, tbody.firstChild);
+            });
+        }
+        
+        // Add animations for progress bar and ready indicator
+        const style=document.createElement('style');
+        style.textContent=`
+            @keyframes pulse {
+                0%, 100% { opacity: 1; }
+                50% { opacity: 0.7; }
+            }
+            @keyframes blink {
+                0%, 100% { opacity: 1; }
+                50% { opacity: 0.3; }
+            }
+            @keyframes fadeIn {
+                from { opacity: 0; transform: translateY(-10px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+            @keyframes shimmer {
+                0% { background-position: -200px 0; }
+                100% { background-position: 200px 0; }
+            }
+        `;
+        document.head.appendChild(style);
+        document.getElementById('createModal').addEventListener('click',function(e){if(e.target===this){closeCreateModal();}});
+        
+        // PDF Viewer Functions
+        function viewPDF(docId, filename) {
+            // Open PDF in new tab
+            window.open(`/api/document/${docId}/pdf`, '_blank');
+        }
+
+        // Delete Document Function
+        async function deleteDocument(docId, docName) {
+            if (!confirm(`Are you sure you want to delete "${docName}"?\n\nThis will:\n- Delete the document from database\n- Delete all cached data\n- Delete OCR files\n- Delete PDF file\n\nThis action cannot be undone!`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/document/${docId}/delete`, {
+                    method: 'POST'
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    alert(`✅ Document "${docName}" deleted successfully!`);
+                    // Reload the page to refresh the list
+                    window.location.reload();
+                } else {
+                    alert(`❌ Failed to delete: ${result.message}`);
+                }
+            } catch (error) {
+                alert(`❌ Error deleting document: ${error.message}`);
+            }
+        }
+
+        // Delete All Documents Function
+        async function deleteAllDocuments() {
+            const totalDocs = allSkills.length;
+            
+            if (totalDocs === 0) {
+                alert('No documents to delete!');
+                return;
+            }
+
+            if (!confirm(`⚠️ WARNING: Delete ALL ${totalDocs} documents?\n\nThis will:\n- Delete ALL documents from database\n- Delete ALL cached data\n- Delete ALL OCR files\n- Delete ALL PDF files\n\nThis action cannot be undone!\n\nAre you absolutely sure?`)) {
+                return;
+            }
+
+            // Double confirmation for safety
+            if (!confirm(`This is your last chance!\n\nDelete ALL ${totalDocs} documents permanently?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/documents/cleanup', {
+                    method: 'POST'
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    alert(`✅ Successfully deleted:\n- ${result.documents_cleared} documents\n- ${result.files_deleted} files`);
+                    // Reload the page to refresh the list
+                    window.location.reload();
+                } else {
+                    alert(`❌ Failed to delete all: ${result.message}`);
+                }
+            } catch (error) {
+                alert(`❌ Error deleting all documents: ${error.message}`);
+            }
+        }
+
+    </script>
+</body>
+</html>

@@ -771,7 +771,8 @@
 </head>
 <body>
     <div class="header">
-        <a href="/dashboard" class="back-btn">← {{ document.document_name or document.filename }}</a>
+        <a href="/dashboard" class="back-btn">← Back to Dashboard</a>
+        <h1>{{ document.document_name or document.filename }}</h1>
     </div>
 
     {% if document.needs_review %}
@@ -864,11 +865,6 @@
                     </div>
                     
                     <div class="data-meta" id="dataMeta">Select an account to view data</div>
-                    
-                    <!-- Account Number Display (Fallback) -->
-                    <div id="accountNumberDisplay" style="background:rgba(255,255,255,0.2);padding:8px 12px;border-radius:6px;margin-top:10px;display:none;">
-                        <strong>🏦 Account: <span id="currentAccountNumber">Loading...</span></strong>
-                    </div>
                     
                     <!-- Fields Header with Search -->
                     <div id="fieldsSection" style="display:none;">
@@ -1014,143 +1010,20 @@
                 console.log('API Response:', data);
                 
                 if (data.success) {
-                    console.log('=== DEBUGGING ACCOUNT DETECTION ===');
-                    console.log('Full API Response:', JSON.stringify(data, null, 2));
-                    
-                    // IMMEDIATE DEBUG: Check account number in the raw data
-                    const rawAccounts = data.document.documents[0].accounts;
-                    console.log('RAW ACCOUNTS from API:', rawAccounts);
-                    if (rawAccounts && rawAccounts.length > 0) {
-                        console.log('First account raw data:', rawAccounts[0]);
-                        console.log('First account accountNumber:', rawAccounts[0].accountNumber);
-                    }
                     console.log('Document structure:', data.document);
-                    console.log('Document ID:', data.document.id);
-                    console.log('Document type:', data.document.document_type_info?.type);
-                    console.log('Documents array:', data.document.documents);
-                    console.log('Documents array length:', data.document.documents?.length);
-                    
                     const docData = data.document.documents[0];
-                    console.log('First document data:', JSON.stringify(docData, null, 2));
-                    console.log('Document type:', docData?.document_type);
-                    console.log('Accounts exists:', 'accounts' in docData);
-                    console.log('Accounts value:', docData.accounts);
-                    console.log('Accounts type:', typeof docData.accounts);
-                    console.log('Accounts is array:', Array.isArray(docData.accounts));
-                    console.log('Accounts length:', docData.accounts ? docData.accounts.length : 'undefined');
-                    console.log('Accounts check result:', docData && docData.accounts && Array.isArray(docData.accounts) && docData.accounts.length > 0);
-                    console.log('=== END DEBUGGING ===');
+                    console.log('Document data:', docData);
+                    console.log('Accounts:', docData.accounts);
                     
-                    // Check if accounts exist and are populated
-                    if (docData && docData.accounts && Array.isArray(docData.accounts) && docData.accounts.length > 0) {
-                        console.log('✅ Found accounts, rendering list...');
+                    if (docData.accounts && docData.accounts.length > 0) {
                         accounts = docData.accounts;
-                        
-
                         renderAccountsList();
                         // Auto-select first account
                         selectAccount(0);
                     } else {
-                        console.log('❌ No accounts found or accounts array is empty');
-                        console.log('docData exists:', !!docData);
-                        console.log('docData.accounts exists:', !!docData?.accounts);
-                        console.log('docData.accounts is array:', Array.isArray(docData?.accounts));
-                        console.log('docData.accounts length:', docData?.accounts?.length);
-                        
-                        // Check if this is a loan document that needs processing
-                        const docType = data.document.document_type_info?.type;
-                        const docStatus = data.document.status;
-                        console.log('Document type:', docType);
-                        console.log('Document status:', docStatus);
-                        
-                        if (docType === 'loan_document') {
-                            console.log('🏦 Loan document detected with no accounts');
-                            
-                            // Check if document has error in extracted_fields (upload-time extraction failed)
-                            const extractedFields = docData.extracted_fields || {};
-                            if (extractedFields.error) {
-                                console.log('⚠️ Upload-time extraction failed, trying again...');
-                                document.getElementById('accountsList').innerHTML = '<div class="loading">🏦 Retrying account extraction...</div>';
-                                document.getElementById('viewerContent').innerHTML = '<div class="loading">Analyzing document for account numbers...</div>';
-                                document.getElementById('dataContent').innerHTML = '<div class="loading">Please wait while we extract account numbers...</div>';
-                                
-                                // Call the loan processing endpoint as fallback
-                                try {
-                                    const processResponse = await fetch(`/api/document/${documentId}/process-loan`, {
-                                        method: 'POST',
-                                        headers: {
-                                            'Content-Type': 'application/json'
-                                        }
-                                    });
-                                    
-                                    const processData = await processResponse.json();
-                                    console.log('Fallback processing result:', processData);
-                                    
-                                    if (processData.success && processData.accounts && processData.accounts.length > 0) {
-                                        console.log(`✅ Successfully processed ${processData.total_accounts} accounts`);
-                                        accounts = processData.accounts;
-                                        renderAccountsList();
-                                        selectAccount(0);
-                                        showNotification(`✅ Found ${processData.total_accounts} accounts in document`, 'success');
-                                    } else {
-                                        console.log('❌ No accounts found after fallback processing');
-                                        document.getElementById('accountsList').innerHTML = '<div class="loading">❌ No account numbers found in this document</div>';
-                                        document.getElementById('viewerContent').innerHTML = '<div class="loading">This document does not contain recognizable account numbers</div>';
-                                        document.getElementById('dataContent').innerHTML = '<div class="loading">Please upload a loan document with account numbers to use account-based view</div>';
-                                        showNotification('No accounts found in document', 'warning');
-                                    }
-                                } catch (processError) {
-                                    console.error('Error in fallback processing:', processError);
-                                    document.getElementById('accountsList').innerHTML = '<div class="loading">❌ Error processing document</div>';
-                                    document.getElementById('viewerContent').innerHTML = '<div class="loading">Failed to process loan document</div>';
-                                    document.getElementById('dataContent').innerHTML = '<div class="loading">Error: ' + processError.message + '</div>';
-                                    showNotification('Failed to process loan document: ' + processError.message, 'error');
-                                }
-                            } else {
-                                // Upload-time extraction failed, try fallback processing
-                                console.log('⚠️ Upload-time extraction found no accounts, trying fallback processing...');
-                                document.getElementById('accountsList').innerHTML = '<div class="loading">🏦 Trying enhanced account extraction...</div>';
-                                document.getElementById('viewerContent').innerHTML = '<div class="loading">Analyzing document with OCR...</div>';
-                                document.getElementById('dataContent').innerHTML = '<div class="loading">Please wait while we use OCR to find account numbers...</div>';
-                                
-                                // Call the loan processing endpoint as fallback
-                                try {
-                                    const processResponse = await fetch(`/api/document/${documentId}/process-loan`, {
-                                        method: 'POST',
-                                        headers: {
-                                            'Content-Type': 'application/json'
-                                        }
-                                    });
-                                    
-                                    const processData = await processResponse.json();
-                                    console.log('Fallback OCR processing result:', processData);
-                                    
-                                    if (processData.success && processData.accounts && processData.accounts.length > 0) {
-                                        console.log(`✅ Fallback processing found ${processData.total_accounts} accounts`);
-                                        accounts = processData.accounts;
-                                        renderAccountsList();
-                                        selectAccount(0);
-                                        showNotification(`✅ Found ${processData.total_accounts} accounts using OCR`, 'success');
-                                    } else {
-                                        console.log('❌ No accounts found even with OCR fallback');
-                                        document.getElementById('accountsList').innerHTML = '<div class="loading">❌ No account numbers found in this document</div>';
-                                        document.getElementById('viewerContent').innerHTML = '<div class="loading">This document does not contain recognizable account numbers</div>';
-                                        document.getElementById('dataContent').innerHTML = '<div class="loading">Please upload a loan document with account numbers to use account-based view</div>';
-                                        showNotification('No accounts found in document', 'warning');
-                                    }
-                                } catch (processError) {
-                                    console.error('Error in fallback OCR processing:', processError);
-                                    document.getElementById('accountsList').innerHTML = '<div class="loading">❌ Error processing document</div>';
-                                    document.getElementById('viewerContent').innerHTML = '<div class="loading">Failed to process loan document</div>';
-                                    document.getElementById('dataContent').innerHTML = '<div class="loading">Error: ' + processError.message + '</div>';
-                                    showNotification('Failed to process loan document: ' + processError.message, 'error');
-                                }
-                            }
-                        } else {
-                            document.getElementById('accountsList').innerHTML = '<div class="loading">No accounts found in this document</div>';
-                            document.getElementById('viewerContent').innerHTML = '<div class="loading">No accounts to display</div>';
-                            document.getElementById('dataContent').innerHTML = '<div class="loading">Upload a loan document with account numbers to see account-based view</div>';
-                        }
+                        document.getElementById('accountsList').innerHTML = '<div class="loading">No accounts found in this document</div>';
+                        document.getElementById('viewerContent').innerHTML = '<div class="loading">No accounts to display</div>';
+                        document.getElementById('dataContent').innerHTML = '<div class="loading">Upload a loan document with account numbers to see account-based view</div>';
                     }
                 } else {
                     document.getElementById('accountsList').innerHTML = '<div class="loading">Error loading document</div>';
@@ -1190,13 +1063,12 @@
                     : 'Ready';
                 
                 const pageCount = account.pageCount || 0;
-                const displayAccountNumber = account.accountNumber || 'Unknown';
                 
                 html += `
                     <div class="account-item" id="account-${index}">
                         <div class="account-header ${index === 0 ? 'expanded' : ''}" onclick="toggleAccount(${index})">
                             <div>
-                                <div class="account-number" style="font-size:1.1em;font-weight:700;color:#1e40af;">🏦 Account: ${displayAccountNumber}</div>
+                                <div class="account-number">Account: ${account.accountNumber}</div>
                                 <div class="account-meta">${fieldsDisplay} • ${pageCount} pages</div>
                             </div>
                             <span class="expand-icon ${index === 0 ? 'expanded' : ''}" id="expand-icon-${index}">▼</span>
@@ -1356,12 +1228,6 @@
                 item.classList.toggle('active', i === index);
             });
             
-            // ALWAYS SHOW ACCOUNT NUMBER
-            const account = accounts[index];
-            const accountNumber = account.accountNumber || 'Unknown';
-            document.getElementById('currentAccountNumber').textContent = accountNumber;
-            document.getElementById('accountNumberDisplay').style.display = 'block';
-            
             // Load account pages
             await loadAccountPages();
             
@@ -1444,10 +1310,7 @@
             const account = accounts[currentAccountIndex];
             const container = document.getElementById('dataContent');
             
-            // Get account number from multiple sources as fallback
-            const accountNumber = account.accountNumber || accounts[currentAccountIndex]?.accountNumber || 'Unknown';
-
-            document.getElementById('dataMeta').textContent = `Account ${accountNumber} - Page ${currentPageIndex + 1} - Loading...`;
+            document.getElementById('dataMeta').textContent = `Account ${account.accountNumber} - Page ${currentPageIndex + 1} - Loading...`;
             container.innerHTML = '<div class="loading"><div class="spinner"></div><div>Extracting data from page...</div></div>';
             
             try {
@@ -1744,17 +1607,6 @@
                         return div.innerHTML;
                     }
                     
-                    // ALWAYS DISPLAY ACCOUNT NUMBER FIRST
-                    const finalAccountNumber = accountNumber !== 'Unknown' ? accountNumber : 
-                        (account.accountNumber || result.account_number || accounts[currentAccountIndex]?.accountNumber || 'No Account Number Found');
-                    
-                    html += `
-                        <div class="field-item" style="background:linear-gradient(135deg, #e0f2fe 0%, #b3e5fc 100%);border-left-color:#0277bd;">
-                            <div class="field-label" style="color:#01579b;font-weight:700;">🏦 Account Number</div>
-                            <div class="field-value" style="color:#01579b;font-weight:700;font-size:1.1em;">${finalAccountNumber}</div>
-                        </div>
-                    `;
-                    
                     // Display regular fields first (only fields with values)
                     console.log('=== DISPLAYING REGULAR FIELDS ===');
                     console.log('Regular fields:', Object.keys(regularFields));
@@ -1990,17 +1842,8 @@
                         : (filledFields > 0 ? 100 : 0); // If no confidence scores but have fields, assume 100%
                     const confidenceColor = avgConfidence >= 90 ? '#10b981' : avgConfidence >= 70 ? '#f59e0b' : '#ef4444';
                     
-                    // Use the accountNumber variable already declared at the beginning of this function
-                    // (accountNumber is already available from line 1448)
-
-                    
-                    // FORCE DISPLAY: Ensure account number is always shown
-                    // Try to get account number from result if the original accountNumber is 'Unknown'
-                    const metaAccountNumber = accountNumber !== 'Unknown' ? accountNumber : 
-                        (result.account_number || account.accountNumber || accounts[currentAccountIndex]?.accountNumber || 'No Account Number Found');
-                    
                     document.getElementById('dataMeta').innerHTML = `
-                        <strong>Account ${metaAccountNumber}</strong> - Page ${currentPageIndex + 1}
+                        Account ${account.accountNumber} - Page ${currentPageIndex + 1}
                         <span style="display:inline-block;margin-left:10px;padding:4px 8px;background:${confidenceColor};color:white;border-radius:4px;font-size:0.85em;font-weight:600;">
                             ${avgConfidence}% Confidence (${filledFields} fields)
                         </span>
