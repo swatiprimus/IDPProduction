@@ -1011,16 +1011,30 @@
                 ? `Account ${accounts[currentAccountIndex].accountNumber} - Page ${currentPageIndex + 1} - Loading...`
                 : `Page ${currentPageIndex + 1} - Loading...`;
             document.getElementById('dataMeta').textContent = metaText;
+            console.log(`[PAGE_CLICK] ${metaText}`);
             container.innerHTML = '<div class="loading"><div class="spinner"></div><div>Extracting data from page...</div></div>';
             
             try {
                 let response, result;
+                const pageLabel = hasAccounts && currentAccountIndex >= 0 
+                    ? `Account ${accounts[currentAccountIndex].accountNumber} - Page ${currentPageIndex + 1}`
+                    : `Page ${currentPageIndex + 1}`;
+                
                 if (hasAccounts && currentAccountIndex >= 0) {
                     response = await fetch(`/api/document/${documentId}/account/${currentAccountIndex}/page/${currentPageIndex}/data`);
                 } else {
                     response = await fetch(`/api/document/${documentId}/page/${currentPageIndex}/extract`);
                 }
                 result = await response.json();
+                
+                // Log cache vs LLM source
+                const source = result.source || 'unknown';
+                const isCached = source === 'cache' || result.pre_cached === true;
+                const sourceLabel = isCached ? '💾 CACHE' : '🤖 LLM';
+                const extractionTime = result.extraction_time ? `${result.extraction_time}ms` : 'N/A';
+                
+                console.log(`[DATA_SOURCE] ${sourceLabel} - ${pageLabel} - Source: ${source} - Time: ${extractionTime}`);
+                console.log(`[DATA_SOURCE] Fields extracted: ${Object.keys(result.data || {}).length}`);
                 
                 if (result.success) {
                     let fields = result.data || {};
@@ -1327,6 +1341,11 @@
                     }
                     
                     container.innerHTML = html || '<div class="loading">No data extracted from this page</div>';
+                    
+                    // Log completion with source info
+                    const completionMsg = `[PAGE_COMPLETE] ${pageLabel} - ${sourceLabel} - ${Object.keys(regularFields).length} fields displayed - Accuracy: ${avgConfidence.toFixed(1)}%`;
+                    console.log(completionMsg);
+                    console.log(`[PAGE_COMPLETE] Filled: ${filledFields}/${totalFields} fields`);
                     
                     // Update fields section
                     document.getElementById('fieldsSection').style.display = 'block';

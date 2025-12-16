@@ -3424,6 +3424,33 @@ def get_version():
         "cache_busting": True
     })
 
+@app.route("/api/sync-db", methods=["POST"])
+def sync_database():
+    """Force reload database from disk - useful for debugging cache issues"""
+    global processed_documents
+    try:
+        old_count = len(processed_documents)
+        processed_documents = load_documents_db()
+        new_count = len(processed_documents)
+        
+        message = f"Database synced: {old_count} -> {new_count} documents"
+        print(f"[SYNC] {message}")
+        
+        return jsonify({
+            "success": True,
+            "message": message,
+            "old_count": old_count,
+            "new_count": new_count,
+            "timestamp": datetime.now().isoformat()
+        })
+    except Exception as e:
+        error_msg = f"Failed to sync database: {str(e)}"
+        print(f"[ERROR] {error_msg}")
+        return jsonify({
+            "success": False,
+            "message": error_msg
+        }), 500
+
 @app.route("/")
 def index():
     """Main page - Skills Catalog Dashboard"""
@@ -3457,13 +3484,30 @@ def document_analyzer():
 @app.route("/api/documents")
 def get_all_documents():
     """API endpoint to get all processed documents"""
-    print(f"[API] /api/documents called - returning {len(processed_documents)} documents")
-    response = jsonify({"documents": processed_documents, "total": len(processed_documents)})
+    global processed_documents
     
-    # Add cache-busting headers to ensure fresh data
-    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    # CRITICAL: Reload from disk every time to ensure fresh data
+    # This prevents stale in-memory data from being served
+    try:
+        reloaded = load_documents_db()
+        if len(reloaded) != len(processed_documents):
+            print(f"[API] Database changed: {len(processed_documents)} -> {len(reloaded)} documents")
+            processed_documents = reloaded
+    except Exception as e:
+        print(f"[WARNING] Failed to reload documents from disk: {str(e)}")
+    
+    print(f"[API] /api/documents called - returning {len(processed_documents)} documents")
+    response = jsonify({
+        "documents": processed_documents, 
+        "total": len(processed_documents),
+        "timestamp": datetime.now().isoformat()  # Add timestamp for cache busting
+    })
+    
+    # Add aggressive cache-busting headers
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0, private'
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'
+    response.headers['ETag'] = str(len(processed_documents))  # Change ETag when count changes
     
     return response
 
@@ -5889,11 +5933,13 @@ def extract_page_data(doc_id, page_num):
                     'timestamp': time.time()
                 }
                 
+                print(f"[CACHE_HIT] Page {page_num} - Data from S3 cache")
                 return jsonify({
                     "success": True,
                     "page_number": page_num + 1,
                     "data": cached_fields,
                     "cached": True,
+                    "source": "cache",
                     "edited": cached_data.get("edited", False)
                 })
             except s3_client.exceptions.NoSuchKey:
@@ -6026,8 +6072,11 @@ def extract_page_data(doc_id, page_num):
                 "success": True,
                 "page_number": page_num + 1,
                 "data": normalized_data,
-                "cached": False
+                "cached": False,
+                "source": "llm"
             }
+            
+            print(f"[LLM_EXTRACTION] Page {page_num} - Data extracted from LLM (Bedrock)")
             
             try:
                 s3_client.put_object(

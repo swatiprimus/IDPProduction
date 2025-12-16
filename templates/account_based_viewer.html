@@ -1465,10 +1465,23 @@
             try {
                 // Get the actual PDF page number for this account page
                 const actualPageNum = accountPageNumbers[currentPageIndex] || currentPageIndex;
+                const accountNum = accounts[currentAccountIndex].accountNumber;
+                const pageLabel = `Account ${accountNum} - Page ${currentPageIndex + 1}`;
+                
+                console.log(`[PAGE_CLICK] ${pageLabel} - Loading...`);
                 
                 // Fetch page-specific data from the API using actual page number
                 const response = await fetch(`/api/document/${documentId}/account/${currentAccountIndex}/page/${actualPageNum}/data`);
                 const result = await response.json();
+                
+                // Log cache vs LLM source
+                const source = result.source || 'unknown';
+                const isCached = source === 'cache' || result.pre_cached === true;
+                const sourceLabel = isCached ? '💾 CACHE' : '🤖 LLM';
+                const extractionTime = result.extraction_time ? `${result.extraction_time}ms` : 'N/A';
+                
+                console.log(`[DATA_SOURCE] ${sourceLabel} - ${pageLabel} - Source: ${source} - Time: ${extractionTime}`);
+                console.log(`[DATA_SOURCE] Fields extracted: ${Object.keys(result.data || {}).length}`);
                 
                 if (result.success) {
                     let fields = result.data || {};
@@ -1999,6 +2012,11 @@
                     `;
                     
                     container.innerHTML = html || '<div class="loading">No data extracted from this page</div>';
+                    
+                    // Log completion with source info
+                    const completionMsg = `[PAGE_COMPLETE] ${pageLabel} - ${sourceLabel} - ${Object.keys(regularFields).length} fields displayed - Accuracy: ${avgConfidence.toFixed(1)}%`;
+                    console.log(completionMsg);
+                    console.log(`[PAGE_COMPLETE] Filled: ${filledFields}/${totalFields} fields`);
                     
                     // Update fields section
                     document.getElementById('fieldsSection').style.display = 'block';

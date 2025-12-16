@@ -159,6 +159,7 @@
             </div>
             <div class="toolbar">
                 <button class="btn btn-primary" onclick="openCreateModal()"><span>+</span><span>Create</span></button>
+                <button class="btn" onclick="syncDatabase()" style="background:#3b82f6;color:white;" title="Sync Database (Force Reload)"><span>🔄</span></button>
                 <button class="btn" onclick="deleteAllDocuments()" style="background:#ef4444;color:white;" title="Delete All Documents"><span>🗑️</span></button>
                 <div class="search-box"><span class="search-icon">🔍</span><input type="text" placeholder="Search..." id="searchInput" onkeyup="filterSkills()"></div>
             </div>
@@ -230,7 +231,9 @@
         
         async function loadSkills(){
             try{
-                const response=await fetch('/api/documents?t=' + Date.now(), {
+                // Add timestamp and random number for aggressive cache busting
+                const cacheBreaker = Date.now() + Math.random();
+                const response=await fetch('/api/documents?t=' + cacheBreaker, {
                     headers: {
                         'Cache-Control': 'no-cache, no-store, must-revalidate',
                         'Pragma': 'no-cache',
@@ -239,7 +242,7 @@
                 });
                 const data=await response.json();
                 allSkills=data.documents||[];
-                console.log(`[LOAD_SKILLS] Loaded ${allSkills.length} documents`);
+                console.log(`[LOAD_SKILLS] Loaded ${allSkills.length} documents (timestamp: ${data.timestamp})`);
                 allSkills.forEach(skill => {
                     console.log(`[LOAD_SKILLS] Doc ${skill.id}: type=${skill.document_type_info?.type || 'unknown'}`);
                 });
@@ -703,6 +706,36 @@
             window.open(`/api/document/${docId}/pdf`, '_blank');
         }
 
+        // Sync Database Function - Force reload from disk
+        async function syncDatabase() {
+            try {
+                console.log('[SYNC] Syncing database from disk...');
+                const response = await fetch('/api/sync-db', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    console.log(`[SYNC] ${result.message}`);
+                    showNotification(`✅ ${result.message}`, 'success');
+                    // Reload skills after sync
+                    setTimeout(() => {
+                        loadSkills();
+                        loadStats();
+                    }, 500);
+                } else {
+                    console.error('[SYNC] Failed:', result.message);
+                    showNotification(`❌ Sync failed: ${result.message}`, 'error');
+                }
+            } catch (error) {
+                console.error('[SYNC] Error:', error);
+                showNotification(`❌ Sync error: ${error.message}`, 'error');
+            }
+        }
+        
         // Delete Document Function
         async function deleteDocument(docId, docName) {
             if (!confirm(`Are you sure you want to delete "${docName}"?\n\nThis will:\n- Delete the document from database\n- Delete all cached data\n- Delete OCR files\n- Delete PDF file\n\nThis action cannot be undone!`)) {
