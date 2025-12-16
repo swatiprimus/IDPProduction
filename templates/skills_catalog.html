@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>Dashboard - Universal IDP</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -227,9 +230,19 @@
         
         async function loadSkills(){
             try{
-                const response=await fetch('/api/documents');
+                const response=await fetch('/api/documents?t=' + Date.now(), {
+                    headers: {
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
+                        'Pragma': 'no-cache',
+                        'Expires': '0'
+                    }
+                });
                 const data=await response.json();
                 allSkills=data.documents||[];
+                console.log(`[LOAD_SKILLS] Loaded ${allSkills.length} documents`);
+                allSkills.forEach(skill => {
+                    console.log(`[LOAD_SKILLS] Doc ${skill.id}: type=${skill.document_type_info?.type || 'unknown'}`);
+                });
                 filteredSkills=allSkills;
                 sortTable(sortColumn, true); // Apply default sort
                 displaySkills();
@@ -340,9 +353,14 @@
                 // Check if PDF is available
                 const hasPDF = skill.filename && skill.filename.toLowerCase().endsWith('.pdf');
                 
-                // Set row click handler - open account-based viewer (now with sophisticated page mapping)
+                // Set row click handler - route based on document type
                 if (hasPDF) {
-                    row.onclick = () => window.open(`/document/${skill.id}/accounts`, '_blank');
+                    // Determine correct URL based on document type
+                    const docTypeInfo = skill.document_type_info || {};
+                    const docType = docTypeInfo.type || 'unknown';
+                    const viewUrl = docType === 'loan_document' ? `/document/${skill.id}/accounts` : `/document/${skill.id}/pages`;
+                    console.log(`[ROUTING] Doc: ${skill.id}, Type: ${docType}, URL: ${viewUrl}`);
+                    row.onclick = () => window.open(viewUrl, '_blank');
                 } else {
                     row.style.cursor = 'default';
                     row.onclick = null;

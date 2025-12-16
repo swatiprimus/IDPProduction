@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Cache Busting Test</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <style>
+        body { font-family: Arial; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 4px; }
+        .success { background: #d4edda; color: #155724; }
+        .info { background: #d1ecf1; color: #0c5460; }
+        .error { background: #f8d7da; color: #721c24; }
+        button { padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        pre { background: #f8f9fa; padding: 10px; border-radius: 4px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔄 Cache Busting Test</h1>
+        <p>This page tests if cache busting is working correctly.</p>
+        
+        <h2>Test Results</h2>
+        <div id="results"></div>
+        
+        <h2>Actions</h2>
+        <button onclick="testVersion()">Test Version Endpoint</button>
+        <button onclick="testCacheHeaders()">Test Cache Headers</button>
+        <button onclick="clearLocalStorage()">Clear Local Storage</button>
+        <button onclick="location.reload()">Hard Refresh Page</button>
+        
+        <h2>Debug Info</h2>
+        <pre id="debug"></pre>
+    </div>
+
+    <script>
+        async function testVersion() {
+            const results = document.getElementById('results');
+            try {
+                const response = await fetch('/api/version?t=' + Date.now());
+                const data = await response.json();
+                
+                const headers = {
+                    'Cache-Control': response.headers.get('Cache-Control'),
+                    'Pragma': response.headers.get('Pragma'),
+                    'Expires': response.headers.get('Expires')
+                };
+                
+                results.innerHTML += `
+                    <div class="status success">
+                        <strong>✓ Version Endpoint Working</strong><br>
+                        Version: ${data.version}<br>
+                        Timestamp: ${data.timestamp}<br>
+                        Cache Busting: ${data.cache_busting}
+                    </div>
+                    <div class="status info">
+                        <strong>Response Headers:</strong><br>
+                        Cache-Control: ${headers['Cache-Control']}<br>
+                        Pragma: ${headers['Pragma']}<br>
+                        Expires: ${headers['Expires']}
+                    </div>
+                `;
+                
+                console.log('Version test passed', data);
+            } catch (error) {
+                results.innerHTML += `
+                    <div class="status error">
+                        <strong>✗ Version Endpoint Failed</strong><br>
+                        ${error.message}
+                    </div>
+                `;
+                console.error('Version test failed', error);
+            }
+        }
+        
+        async function testCacheHeaders() {
+            const results = document.getElementById('results');
+            try {
+                const response = await fetch('/api/documents?t=' + Date.now());
+                const headers = {
+                    'Cache-Control': response.headers.get('Cache-Control'),
+                    'Pragma': response.headers.get('Pragma'),
+                    'Expires': response.headers.get('Expires')
+                };
+                
+                const hasCacheControl = headers['Cache-Control'] && headers['Cache-Control'].includes('no-cache');
+                const status = hasCacheControl ? 'success' : 'error';
+                
+                results.innerHTML += `
+                    <div class="status ${status}">
+                        <strong>${hasCacheControl ? '✓' : '✗'} Cache Headers Test</strong><br>
+                        Cache-Control: ${headers['Cache-Control']}<br>
+                        Pragma: ${headers['Pragma']}<br>
+                        Expires: ${headers['Expires']}
+                    </div>
+                `;
+                
+                console.log('Cache headers:', headers);
+            } catch (error) {
+                results.innerHTML += `
+                    <div class="status error">
+                        <strong>✗ Cache Headers Test Failed</strong><br>
+                        ${error.message}
+                    </div>
+                `;
+            }
+        }
+        
+        function clearLocalStorage() {
+            localStorage.clear();
+            sessionStorage.clear();
+            document.getElementById('results').innerHTML += `
+                <div class="status success">
+                    <strong>✓ Local Storage Cleared</strong>
+                </div>
+            `;
+        }
+        
+        // Auto-run tests on page load
+        window.onload = function() {
+            document.getElementById('debug').textContent = `
+Page Load Time: ${new Date().toISOString()}
+User Agent: ${navigator.userAgent}
+Local Storage: ${Object.keys(localStorage).length} items
+Session Storage: ${Object.keys(sessionStorage).length} items
+            `.trim();
+            
+            console.log('Cache Busting Test Page Loaded');
+            testVersion();
+            testCacheHeaders();
+        };
+    </script>
+</body>
+</html>

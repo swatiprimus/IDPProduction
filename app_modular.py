@@ -24,6 +24,15 @@ from app.services.loan_processor import process_loan_document
 
 app = Flask(__name__)
 
+# Disable caching for all responses
+@app.after_request
+def disable_cache(response):
+    """Disable caching for all responses to ensure fresh code is always loaded"""
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
+
 # AWS & Model Configuration
 AWS_REGION = "us-east-1"
 bedrock = boto3.client("bedrock-runtime", region_name=AWS_REGION)
@@ -34,6 +43,11 @@ S3_BUCKET = "awsidpdocs"
 
 # In-memory Job Tracker
 job_status_map = {}
+
+# In-memory Page Cache (for fast access to recently extracted pages)
+# Format: {doc_id: {page_num: {data, timestamp}}}
+page_cache = {}
+PAGE_CACHE_TTL = 3600  # 1 hour TTL
 
 # Create output directory for OCR results
 OUTPUT_DIR = "ocr_results"
@@ -2386,6 +2400,101 @@ Only extract fields where you can see a clear, definite value in the document.
         }
 
 
+def pre_cache_all_pages_simple(job_id: str, pdf_path: str):
+    """
+    Simple pre-caching for non-loan documents (death certificates, etc.)
+    Extracts and caches all page data without account mapping.
+    Much faster than loan document pre-caching.
+    """
+    import fitz
+    import json
+    
+    if not pdf_path or not os.path.exists(pdf_path):
+        print(f"[WARNING] PDF path not found for pre-caching: {pdf_path}")
+        return
+    
+    print(f"[INFO] Starting simple pre-cache for non-loan document {job_id}")
+    
+    try:
+        pdf_doc = fitz.open(pdf_path)
+        total_pages = len(pdf_doc)
+        
+        print(f"[INFO] Pre-caching {total_pages} pages for non-loan document...")
+        
+        for page_num in range(total_pages):
+            try:
+                page = pdf_doc[page_num]
+                page_text = page.get_text()
+                
+                # If no text, use OCR
+                if not page_text or len(page_text.strip()) < 50:
+                    print(f"[DEBUG] Page {page_num + 1} has no text, using OCR...")
+                    
+                    pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+                    temp_image_path = os.path.join(OUTPUT_DIR, f"temp_precache_{job_id}_{page_num}.png")
+                    pix.save(temp_image_path)
+                    
+                    try:
+                        with open(temp_image_path, 'rb') as image_file:
+                            image_bytes = image_file.read()
+                        
+                        textract_response = textract.detect_document_text(Document={'Bytes': image_bytes})
+                        
+                        page_text = ""
+                        for block in textract_response.get('Blocks', []):
+                            if block['BlockType'] == 'LINE':
+                                page_text += block.get('Text', '') + "\n"
+                        
+                        if os.path.exists(temp_image_path):
+                            os.remove(temp_image_path)
+                    except Exception as ocr_err:
+                        print(f"[ERROR] OCR failed on page {page_num + 1}: {str(ocr_err)}")
+                        continue
+                
+                # Extract data using AI
+                detected_type = detect_document_type(page_text)
+                page_extraction_prompt = get_comprehensive_extraction_prompt()
+                
+                response = call_bedrock(page_extraction_prompt, page_text, max_tokens=8192)
+                
+                # Parse JSON response
+                json_start = response.find('{')
+                json_end = response.rfind('}')
+                
+                if json_start != -1 and json_end != -1:
+                    json_str = response[json_start:json_end + 1]
+                    parsed = json.loads(json_str)
+                    
+                    # Cache to S3
+                    cache_key = f"page_data/{job_id}/page_{page_num}.json"
+                    cache_data = {
+                        "data": parsed,
+                        "extracted_at": datetime.now().isoformat(),
+                        "source": "pre_cache"
+                    }
+                    
+                    try:
+                        s3_client.put_object(
+                            Bucket=S3_BUCKET,
+                            Key=cache_key,
+                            Body=json.dumps(cache_data),
+                            ContentType='application/json'
+                        )
+                        print(f"[DEBUG] Cached page {page_num + 1} to S3")
+                    except Exception as s3_error:
+                        print(f"[WARNING] Failed to cache page {page_num + 1} to S3: {str(s3_error)}")
+                
+            except Exception as page_error:
+                print(f"[ERROR] Failed to pre-cache page {page_num + 1}: {str(page_error)}")
+                continue
+        
+        pdf_doc.close()
+        print(f"[INFO] ✅ Simple pre-caching completed for {total_pages} pages")
+        
+    except Exception as e:
+        print(f"[ERROR] Pre-caching failed: {str(e)}")
+
+
 def pre_cache_all_pages(job_id: str, pdf_path: str, accounts: list):
     """
     Pre-cache all page data during initial upload to avoid re-running OCR on every click.
@@ -3195,13 +3304,56 @@ def process_job(job_id: str, file_bytes: bytes, filename: str, use_ocr: bool, do
         processed_documents.append(document_record)
         save_documents_db(processed_documents)
         
+        # Debug: Verify document was saved with correct type
+        print(f"[DEBUG] Document saved with type_info: {document_record.get('document_type_info', {})}")
+        
+        # PRE-CACHE ALL PAGES FOR NON-LOAN DOCUMENTS
+        if detected_doc_type != "loan_document" and saved_pdf_path:
+            print(f"\n{'='*60}")
+            print(f"[UPLOAD] 💾 PRE-CACHING PAGE DATA FOR NON-LOAN DOCUMENT")
+            print(f"[UPLOAD] Document Type: {detected_doc_type}")
+            print(f"[UPLOAD] This extracts and caches all page data during upload")
+            print(f"[UPLOAD] Pages will load instantly without re-extraction")
+            print(f"{'='*60}")
+            
+            job_status_map[job_id].update({
+                "status": "💾 Pre-caching page data for instant loading...",
+                "progress": 90
+            })
+            
+            # Pre-cache all pages in background thread to avoid blocking
+            cache_thread = threading.Thread(
+                target=pre_cache_all_pages_simple,
+                args=(job_id, saved_pdf_path),
+                daemon=True
+            )
+            cache_thread.start()
+            
+            print(f"\n{'='*60}")
+            print(f"[UPLOAD] ✅ PRE-CACHING STARTED IN BACKGROUND")
+            print(f"[UPLOAD] Pages will be cached progressively")
+            print(f"[UPLOAD] Document ready for viewing immediately")
+            print(f"{'='*60}\n")
+        
         # Mark job as complete with account detection results
+        print(f"[DEBUG] detected_accounts: {detected_accounts}, detected_doc_type: {detected_doc_type}")
         if detected_accounts:
             # Format results as requested: "Account Number: [number]"
             formatted_accounts = [f"Account Number: {acc}" for acc in detected_accounts]
             status_message = f"✅ Document uploaded - {len(detected_accounts)} account(s) detected: {'; '.join(formatted_accounts)}"
         else:
-            status_message = "✅ Document uploaded - No explicitly labeled account numbers found in header"
+            # Different message based on document type
+            if detected_doc_type == "loan_document":
+                status_message = "✅ Document uploaded - No explicitly labeled account numbers found in header"
+            else:
+                status_message = f"✅ Document uploaded - {detected_doc_type.replace('_', ' ').title()} ready for viewing"
+        print(f"[DEBUG] Final status_message: {status_message}")
+        
+        # Determine redirect URL based on document type
+        if detected_doc_type == "loan_document":
+            redirect_url = f"/document/{job_id}/accounts"
+        else:
+            redirect_url = f"/document/{job_id}/pages"
             
         job_status_map[job_id] = {
             "status": status_message,
@@ -3209,7 +3361,8 @@ def process_job(job_id: str, file_bytes: bytes, filename: str, use_ocr: bool, do
             "result": {"documents": [placeholder_doc]},
             "document_id": job_id,
             "accounts_detected": detected_accounts,
-            "account_count": len(detected_accounts)
+            "account_count": len(detected_accounts),
+            "redirect_url": redirect_url
         }
         
         # DETAILED UPLOAD COMPLETION LOGGING
@@ -3238,7 +3391,7 @@ def process_job(job_id: str, file_bytes: bytes, filename: str, use_ocr: bool, do
             print(f"[UPLOAD_COMPLETE] 📍 Detection Location: First 30 lines of document")
             print(f"[UPLOAD_COMPLETE] ℹ️ Status: Document ready for manual review")
         
-        print(f"[UPLOAD_COMPLETE] 🌐 Document available at: http://127.0.0.1:5015/document/{job_id}/pages")
+        print(f"[UPLOAD_COMPLETE] 🌐 Document available at: http://127.0.0.1:5015{redirect_url}")
         print(f"{'='*80}\n")
     except Exception as e:
         import traceback
@@ -3260,6 +3413,16 @@ def process_job(job_id: str, file_bytes: bytes, filename: str, use_ocr: bool, do
             f.write(f"Error: {str(e)}\n\n")
             f.write(f"Traceback:\n{error_details}\n")
 
+
+@app.route("/api/version")
+def get_version():
+    """Get current app version for cache busting"""
+    import time
+    return jsonify({
+        "version": "2.0",
+        "timestamp": datetime.now().isoformat(),
+        "cache_busting": True
+    })
 
 @app.route("/")
 def index():
@@ -5608,12 +5771,32 @@ def extract_page_data(doc_id, page_num):
     
     print(f"[DEBUG] extract_page_data called: doc_id={doc_id}, page_num={page_num}")
     
+    # FAST PATH 1: Check in-memory cache first (instant access)
+    if doc_id in page_cache and page_num in page_cache[doc_id]:
+        cache_entry = page_cache[doc_id][page_num]
+        # Check if cache is still valid (TTL)
+        if time.time() - cache_entry.get('timestamp', 0) < PAGE_CACHE_TTL:
+            print(f"[DEBUG] ✓ Using in-memory cached result for page {page_num} - INSTANT ACCESS")
+            return jsonify(cache_entry['data'])
+        else:
+            # Cache expired, remove it
+            del page_cache[doc_id][page_num]
+    
     # CONSISTENCY FIX: Check for document-level extraction cache first
     doc_cache_key = f"document_extraction_cache/{doc_id}_page_{page_num}.json"
     try:
         cached_result = s3_client.get_object(Bucket=S3_BUCKET, Key=doc_cache_key)
         cached_data = json.loads(cached_result['Body'].read())
         print(f"[DEBUG] ✓ Using document-level cached result for page {page_num} - GUARANTEED CONSISTENT")
+        
+        # Store in in-memory cache for next access
+        if doc_id not in page_cache:
+            page_cache[doc_id] = {}
+        page_cache[doc_id][page_num] = {
+            'data': cached_data,
+            'timestamp': time.time()
+        }
+        
         return jsonify(cached_data)
     except:
         print(f"[DEBUG] No document-level cache found for page {page_num}, extracting fresh")
@@ -5691,6 +5874,20 @@ def extract_page_data(doc_id, page_num):
                 cached_fields = cached_data.get("data", {})
                 cached_fields = flatten_nested_objects(cached_fields)
                 print(f"[DEBUG] Applied flattening to cached data")
+                
+                # Store in in-memory cache for next access
+                if doc_id not in page_cache:
+                    page_cache[doc_id] = {}
+                page_cache[doc_id][page_num] = {
+                    'data': {
+                        "success": True,
+                        "page_number": page_num + 1,
+                        "data": cached_fields,
+                        "cached": True,
+                        "edited": cached_data.get("edited", False)
+                    },
+                    'timestamp': time.time()
+                }
                 
                 return jsonify({
                     "success": True,
@@ -5842,6 +6039,14 @@ def extract_page_data(doc_id, page_num):
                 print(f"[DEBUG] ✓ Cached document-level result for page {page_num} - ENSURES CONSISTENCY")
             except Exception as cache_error:
                 print(f"[WARNING] Failed to cache document-level result: {cache_error}")
+            
+            # Store in in-memory cache for next access
+            if doc_id not in page_cache:
+                page_cache[doc_id] = {}
+            page_cache[doc_id][page_num] = {
+                'data': result_data,
+                'timestamp': time.time()
+            }
             
             return jsonify(result_data)
         else:

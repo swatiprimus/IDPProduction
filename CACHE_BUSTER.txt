@@ -1,0 +1,3 @@
+Cache buster version: 2025-12-16-21-15-00
+This file is used to force browser cache invalidation.
+Update the timestamp whenever you make code changes that need immediate effect.

@@ -208,11 +208,17 @@ def detect_document_type(text: str):
                 return "loan_document"
     
     # ============================================================
-    # STEP 2: Check for DEATH CERTIFICATE
+    # STEP 2: Check for DEATH CERTIFICATE (PRIORITY - check before loan documents)
     # ============================================================
-    if contains_any(["CERTIFICATION OF VITAL RECORD", "CERTIFICATE OF DEATH"]) or \
-       (contains_any(["DEATH", "DECEASED", "DECEDENT"]) and contains_any(["CERTIFICATE", "CERTIFICATION"])):
-        print(f"[DEBUG] Death certificate detected - checking state...")
+    # Death certificates can contain account numbers for billing, so check this FIRST
+    has_death_keywords = contains_any(["DEATH", "DECEASED", "DECEDENT", "DEMISE", "PASSED AWAY"])
+    has_certificate_keywords = contains_any(["CERTIFICATE", "CERTIFICATION", "VITAL RECORD"])
+    has_registrar_keywords = contains_any(["REGISTRAR", "LOCAL REGISTRAR", "REGISTER OF VITAL RECORDS"])
+    has_death_specific = contains_any(["CAUSE OF DEATH", "DATE OF DEATH", "PLACE OF DEATH", "MANNER OF DEATH", "DATE PRONOUNCED DEAD"])
+    
+    # Strong death certificate indicators
+    if contains_any(["CERTIFICATION OF VITAL RECORD", "CERTIFICATE OF DEATH"]):
+        print(f"[DEBUG] Death certificate detected (explicit marker) - checking state...")
         
         # Delaware Death Certificate
         if "DELAWARE" in text_upper or "STATE OF DELAWARE" in text_upper:
@@ -227,6 +233,13 @@ def detect_document_type(text: str):
         
         # Generic death certificate
         print(f"[INFO] Detected: Death Certificate (Generic)")
+        return "death_certificate"
+    
+    # Moderate death certificate indicators (death + certificate + registrar OR death-specific fields)
+    if (has_death_keywords and has_certificate_keywords and has_registrar_keywords) or \
+       (has_death_keywords and has_death_specific):
+        print(f"[DEBUG] Death certificate detected (keyword combination)")
+        print(f"[INFO] Detected: Death Certificate")
         return "death_certificate"
     
     # ============================================================
@@ -254,37 +267,42 @@ def detect_document_type(text: str):
     # ============================================================
     # STEP 6: Check for Loan/Account Documents FIRST (before ID cards)
     # ============================================================
-    # Check for required account document fields
-    has_account_number = "ACCOUNT NUMBER" in text_upper
-    has_account_holder = "ACCOUNT HOLDER" in text_upper
-    has_account_purpose = "ACCOUNT PURPOSE" in text_upper
-    has_account_type = "ACCOUNT TYPE" in text_upper
-    has_ownership_type = "OWNERSHIP TYPE" in text_upper
+    # IMPORTANT: Exclude death certificates (they can have account numbers for billing)
+    has_death_keywords = contains_any(["DEATH", "DECEASED", "DECEDENT", "DEMISE", "PASSED AWAY"])
+    has_death_specific = contains_any(["CAUSE OF DEATH", "DATE OF DEATH", "PLACE OF DEATH", "MANNER OF DEATH", "DATE PRONOUNCED DEAD"])
     
-    # Count how many required fields are present
-    required_fields_count = sum([
-        has_account_number,
-        has_account_holder,
-        has_account_purpose,
-        has_account_type,
-        has_ownership_type
-    ])
-    
-    # If 3 or more required fields present, it's likely a loan/account document
-    # This check happens BEFORE ID card check because loan docs often contain attached IDs
-    if required_fields_count >= 3:
-        print(f"[DEBUG] Found {required_fields_count}/5 account document fields")
+    if not (has_death_keywords or has_death_specific):
+        # Check for required account document fields
+        has_account_number = "ACCOUNT NUMBER" in text_upper
+        has_account_holder = "ACCOUNT HOLDER" in text_upper
+        has_account_purpose = "ACCOUNT PURPOSE" in text_upper
+        has_account_type = "ACCOUNT TYPE" in text_upper
+        has_ownership_type = "OWNERSHIP TYPE" in text_upper
         
-        # Additional checks for account products
-        has_checking_savings = any(prod in text_upper for prod in [
-            "CHECKING", "SAVINGS", "MONEY MARKET", "CD", "CERTIFICATE OF DEPOSIT"
+        # Count how many required fields are present
+        required_fields_count = sum([
+            has_account_number,
+            has_account_holder,
+            has_account_purpose,
+            has_account_type,
+            has_ownership_type
         ])
         
-        has_consumer_business = "CONSUMER" in text_upper or "BUSINESS" in text_upper
-        
-        if has_checking_savings or has_consumer_business:
-            print(f"[INFO] Detected: Loan/Account Document (field-based detection)")
-            return "loan_document"
+        # If 3 or more required fields present, it's likely a loan/account document
+        # This check happens BEFORE ID card check because loan docs often contain attached IDs
+        if required_fields_count >= 3:
+            print(f"[DEBUG] Found {required_fields_count}/5 account document fields")
+            
+            # Additional checks for account products
+            has_checking_savings = any(prod in text_upper for prod in [
+                "CHECKING", "SAVINGS", "MONEY MARKET", "CD", "CERTIFICATE OF DEPOSIT"
+            ])
+            
+            has_consumer_business = "CONSUMER" in text_upper or "BUSINESS" in text_upper
+            
+            if has_checking_savings or has_consumer_business:
+                print(f"[INFO] Detected: Loan/Account Document (field-based detection)")
+                return "loan_document"
     
     # ============================================================
     # STEP 7: Check for ID CARD (Driver's License) - AFTER loan document check
