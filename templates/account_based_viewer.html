@@ -1003,10 +1003,19 @@
         // Load accounts on page load
         async function loadAccounts() {
             try {
+                // First, get the basic document info
                 const response = await fetch(`/api/document/${documentId}`);
                 const data = await response.json();
                 
+                // Also get the sophisticated page-to-account mapping
+                const analyzeResponse = await fetch(`/api/document/${documentId}/analyze`);
+                const analyzeData = await analyzeResponse.json();
+                
+                // Store the analysis data for later use
+                window.analysisData = analyzeData;
+                
                 console.log('API Response:', data);
+                console.log('Analysis Data:', analyzeData);
                 
                 if (data.success) {
                     console.log('=== DEBUGGING ACCOUNT DETECTION ===');
@@ -1112,18 +1121,47 @@
             const container = document.getElementById('accountsList');
             document.getElementById('accountCount').textContent = `${accounts.length} account(s) found`;
             
-            // First, fetch page counts for all accounts
-            for (let index = 0; index < accounts.length; index++) {
-                try {
-                    const response = await fetch(`/api/document/${documentId}/account/${index}/pages`);
-                    const data = await response.json();
-                    if (data.success) {
-                        accounts[index].pageCount = data.total_pages || 0;
-                        accounts[index].pageNumbers = data.page_numbers || [];
+            // Use analysis data for page counts (more accurate than old API)
+            if (window.analysisData && window.analysisData.success && window.analysisData.accounts) {
+                console.log('[ACCOUNTS] Using analysis data for page counts');
+                for (let index = 0; index < accounts.length; index++) {
+                    const accountNumber = accounts[index].accountNumber;
+                    const analysisAccount = window.analysisData.accounts.find(acc => acc.account_number === accountNumber);
+                    
+                    if (analysisAccount) {
+                        accounts[index].pageCount = analysisAccount.total_pages || 0;
+                        accounts[index].pageNumbers = analysisAccount.all_pages || [];
+                        console.log(`[ACCOUNTS] Account ${accountNumber}: ${accounts[index].pageCount} pages from analysis`);
+                    } else {
+                        // Fallback to old API if not in analysis data
+                        try {
+                            const response = await fetch(`/api/document/${documentId}/account/${index}/pages`);
+                            const data = await response.json();
+                            if (data.success) {
+                                accounts[index].pageCount = data.total_pages || 0;
+                                accounts[index].pageNumbers = data.page_numbers || [];
+                            }
+                        } catch (error) {
+                            console.error(`Error loading pages for account ${index}:`, error);
+                            accounts[index].pageCount = 0;
+                        }
                     }
-                } catch (error) {
-                    console.error(`Error loading pages for account ${index}:`, error);
-                    accounts[index].pageCount = 0;
+                }
+            } else {
+                // Fallback: fetch page counts from old API if analysis data not available
+                console.log('[ACCOUNTS] Analysis data not available, using old API for page counts');
+                for (let index = 0; index < accounts.length; index++) {
+                    try {
+                        const response = await fetch(`/api/document/${documentId}/account/${index}/pages`);
+                        const data = await response.json();
+                        if (data.success) {
+                            accounts[index].pageCount = data.total_pages || 0;
+                            accounts[index].pageNumbers = data.page_numbers || [];
+                        }
+                    } catch (error) {
+                        console.error(`Error loading pages for account ${index}:`, error);
+                        accounts[index].pageCount = 0;
+                    }
                 }
             }
             
@@ -1235,38 +1273,56 @@
                 return;
             }
             
-            // Fetch the actual page numbers for this account
-            try {
-                const response = await fetch(`/api/document/${documentId}/account/${accountIndex}/pages`);
-                const data = await response.json();
+            // Get page numbers for this account
+            let actualPageNumbers = [];
+            
+            // Try to use analysis data first (has correct page mapping)
+            if (window.analysisData && window.analysisData.success && window.analysisData.accounts) {
+                const currentAccount = accounts[accountIndex];
+                const accountNumber = currentAccount.accountNumber;
+                const analysisAccount = window.analysisData.accounts.find(acc => acc.account_number === accountNumber);
                 
-                if (!data.success || !data.pages) {
-                    container.innerHTML = '<div style="padding:10px;text-align:center;color:#ef4444;">Failed to load pages</div>';
-                    return;
+                if (analysisAccount) {
+                    actualPageNumbers = analysisAccount.all_pages || [];
+                    console.log(`Using analysis data for thumbnails - Account ${accountNumber}: ${actualPageNumbers}`);
                 }
-                
-                const actualPageNumbers = data.pages;
-                
-                let html = '';
-                for (let i = 0; i < actualPageNumbers.length; i++) {
-                    const actualPageNum = actualPageNumbers[i];
-                    const thumbnailUrl = `/api/document/${documentId}/account/${accountIndex}/page/${actualPageNum}`;
-                    
-                    html += `
-                        <div class="page-thumbnail-item ${accountIndex === currentAccountIndex && i === currentPageIndex ? 'active' : ''}" 
-                             onclick="selectAccountPage(${accountIndex}, ${i})" 
-                             id="page-thumb-${accountIndex}-${i}">
-                            <img src="${thumbnailUrl}" alt="Page ${i + 1}" class="page-thumbnail-img" loading="lazy">
-                            <div class="page-thumbnail-label">${i + 1}</div>
-                        </div>
-                    `;
-                }
-                
-                container.innerHTML = html;
-            } catch (error) {
-                console.error('Error loading thumbnails:', error);
-                container.innerHTML = '<div style="padding:10px;text-align:center;color:#ef4444;">Error loading thumbnails</div>';
             }
+            
+            // Fallback to old API if analysis data not available
+            if (actualPageNumbers.length === 0) {
+                try {
+                    const response = await fetch(`/api/document/${documentId}/account/${accountIndex}/pages`);
+                    const data = await response.json();
+                    
+                    if (data.success && data.pages) {
+                        actualPageNumbers = data.pages;
+                    }
+                } catch (error) {
+                    console.error('Error fetching page numbers:', error);
+                }
+            }
+            
+            if (actualPageNumbers.length === 0) {
+                container.innerHTML = '<div style="padding:10px;text-align:center;color:#ef4444;">Failed to load pages</div>';
+                return;
+            }
+            
+            let html = '';
+            for (let i = 0; i < actualPageNumbers.length; i++) {
+                const actualPageNum = actualPageNumbers[i];
+                const thumbnailUrl = `/api/document/${documentId}/account/${accountIndex}/page/${actualPageNum}`;
+                
+                html += `
+                    <div class="page-thumbnail-item ${accountIndex === currentAccountIndex && i === currentPageIndex ? 'active' : ''}" 
+                         onclick="selectAccountPage(${accountIndex}, ${i})" 
+                         id="page-thumb-${accountIndex}-${i}">
+                        <img src="${thumbnailUrl}" alt="Page ${i + 1}" class="page-thumbnail-img">
+                        <div class="page-thumbnail-label">${i + 1}</div>
+                    </div>
+                `;
+            }
+            
+            container.innerHTML = html;
         }
         
         function selectAccountPage(accountIndex, pageIndex) {
@@ -1320,6 +1376,27 @@
                 document.getElementById('viewerContent').innerHTML = '<div class="loading"><div class="spinner"></div><div>Scanning pages for this account...</div></div>';
                 document.getElementById('dataContent').innerHTML = '<div class="loading"><div class="spinner"></div><div>Please wait...</div></div>';
                 
+                // Try to use analysis data first (has sophisticated page-to-account mapping)
+                if (window.analysisData && window.analysisData.success && window.analysisData.accounts) {
+                    const currentAccount = accounts[currentAccountIndex];
+                    const accountNumber = currentAccount.accountNumber;
+                    
+                    // Find this account in the analysis data
+                    const analysisAccount = window.analysisData.accounts.find(acc => acc.account_number === accountNumber);
+                    
+                    if (analysisAccount) {
+                        console.log('Using analysis data for account:', accountNumber);
+                        // Use all_pages from analysis (includes direct, holder, and shared pages)
+                        accountPageNumbers = analysisAccount.all_pages || [];
+                        totalPages = accountPageNumbers.length;
+                        document.getElementById('totalPages').textContent = totalPages;
+                        console.log(`Account ${accountNumber} has ${totalPages} pages (from analysis):`, accountPageNumbers);
+                        showPage(0);
+                        return;
+                    }
+                }
+                
+                // Fallback to old logic if analysis data not available
                 const response = await fetch(`/api/document/${documentId}/account/${currentAccountIndex}/pages`);
                 const data = await response.json();
                 

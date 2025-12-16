@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Account Detection Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .upload-area {
+            border: 2px dashed #ccc;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            margin: 20px 0;
+        }
+        .upload-area:hover {
+            border-color: #007bff;
+            background-color: #f8f9fa;
+        }
+        .status {
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 5px;
+            display: none;
+        }
+        .status.success {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .status.error {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .accounts-detected {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #e7f3ff;
+            border: 1px solid #b3d9ff;
+            border-radius: 5px;
+        }
+        .account-item {
+            background-color: white;
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 3px;
+            border-left: 4px solid #007bff;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 Account Detection Test</h1>
+    <p>Upload a PDF document to test the new <strong>immediate account detection at upload time</strong>.</p>
+    
+    <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+        <h3>📁 Click to Upload PDF</h3>
+        <p>The system will detect account numbers using OCR immediately during upload</p>
+        <input type="file" id="fileInput" accept=".pdf" style="display: none;">
+    </div>
+    
+    <div id="status" class="status"></div>
+    <div id="accountsDetected" style="display: none;"></div>
+    
+    <div style="margin-top: 30px;">
+        <h3>🎯 Precise Account Detection Criteria:</h3>
+        <ul>
+            <li>✅ <strong>Explicitly labeled</strong> as "ACCOUNT NUMBER:" or "Account #"</li>
+            <li>✅ <strong>Located in document header/top section</strong> (first 30 lines)</li>
+            <li>✅ <strong>Exactly 10 digits long</strong></li>
+            <li>❌ <strong>Excludes:</strong> CIF numbers, Phone numbers, SSN, Zip codes, Reference numbers, Debit Bureau numbers</li>
+            <li>✅ <strong>OCR-powered</strong> for scanned documents</li>
+            <li>✅ <strong>Results format:</strong> "Account Number: [number]"</li>
+        </ul>
+        
+        <div style="background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 5px; margin-top: 15px;">
+            <strong>⚠️ Note:</strong> Only bank account numbers that meet ALL criteria above will be detected. 
+            Supporting document numbers, reference numbers, and other identifiers will be ignored.
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('document_name', file.name);
+            
+            showStatus('Uploading and detecting accounts...', 'info');
+            
+            fetch('/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showStatus('Upload successful! Monitoring account detection...', 'success');
+                    monitorProgress(data.job_id);
+                } else {
+                    showStatus('Upload failed: ' + data.message, 'error');
+                }
+            })
+            .catch(error => {
+                showStatus('Upload error: ' + error.message, 'error');
+            });
+        });
+        
+        function monitorProgress(jobId) {
+            const checkStatus = () => {
+                fetch(`/status/${jobId}`)
+                .then(response => response.json())
+                .then(data => {
+                    showStatus(data.status, data.progress === 100 ? 'success' : 'info');
+                    
+                    if (data.progress === 100) {
+                        // Show detected accounts
+                        if (data.accounts_detected && data.accounts_detected.length > 0) {
+                            showDetectedAccounts(data.accounts_detected, data.account_count);
+                        } else {
+                            showDetectedAccounts([], 0);
+                        }
+                    } else {
+                        setTimeout(checkStatus, 1000);
+                    }
+                })
+                .catch(error => {
+                    showStatus('Status check error: ' + error.message, 'error');
+                });
+            };
+            
+            checkStatus();
+        }
+        
+        function showStatus(message, type) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+            statusDiv.style.display = 'block';
+        }
+        
+        function showDetectedAccounts(accounts, count) {
+            const accountsDiv = document.getElementById('accountsDetected');
+            
+            if (count > 0) {
+                accountsDiv.innerHTML = `
+                    <div class="accounts-detected">
+                        <h3>🎯 Accounts Detected: ${count}</h3>
+                        ${accounts.map(acc => `
+                            <div class="account-item">
+                                <strong>Account Number:</strong> ${acc}
+                            </div>
+                        `).join('')}
+                        <p><em>✅ Account detection completed at upload time using OCR!</em></p>
+                    </div>
+                `;
+            } else {
+                accountsDiv.innerHTML = `
+                    <div class="accounts-detected">
+                        <h3>⚠️ No Accounts Detected</h3>
+                        <p>The document may not be a loan/account document, or account numbers may not be clearly visible.</p>
+                    </div>
+                `;
+            }
+            
+            accountsDiv.style.display = 'block';
+        }
+    </script>
+</body>
+</html>

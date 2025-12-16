@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document Structure Analyzer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            padding: 30px;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        
+        .input-section {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+        
+        input {
+            flex: 1;
+            min-width: 200px;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        button {
+            padding: 12px 30px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            transition: background 0.3s;
+        }
+        
+        button:hover {
+            background: #764ba2;
+        }
+        
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .status {
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        
+        .status.loading {
+            background: #e3f2fd;
+            color: #1976d2;
+            display: block;
+        }
+        
+        .status.success {
+            background: #e8f5e9;
+            color: #388e3c;
+            display: block;
+        }
+        
+        .status.error {
+            background: #ffebee;
+            color: #c62828;
+            display: block;
+        }
+        
+        .analysis-results {
+            display: none;
+        }
+        
+        .analysis-results.show {
+            display: block;
+        }
+        
+        .summary {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .summary-item {
+            display: inline-block;
+            margin-right: 30px;
+            margin-bottom: 10px;
+        }
+        
+        .summary-label {
+            font-weight: bold;
+            color: #666;
+        }
+        
+        .summary-value {
+            color: #667eea;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        
+        .unassociated-section {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .unassociated-title {
+            font-weight: bold;
+            color: #856404;
+            margin-bottom: 10px;
+        }
+        
+        .unassociated-pages {
+            color: #856404;
+        }
+        
+        .account-section {
+            margin-bottom: 30px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+        
+        .account-header {
+            background: #667eea;
+            color: white;
+            padding: 15px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .account-header:hover {
+            background: #764ba2;
+        }
+        
+        .account-number {
+            font-size: 18px;
+            font-weight: bold;
+        }
+        
+        .account-pages {
+            font-size: 12px;
+            opacity: 0.9;
+        }
+        
+        .account-content {
+            padding: 20px;
+            display: none;
+        }
+        
+        .account-content.show {
+            display: block;
+        }
+        
+        .document-list {
+            list-style: none;
+        }
+        
+        .document-item {
+            padding: 10px;
+            margin: 5px 0;
+            background: #f9f9f9;
+            border-left: 3px solid #667eea;
+            border-radius: 3px;
+        }
+        
+        .document-type {
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .document-pages {
+            color: #666;
+            font-size: 12px;
+            margin-top: 5px;
+        }
+        
+        .page-badge {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 3px;
+            margin: 2px;
+            font-size: 11px;
+        }
+        
+        .page-category {
+            margin: 10px 0;
+            padding: 10px;
+            background: #f0f0f0;
+            border-left: 3px solid #667eea;
+            border-radius: 3px;
+        }
+        
+        .category-label {
+            font-weight: bold;
+            color: #333;
+            font-size: 12px;
+            margin-bottom: 5px;
+        }
+        
+        .category-direct {
+            border-left-color: #4caf50;
+        }
+        
+        .category-holder {
+            border-left-color: #ff9800;
+        }
+        
+        .category-shared {
+            border-left-color: #f44336;
+        }
+        
+        .category-family {
+            border-left-color: #9c27b0;
+        }
+        
+        .info-box {
+            background: #e8eaf6;
+            border: 1px solid #667eea;
+            border-radius: 5px;
+            padding: 12px;
+            margin-bottom: 15px;
+            font-size: 13px;
+            color: #333;
+        }
+        
+        .info-box strong {
+            color: #667eea;
+        }
+        
+        .holders-info {
+            background: #f9f9f9;
+            padding: 10px;
+            border-radius: 3px;
+            margin-bottom: 15px;
+            border-left: 3px solid #667eea;
+        }
+        
+        .holder-item {
+            padding: 5px 0;
+            font-size: 12px;
+        }
+        
+        .holder-name {
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .holder-ssn {
+            color: #666;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 Document Structure Analyzer</h1>
+        <p class="subtitle">Analyze banking documents to map accounts, pages, and document types. Supports family document matching (death certificates, marriage certificates, etc.)</p>
+        
+        <div class="input-section">
+            <input type="text" id="docId" placeholder="Enter Document ID (from upload)" value="">
+            <button onclick="analyzeDocument()">Analyze Document</button>
+        </div>
+        
+        <div id="status" class="status"></div>
+        
+        <div id="results" class="analysis-results">
+            <div class="info-box">
+                <strong>ℹ️ How Pages Are Linked:</strong> Pages are automatically linked to accounts using multiple matching strategies:
+                <ul style="margin-left: 20px; margin-top: 8px;">
+                    <li><strong>Direct Match:</strong> Page contains the account number</li>
+                    <li><strong>Holder Match:</strong> Page contains account holder name or SSN</li>
+                    <li><strong>Family Document Match:</strong> Death/marriage/birth certificates mentioning family members of account holders</li>
+                </ul>
+            </div>
+            
+            <div class="summary">
+                <div class="summary-item">
+                    <span class="summary-label">Total Pages:</span>
+                    <span class="summary-value" id="totalPages">0</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-label">Total Accounts:</span>
+                    <span class="summary-value" id="totalAccounts">0</span>
+                </div>
+            </div>
+            
+            <div id="accountsContainer"></div>
+        </div>
+    </div>
+
+    <script>
+        function showStatus(message, type) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status ${type}`;
+        }
+        
+        function analyzeDocument() {
+            const docId = document.getElementById('docId').value.trim();
+            
+            if (!docId) {
+                showStatus('❌ Please enter a Document ID', 'error');
+                return;
+            }
+            
+            showStatus('🔍 Analyzing document structure...', 'loading');
+            
+            fetch(`/api/document/${docId}/analyze`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        displayResults(data);
+                        showStatus('✅ Analysis complete!', 'success');
+                    } else {
+                        showStatus(`❌ ${data.message}`, 'error');
+                    }
+                })
+                .catch(error => {
+                    showStatus(`❌ Error: ${error.message}`, 'error');
+                });
+        }
+        
+        function displayResults(data) {
+            document.getElementById('totalPages').textContent = data.total_pages;
+            document.getElementById('totalAccounts').textContent = data.total_accounts;
+            
+            const container = document.getElementById('accountsContainer');
+            container.innerHTML = '';
+            
+            // Show unassociated pages if any
+            if (data.unassociated_pages && data.unassociated_pages.length > 0) {
+                const unassocDiv = document.createElement('div');
+                unassocDiv.className = 'unassociated-section';
+                unassocDiv.innerHTML = `
+                    <div class="unassociated-title">⚠️ Unassociated Pages (${data.unassociated_pages.length})</div>
+                    <div class="unassociated-pages">
+                        Pages: ${data.unassociated_pages.map(p => `<span class="page-badge">Page ${p}</span>`).join('')}
+                        <p style="margin-top: 10px; font-size: 12px;">These pages don't contain account numbers or holder information. They may be supporting documents that need manual review.</p>
+                    </div>
+                `;
+                container.appendChild(unassocDiv);
+            }
+            
+            data.accounts.forEach((account, index) => {
+                const accountDiv = document.createElement('div');
+                accountDiv.className = 'account-section';
+                
+                const headerDiv = document.createElement('div');
+                headerDiv.className = 'account-header';
+                headerDiv.onclick = () => toggleAccount(index);
+                
+                const headerContent = document.createElement('div');
+                headerContent.innerHTML = `
+                    <div class="account-number">Account: ${account.account_number}</div>
+                    <div class="account-pages">${account.total_pages} page(s) | ${account.documents.length} document type(s)</div>
+                `;
+                
+                const toggleIcon = document.createElement('div');
+                toggleIcon.textContent = '▼';
+                toggleIcon.style.fontSize = '12px';
+                
+                headerDiv.appendChild(headerContent);
+                headerDiv.appendChild(toggleIcon);
+                
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'account-content';
+                contentDiv.id = `account-${index}`;
+                
+                // Display account holders
+                if (account.holders && account.holders.length > 0) {
+                    const holdersDiv = document.createElement('div');
+                    holdersDiv.className = 'holders-info';
+                    holdersDiv.innerHTML = '<strong>👤 Account Holders:</strong>';
+                    
+                    account.holders.forEach(holder => {
+                        const holderItem = document.createElement('div');
+                        holderItem.className = 'holder-item';
+                        if (holder.name) {
+                            const sourcePage = holder.source_page ? ` (Page ${holder.source_page})` : '';
+                            holderItem.innerHTML += `<div class="holder-name">${holder.name}${sourcePage}</div>`;
+                        }
+                        if (holder.ssn) {
+                            const sourcePage = holder.source_page ? ` (Page ${holder.source_page})` : '';
+                            holderItem.innerHTML += `<div class="holder-ssn">SSN: ${holder.ssn}${sourcePage}</div>`;
+                        }
+                        holdersDiv.appendChild(holderItem);
+                    });
+                    
+                    contentDiv.appendChild(holdersDiv);
+                }
+                
+                // Display page categories
+                const pageCategories = document.createElement('div');
+                pageCategories.style.marginBottom = '15px';
+                
+                if (account.direct_pages && account.direct_pages.length > 0) {
+                    const directDiv = document.createElement('div');
+                    directDiv.className = 'page-category category-direct';
+                    directDiv.innerHTML = `
+                        <div class="category-label">✓ Direct Pages (Account #):</div>
+                        <div>${account.direct_pages.map(p => `<span class="page-badge">Page ${p}</span>`).join('')}</div>
+                    `;
+                    pageCategories.appendChild(directDiv);
+                }
+                
+                if (account.holder_pages && account.holder_pages.length > 0) {
+                    const holderDiv = document.createElement('div');
+                    holderDiv.className = 'page-category category-holder';
+                    holderDiv.innerHTML = `
+                        <div class="category-label">👤 Holder Pages (Name/SSN):</div>
+                        <div>${account.holder_pages.map(p => `<span class="page-badge">Page ${p}</span>`).join('')}</div>
+                    `;
+                    pageCategories.appendChild(holderDiv);
+                }
+                
+                if (account.shared_pages && account.shared_pages.length > 0) {
+                    const sharedDiv = document.createElement('div');
+                    sharedDiv.className = 'page-category category-shared';
+                    sharedDiv.innerHTML = `
+                        <div class="category-label">🔗 Shared Pages (Multiple Accounts):</div>
+                        <div>${account.shared_pages.map(p => `<span class="page-badge">Page ${p}</span>`).join('')}</div>
+                    `;
+                    pageCategories.appendChild(sharedDiv);
+                }
+                
+                contentDiv.appendChild(pageCategories);
+                
+                // Display documents
+                const docTitle = document.createElement('p');
+                docTitle.innerHTML = '<strong>📄 Documents:</strong>';
+                docTitle.style.marginBottom = '10px';
+                contentDiv.appendChild(docTitle);
+                
+                const docList = document.createElement('ul');
+                docList.className = 'document-list';
+                
+                account.documents.forEach(doc => {
+                    const item = document.createElement('li');
+                    item.className = 'document-item';
+                    let docHTML = `<div class="document-type">${doc.type}</div>`;
+                    
+                    if (doc.direct_pages && doc.direct_pages.length > 0) {
+                        docHTML += `<div class="document-pages">Direct: ${doc.direct_pages.map(p => `<span class="page-badge">Page ${p}</span>`).join('')}</div>`;
+                    }
+                    if (doc.holder_pages && doc.holder_pages.length > 0) {
+                        docHTML += `<div class="document-pages">Holder: ${doc.holder_pages.map(p => `<span class="page-badge">Page ${p}</span>`).join('')}</div>`;
+                    }
+                    if (doc.shared_pages && doc.shared_pages.length > 0) {
+                        docHTML += `<div class="document-pages">Shared: ${doc.shared_pages.map(p => `<span class="page-badge">Page ${p}</span>`).join('')}</div>`;
+                    }
+                    
+                    item.innerHTML = docHTML;
+                    docList.appendChild(item);
+                });
+                
+                contentDiv.appendChild(docList);
+                
+                accountDiv.appendChild(headerDiv);
+                accountDiv.appendChild(contentDiv);
+                container.appendChild(accountDiv);
+            });
+            
+            document.getElementById('results').classList.add('show');
+        }
+        
+        function toggleAccount(index) {
+            const content = document.getElementById(`account-${index}`);
+            content.classList.toggle('show');
+        }
+        
+        // Auto-focus on input
+        document.getElementById('docId').focus();
+    </script>
+</body>
+</html>

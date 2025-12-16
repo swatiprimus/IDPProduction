@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flexible Name Matching Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 10px;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            background: #f9f9f9;
+            border-left: 4px solid #007bff;
+        }
+        .test-case {
+            margin: 10px 0;
+            padding: 10px;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .match {
+            color: #28a745;
+            font-weight: bold;
+        }
+        .no-match {
+            color: #dc3545;
+            font-weight: bold;
+        }
+        .confidence {
+            color: #666;
+            font-size: 0.9em;
+        }
+        .example {
+            background: #e7f3ff;
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+        .rules {
+            background: #fff3cd;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 15px 0;
+        }
+        .rules h3 {
+            margin-top: 0;
+            color: #856404;
+        }
+        .rules ul {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+        .rules li {
+            margin: 5px 0;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1em;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .results {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f0f0f0;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Flexible Name Matching Test</h1>
+        
+        <div class="rules">
+            <h3>Matching Rules</h3>
+            <ul>
+                <li><strong>First Name:</strong> MUST match (case-insensitive)</li>
+                <li><strong>Last Name:</strong> MUST match (case-insensitive)</li>
+                <li><strong>Middle Name:</strong> Can be initial, full name, or missing</li>
+                <li><strong>Confidence Threshold:</strong> 85% or higher = MATCH</li>
+            </ul>
+        </div>
+
+        <div class="test-section">
+            <h2>Test Cases</h2>
+            
+            <div class="test-case">
+                <h3>Test 1: Initial Expansion</h3>
+                <div class="example">Stored: "Rahmah A Gooba"</div>
+                <div class="example">Page: "RAHMAH ABDULLA GOOBA"</div>
+                <p>Expected: <span class="match">✓ MATCH</span> (A = initial of ABDULLA)</p>
+                <p class="confidence">Confidence: 95% (middle name initial expansion)</p>
+            </div>
+
+            <div class="test-case">
+                <h3>Test 2: Full Middle Name Match</h3>
+                <div class="example">Stored: "Laila M Soufi"</div>
+                <div class="example">Page: "LAILA MOHAMMED SOUFI"</div>
+                <p>Expected: <span class="match">✓ MATCH</span> (M = initial of MOHAMMED)</p>
+                <p class="confidence">Confidence: 95% (middle name initial expansion)</p>
+            </div>
+
+            <div class="test-case">
+                <h3>Test 3: Case Insensitive</h3>
+                <div class="example">Stored: "Michael J Davis"</div>
+                <div class="example">Page: "michael john davis"</div>
+                <p>Expected: <span class="match">✓ MATCH</span> (case doesn't matter)</p>
+                <p class="confidence">Confidence: 95% (middle name initial expansion)</p>
+            </div>
+
+            <div class="test-case">
+                <h3>Test 4: Exact Match</h3>
+                <div class="example">Stored: "Jennifer Ann Frederick"</div>
+                <div class="example">Page: "JENNIFER ANN FREDERICK"</div>
+                <p>Expected: <span class="match">✓ MATCH</span> (exact match)</p>
+                <p class="confidence">Confidence: 100% (exact match)</p>
+            </div>
+
+            <div class="test-case">
+                <h3>Test 5: Missing Middle Name</h3>
+                <div class="example">Stored: "Hector Hernandez"</div>
+                <div class="example">Page: "HECTOR HERNANDEZ HERNANDEZ"</div>
+                <p>Expected: <span class="match">✓ MATCH</span> (duplicate last name)</p>
+                <p class="confidence">Confidence: 90% (missing middle name)</p>
+            </div>
+
+            <div class="test-case">
+                <h3>Test 6: Different First Name</h3>
+                <div class="example">Stored: "Rahmah Gooba"</div>
+                <div class="example">Page: "RONALD HONORE"</div>
+                <p>Expected: <span class="no-match">✗ NO MATCH</span> (different first name)</p>
+                <p class="confidence">Confidence: 0% (first name must match)</p>
+            </div>
+
+            <div class="test-case">
+                <h3>Test 7: Different Last Name</h3>
+                <div class="example">Stored: "Hector Hernandez"</div>
+                <div class="example">Page: "LUIS HERNANDEZ"</div>
+                <p>Expected: <span class="no-match">✗ NO MATCH</span> (different first name)</p>
+                <p class="confidence">Confidence: 0% (first name must match)</p>
+            </div>
+
+            <div class="test-case">
+                <h3>Test 8: SSN Match (Highest Priority)</h3>
+                <div class="example">Stored: "Rahmah A Gooba" (SSN: 732-01-0721)</div>
+                <div class="example">Page: "SSN: 732-01-0721"</div>
+                <p>Expected: <span class="match">✓ MATCH</span> (SSN match)</p>
+                <p class="confidence">Confidence: 100% (exact SSN match)</p>
+            </div>
+
+            <div class="test-case">
+                <h3>Test 9: Compound Name Variation</h3>
+                <div class="example">Stored: "Luis Miguel Hernandez Ortiz"</div>
+                <div class="example">Page: "LUIS HERNANDEZ-ORTIZ"</div>
+                <p>Expected: <span class="match">✓ MATCH</span> (compound name)</p>
+                <p class="confidence">Confidence: 90% (compound name variation)</p>
+            </div>
+
+            <div class="test-case">
+                <h3>Test 10: Whitespace & Punctuation</h3>
+                <div class="example">Stored: "Jean-Paul Dupont"</div>
+                <div class="example">Page: "JEAN PAUL DUPONT"</div>
+                <p>Expected: <span class="match">✓ MATCH</span> (punctuation ignored)</p>
+                <p class="confidence">Confidence: 95% (whitespace/punctuation variation)</p>
+            </div>
+
+            <div class="test-case">
+                <h3>Test 11: Reversed Name Order</h3>
+                <div class="example">Stored: "Rahmah Gooba"</div>
+                <div class="example">Page: "GOOBA RAHMAH"</div>
+                <p>Expected: <span class="match">✓ MATCH</span> (reversed order)</p>
+                <p class="confidence">Confidence: 90% (reversed Last-First order)</p>
+            </div>
+
+            <div class="test-case">
+                <h3>Test 12: Reversed with Spelling Variation</h3>
+                <div class="example">Stored: "Rahmah A Gooba"</div>
+                <div class="example">Page: "GOOBA RAHMAHA"</div>
+                <p>Expected: <span class="match">✓ MATCH</span> (reversed + 1-letter variation)</p>
+                <p class="confidence">Confidence: 85% (reversed order + spelling variation)</p>
+            </div>
+
+            <div class="test-case">
+                <h3>Test 13: Reversed with Middle Name</h3>
+                <div class="example">Stored: "John Michael Smith"</div>
+                <div class="example">Page: "SMITH JOHN MICHAEL"</div>
+                <p>Expected: <span class="match">✓ MATCH</span> (reversed Last-First-Middle)</p>
+                <p class="confidence">Confidence: 90% (reversed order with middle name)</p>
+            </div>
+
+            <div class="test-case">
+                <h3>Test 14: Reversed with Spelling Variants</h3>
+                <div class="example">Stored: "Mohamed Ali"</div>
+                <div class="example">Page: "ALI MOHAMMED"</div>
+                <p>Expected: <span class="match">✓ MATCH</span> (reversed + spelling variant)</p>
+                <p class="confidence">Confidence: 85% (reversed order + spelling variation)</p>
+            </div>
+
+            <div class="test-case">
+                <h3>Test 15: Reversed - Different Person</h3>
+                <div class="example">Stored: "John Smith"</div>
+                <div class="example">Page: "JONES JOHN"</div>
+                <p>Expected: <span class="no-match">✗ NO MATCH</span> (different last name)</p>
+                <p class="confidence">Confidence: 0% (last name doesn't match)</p>
+            </div>
+
+            <div class="test-case">
+                <h3>Test 16: Abbreviated Name (Initials)</h3>
+                <div class="example">Stored: "R A Gooba"</div>
+                <div class="example">Page: "Rahmah Abdul Gooba"</div>
+                <p>Expected: <span class="match">✓ MATCH</span> (abbreviation)</p>
+                <p class="confidence">Confidence: 90% (stored is abbreviated form)</p>
+            </div>
+
+            <div class="test-case">
+                <h3>Test 17: Abbreviated Page Name</h3>
+                <div class="example">Stored: "Rahmah Abdul Gooba"</div>
+                <div class="example">Page: "R A Gooba"</div>
+                <p>Expected: <span class="match">✓ MATCH</span> (abbreviation)</p>
+                <p class="confidence">Confidence: 90% (page is abbreviated form)</p>
+            </div>
+
+            <div class="test-case">
+                <h3>Test 18: Punctuation in Name</h3>
+                <div class="example">Stored: "Rahmah A. Gooba"</div>
+                <div class="example">Page: "RAHMAH A GOOBA"</div>
+                <p>Expected: <span class="match">✓ MATCH</span> (punctuation ignored)</p>
+                <p class="confidence">Confidence: 100% (exact match after normalization)</p>
+            </div>
+
+            <div class="test-case">
+                <h3>Test 19: Multiple Middle Names</h3>
+                <div class="example">Stored: "Rahmah A Gooba"</div>
+                <div class="example">Page: "Rahmah Abdul Gooba"</div>
+                <p>Expected: <span class="match">✓ MATCH</span> (initial expansion)</p>
+                <p class="confidence">Confidence: 95% (middle name initial expansion)</p>
+            </div>
+
+            <div class="test-case">
+                <h3>Test 20: All Caps with Abbreviation</h3>
+                <div class="example">Stored: "Rahmah A Gooba"</div>
+                <div class="example">Page: "R A GOOBA"</div>
+                <p>Expected: <span class="match">✓ MATCH</span> (abbreviation + case)</p>
+                <p class="confidence">Confidence: 90% (abbreviated form)</p>
+            </div>
+
+            <div class="test-case">
+                <h3>Test 21: Middle Initial Missing</h3>
+                <div class="example">Stored: "William S Campbell"</div>
+                <div class="example">Page: "William Campbell"</div>
+                <p>Expected: <span class="match">✓ MATCH</span> (same person, middle initial missing)</p>
+                <p class="confidence">Confidence: 95% (missing middle name)</p>
+            </div>
+
+            <div class="test-case">
+                <h3>Test 22: Full Middle Name vs Initial</h3>
+                <div class="example">Stored: "William Samuel Campbell"</div>
+                <div class="example">Page: "William S Campbell"</div>
+                <p>Expected: <span class="match">✓ MATCH</span> (initial expansion)</p>
+                <p class="confidence">Confidence: 95% (initial expansion)</p>
+            </div>
+
+            <div class="test-case">
+                <h3>Test 23: Both Missing Middle Name</h3>
+                <div class="example">Stored: "William Campbell"</div>
+                <div class="example">Page: "William Campbell"</div>
+                <p>Expected: <span class="match">✓ MATCH</span> (exact match)</p>
+                <p class="confidence">Confidence: 95% (both missing middle)</p>
+            </div>
+
+            <div class="test-case">
+                <h3>Test 24: Different Middle Initials</h3>
+                <div class="example">Stored: "William S Campbell"</div>
+                <div class="example">Page: "William J Campbell"</div>
+                <p>Expected: <span class="match">✓ MATCH</span> (first/last match, different middle)</p>
+                <p class="confidence">Confidence: 85% (different middle names)</p>
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h2>Real Document Example</h2>
+            <p><strong>Account 0210630620 Signers:</strong></p>
+            <ul>
+                <li>Abdulghafa M Ahmed (SSN: 603-31-6185)</li>
+                <li>Laila M Soufi (SSN: 861-23-0038)</li>
+                <li>Rahmah A Gooba (SSN: 732-01-0721)</li>
+            </ul>
+            
+            <p><strong>Page 5 Content:</strong></p>
+            <div class="example">
+                SIGNATURE CARD<br>
+                ACCOUNT HOLDER NAMES:<br>
+                RAHMAH ABDULLA GOOBA<br>
+                LAILA MOHAMMED SOUFI<br>
+                ABDULGHAFA MOHAMMED AHMED<br>
+                SSN: 732-01-0721<br>
+                SSN: 861-23-0038<br>
+                SSN: 603-31-6185
+            </div>
+
+            <p><strong>Expected Result:</strong></p>
+            <p>Page 5 should be linked to account 0210630620 because:</p>
+            <ul>
+                <li>✓ "RAHMAH ABDULLA GOOBA" matches "Rahmah A Gooba" (initial expansion)</li>
+                <li>✓ "LAILA MOHAMMED SOUFI" matches "Laila M Soufi" (initial expansion)</li>
+                <li>✓ "ABDULGHAFA MOHAMMED AHMED" matches "Abdulghafa M Ahmed" (initial expansion)</li>
+                <li>✓ SSN 732-01-0721 confirms Rahmah A Gooba</li>
+                <li>✓ SSN 861-23-0038 confirms Laila M Soufi</li>
+                <li>✓ SSN 603-31-6185 confirms Abdulghafa M Ahmed</li>
+            </ul>
+        </div>
+
+        <div class="test-section">
+            <h2>Implementation Details</h2>
+            <p>The flexible name matching algorithm:</p>
+            <ol>
+                <li><strong>Normalize:</strong> Convert to uppercase, remove punctuation, trim whitespace</li>
+                <li><strong>Parse:</strong> Split into [First, Middle, Last] components</li>
+                <li><strong>Compare:</strong> First and Last MUST match, Middle is flexible</li>
+                <li><strong>Score:</strong> Calculate confidence based on match type</li>
+                <li><strong>Accept:</strong> Match if confidence >= 85%</li>
+            </ol>
+        </div>
+
+        <div class="results">
+            <h3>✅ Implementation Complete</h3>
+            <p>The flexible name matching has been integrated into the document analyzer.</p>
+            <p>When you upload a document and analyze it, pages will be linked to accounts using:</p>
+            <ul>
+                <li>Exact SSN matches (100% confidence)</li>
+                <li>Flexible name matching (85%+ confidence)</li>
+                <li>Account number detection (direct pages)</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>

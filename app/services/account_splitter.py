@@ -26,7 +26,7 @@ def extract_account_numbers_with_llm(text: str):
     
     try:
         bedrock = boto3.client("bedrock-runtime", region_name="us-east-1")
-        MODEL_ID = "us.anthropic.claude-3-5-sonnet-20241022-v2:0"
+        MODEL_ID = "anthropic.claude-3-sonnet-20240229-v1:0"
         
         prompt = f"""
 You are an expert at analyzing banking and loan documents to extract account numbers.

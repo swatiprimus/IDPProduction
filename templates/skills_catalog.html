@@ -235,7 +235,7 @@
                 displaySkills();
             }catch(error){
                 console.error('Error loading skills:',error);
-                document.getElementById('skillsTableBody').innerHTML='<tr><td colspan="5" style="text-align:center;padding:40px;color:#7f8c8d;">No skills created yet. Click "Create" to add your first document processing skill.</td></tr>';
+                document.getElementById('skillsTableBody').innerHTML='<tr><td colspan="6" style="text-align:center;padding:40px;color:#7f8c8d;">No skills created yet. Click "Create" to add your first document processing skill.</td></tr>';
             }
         }
         
@@ -307,7 +307,7 @@
             renderPagination(totalPages);
             
             if(pageSkills.length===0){
-                tbody.innerHTML='<tr><td colspan="5" style="text-align:center;padding:40px;color:#7f8c8d;">No skills created yet. Click "Create" to add your first document processing skill.</td></tr>';
+                tbody.innerHTML='<tr><td colspan="6" style="text-align:center;padding:40px;color:#7f8c8d;">No skills created yet. Click "Create" to add your first document processing skill.</td></tr>';
                 return;
             }
             
@@ -340,18 +340,10 @@
                 // Check if PDF is available
                 const hasPDF = skill.filename && skill.filename.toLowerCase().endsWith('.pdf');
                 
-                // Check if document has accounts
-                const hasAccounts = skill.documents && skill.documents[0] && skill.documents[0].accounts && skill.documents[0].accounts.length > 0;
-                
-                // Set row click handler based on document type
-                if (hasPDF && hasAccounts) {
-                    // Loan documents with accounts - open account-based viewer
+                // Set row click handler - open account-based viewer (now with sophisticated page mapping)
+                if (hasPDF) {
                     row.onclick = () => window.open(`/document/${skill.id}/accounts`, '_blank');
-                } else if (hasPDF) {
-                    // Other documents with PDF - open page viewer
-                    row.onclick = () => window.open(`/document/${skill.id}/pages`, '_blank');
                 } else {
-                    // No PDF - disable click
                     row.style.cursor = 'default';
                     row.onclick = null;
                 }

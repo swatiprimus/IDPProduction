@@ -147,6 +147,11 @@ def detect_document_type(text: str):
             print(f"{'='*80}\n")
             return "business_card"
         
+        # Check for CD Rollover Form FIRST
+        if any(term in text_upper for term in ["CD ROLLOVER", "CERTIFICATE OF DEPOSIT ROLLOVER", "ROLLOVER INSTRUCTIONS", "MATURITY INSTRUCTIONS"]):
+            print(f"[INFO] Detected: CD Rollover Form")
+            return "loan_document"
+        
         # Check for Account Opening Document vs Signature Card
         # Both have: ACCOUNT NUMBER, ACCOUNT HOLDER NAMES, OWNERSHIP TYPE
         has_account_number = "ACCOUNT NUMBER" in text_upper
@@ -160,39 +165,41 @@ def detect_document_type(text: str):
             signature_count = text_upper.count("SIGNATURE")
             signature_line_count = text.count("___________")  # Signature lines
             
-            # Check for signature card indicators
+            # Check for signature card indicators (XS forms)
             has_tin_withholding = "TIN" in text_upper and "BACKUP WITHHOLDING" in text_upper
             has_multiple_signatures = signature_count >= 3 or signature_line_count >= 4
             has_signature_card_title = "SIGNATURE CARD" in text_upper
+            has_authorized_signatories = "AUTHORIZED SIGNATORIES" in text_upper or "AUTHORIZED SIGNER" in text_upper
             
             # Check for account opening indicators
-            has_date_opened = "DATE OPENED" in text_upper
+            has_date_opened = "DATE OPENED" in text_upper or "DATE ESTABLISHED" in text_upper
             has_account_product = any(prod in text_upper for prod in [
                 "CORE CHECKING", "RELATIONSHIP CHECKING", "MONEY MARKET", 
-                "SAVINGS", "PREMIER CHECKING", "PLATINUM"
+                "SAVINGS", "PREMIER CHECKING", "PLATINUM", "CHECKING ACCOUNT", "SAVINGS ACCOUNT"
             ])
             has_account_purpose = "ACCOUNT PURPOSE" in text_upper
             has_consumer_business = "CONSUMER" in text_upper or "BUSINESS" in text_upper
+            has_account_agreement = "ACCOUNT AGREEMENT" in text_upper or "ACCOUNT APPLICATION" in text_upper
             
             # Decision logic
-            if has_signature_card_title:
-                print(f"[INFO] Detected: Joint Account Signature Card (explicit title)")
+            if has_signature_card_title or has_authorized_signatories:
+                print(f"[INFO] Detected: Signature Card/XS Form (explicit title or authorized signatories)")
                 return "loan_document"
             
             elif has_multiple_signatures and has_tin_withholding:
-                print(f"[INFO] Detected: Joint Account Signature Card (multiple signatures + TIN)")
+                print(f"[INFO] Detected: Signature Card/XS Form (multiple signatures + TIN withholding)")
                 return "loan_document"
             
             elif has_date_opened and has_account_product and has_account_purpose:
                 print(f"[INFO] Detected: Account Opening Document (has DATE OPENED + product + purpose)")
                 return "loan_document"
             
-            elif has_date_opened and has_consumer_business:
-                print(f"[INFO] Detected: Account Opening Document (has DATE OPENED + consumer/business)")
+            elif has_date_opened and (has_consumer_business or has_account_agreement):
+                print(f"[INFO] Detected: Account Opening Document (has DATE OPENED + consumer/business/agreement)")
                 return "loan_document"
             
             elif has_multiple_signatures:
-                print(f"[INFO] Detected: Joint Account Signature Card (multiple signatures)")
+                print(f"[INFO] Detected: Signature Card/XS Form (multiple signatures)")
                 return "loan_document"
             
             else:
