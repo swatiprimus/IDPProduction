@@ -757,6 +757,10 @@
             background: var(--danger);
         }
 
+        .notification.warning {
+            background: var(--warning);
+        }
+
         @keyframes slideIn {
             from {
                 transform: translateX(400px);
@@ -862,6 +866,8 @@
                         <button class="tab-btn active" id="reviewTab" onclick="switchTab('review')">Review</button>
                         <button class="tab-btn" id="jsonTab" onclick="switchTab('json')">JSON Data</button>
                     </div>
+                    
+
                     
                     <div class="data-meta" id="dataMeta">Select an account to view data</div>
                     
@@ -1431,26 +1437,40 @@
             renderPageData();
         }
 
+        // Use complete account data instead of page-specific data
+
         async function renderPageData() {
             const account = accounts[currentAccountIndex];
             const container = document.getElementById('dataContent');
             
             // Get account number from multiple sources as fallback
             const accountNumber = account.accountNumber || accounts[currentAccountIndex]?.accountNumber || 'Unknown';
+            
+            // Get the actual PDF page number for this account page
+            const actualPageNum = accountPageNumbers[currentPageIndex] || currentPageIndex;
 
-            document.getElementById('dataMeta').textContent = `Account ${accountNumber} - Page ${currentPageIndex + 1} - Loading...`;
-            container.innerHTML = '<div class="loading"><div class="spinner"></div><div>Extracting data from page...</div></div>';
+            document.getElementById('dataMeta').textContent = `Account ${accountNumber} - Page ${currentPageIndex + 1} Data`;
+            container.innerHTML = '<div class="loading"><div class="spinner"></div><div>Loading page data...</div></div>';
             
             try {
-                // Get the actual PDF page number for this account page
-                const actualPageNum = accountPageNumbers[currentPageIndex] || currentPageIndex;
-                
-                // Fetch page-specific data from the API using actual page number
+                // Fetch page-specific data from the API
                 const response = await fetch(`/api/document/${documentId}/account/${currentAccountIndex}/page/${actualPageNum}/data`);
                 const result = await response.json();
                 
-                if (result.success) {
-                    let fields = result.data || {};
+                let fields = {};
+                if (result.success && result.data) {
+                    fields = result.data;
+                    console.log('🔥 USING PAGE-SPECIFIC DATA:', fields);
+                } else {
+                    // Fallback to merged account data if page-specific data not available
+                    fields = account.result || {};
+                    console.log('🔄 FALLBACK TO ACCOUNT DATA:', fields);
+                }
+                
+                console.log('🔥 USING COMPLETE ACCOUNT DATA:', fields);
+                console.log('🔥 Total fields available:', Object.keys(fields).length);
+                console.log('🔥 Account object structure:', account);
+                console.log('🔥 Available account keys:', Object.keys(account));
                     
                     // STEP 1: Process confidence objects recursively - keep both value and confidence for inline display
                     const processedFields = {};
@@ -1804,8 +1824,17 @@
                                 displayValue = value.join(', ');
                             }
                         } else if (typeof value === 'object' && value !== null) {
-                            // Handle objects - convert to formatted JSON
-                            displayValue = JSON.stringify(value, null, 2);
+                            // Handle nested objects - flatten them into readable format
+                            const flattenedParts = [];
+                            for (const [nestedKey, nestedValue] of Object.entries(value)) {
+                                if (typeof nestedValue === 'object' && nestedValue !== null) {
+                                    // Further nested - format as JSON
+                                    flattenedParts.push(`${nestedKey}: ${JSON.stringify(nestedValue, null, 2)}`);
+                                } else if (nestedValue && nestedValue !== 'N/A' && nestedValue !== '') {
+                                    flattenedParts.push(`${nestedKey}: ${nestedValue}`);
+                                }
+                            }
+                            displayValue = flattenedParts.join('\n');
                         } else {
                             // Primitive value - use as is
                             displayValue = value;
@@ -1977,13 +2006,16 @@
 
                     
                     // FORCE DISPLAY: Ensure account number is always shown
-                    // Try to get account number from result if the original accountNumber is 'Unknown'
+                    // Try to get account number from fields if the original accountNumber is 'Unknown'
                     const metaAccountNumber = accountNumber !== 'Unknown' ? accountNumber : 
-                        (result.account_number || account.accountNumber || accounts[currentAccountIndex]?.accountNumber || 'No Account Number Found');
+                        (fields.Account_Number || account.accountNumber || accounts[currentAccountIndex]?.accountNumber || 'No Account Number Found');
                     
                     document.getElementById('dataMeta').innerHTML = `
                         <strong>Account ${metaAccountNumber}</strong> - Page ${currentPageIndex + 1}
-                        <span style="display:inline-block;margin-left:10px;padding:4px 8px;background:${confidenceColor};color:white;border-radius:4px;font-size:0.85em;font-weight:600;">
+                        <span style="display:inline-block;margin-left:10px;padding:4px 8px;background:#8b5cf6;color:white;border-radius:4px;font-size:0.85em;font-weight:600;">
+                            📄 Page-Specific Data
+                        </span>
+                        <span style="display:inline-block;margin-left:5px;padding:4px 8px;background:${confidenceColor};color:white;border-radius:4px;font-size:0.85em;font-weight:600;">
                             ${avgConfidence}% Confidence (${filledFields} fields)
                         </span>
                     `;
@@ -2000,14 +2032,10 @@
                     if (currentView === 'json') {
                         document.getElementById('jsonDisplay').innerHTML = formatJsonWithConfidence(fields);
                     }
-                } else {
-                    currentPageData = null;
-                    document.getElementById('fieldsSection').style.display = 'none';
-                    container.innerHTML = `<div class="loading">Error: ${result.message}</div>`;
-                }
+                
             } catch (error) {
-                console.error('Error loading page data:', error);
-                container.innerHTML = `<div class="loading">Failed to load page data: ${error.message}</div>`;
+                console.error('Error processing account data:', error);
+                container.innerHTML = `<div class="loading">Failed to load account data: ${error.message}</div>`;
             }
         }
 
@@ -2338,11 +2366,11 @@
         async function downloadAccountJSON() {
             const account = accounts[currentAccountIndex];
             
-            // Collect data from all pages of this account
-            showNotification('Collecting data from all pages...', 'success');
+            // Collect page-specific data from all pages of this account
+            showNotification('Collecting page-specific data from all pages...', 'success');
             
             const allPagesData = [];
-            for (let i = 0; i < totalPages; i++) {
+            for (let i = 0; i < accountPageNumbers.length; i++) {
                 try {
                     // Use the actual PDF page number from accountPageNumbers array
                     const actualPageNum = accountPageNumbers[i] || i;
@@ -2363,7 +2391,8 @@
             
             const accountData = {
                 account_number: account.accountNumber,
-                total_pages: totalPages,
+                data_source: 'page_specific_extraction',
+                total_pages: accountPageNumbers.length,
                 pages: allPagesData
             };
             
@@ -2371,11 +2400,11 @@
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `account_${account.accountNumber}_complete.json`;
+            a.download = `account_${account.accountNumber}_page_specific.json`;
             a.click();
             URL.revokeObjectURL(url);
             
-            showNotification('Complete account JSON downloaded!', 'success');
+            showNotification('Page-specific account JSON downloaded!', 'success');
         }
 
         async function clearDocumentCache() {

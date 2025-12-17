@@ -1,7 +1,7 @@
 """
 Loan Processor Service - Handles processing of loan/account documents
 """
-from .account_splitter import split_accounts_strict
+from .account_splitter import split_accounts_with_regex
 
 # Global job status map (should be imported from main app)
 job_status_map = {}
@@ -22,7 +22,7 @@ def process_loan_document(text: str, job_id: str = None):
         print(f"{'='*80}\n")
         
         # Split into individual accounts
-        chunks = split_accounts_strict(text)
+        chunks = split_accounts_with_regex(text)
         
         if not chunks:
             print(f"[LOAN_DOCUMENT] ⚠️ No accounts found, treating as single document")

@@ -1869,40 +1869,60 @@
         }
 
         async function downloadAllJSON() {
-            showNotification('Collecting data from all pages...', 'success');
+            showNotification('Building complete merged JSON...', 'success');
             
-            const allPagesData = [];
-            for (let i = 0; i < totalPages; i++) {
-                try {
-                    const response = await fetch(`/api/document/${documentId}/page/${i + 1}/extract`);
-                    const result = await response.json();
-                    
-                    if (result.success) {
-                        allPagesData.push({
-                            page_number: i + 1,
-                            data: result.extracted_fields || result.data
-                        });
-                    }
-                } catch (error) {
-                    console.error(`Failed to get data for page ${i + 1}:`, error);
+            try {
+                // Call the new complete-json endpoint that handles intelligent merging
+                const response = await fetch(`/api/document/${documentId}/complete-json`);
+                const result = await response.json();
+                
+                if (!result.success) {
+                    showNotification(`Error: ${result.message}`, 'error');
+                    return;
                 }
+                
+                // Format the response based on document type
+                let completeData;
+                
+                if (result.document_type === 'loan_document') {
+                    // For loan documents: show merged accounts
+                    completeData = {
+                        document_id: result.document_id,
+                        document_name: result.document_name,
+                        document_type: result.document_type,
+                        total_accounts: result.total_accounts,
+                        merge_method: result.merge_method,
+                        accounts: result.accounts,
+                        timestamp: result.timestamp
+                    };
+                } else {
+                    // For death certificates: show merged page data
+                    completeData = {
+                        document_id: result.document_id,
+                        document_name: result.document_name,
+                        document_type: result.document_type,
+                        total_pages: result.total_pages,
+                        merge_method: result.merge_method,
+                        pages_merged: result.pages_merged,
+                        merged_data: result.merged_data,
+                        timestamp: result.timestamp
+                    };
+                }
+                
+                const blob = new Blob([JSON.stringify(completeData, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'complete_document.json';
+                a.click();
+                URL.revokeObjectURL(url);
+                
+                showNotification(`Complete JSON downloaded! (${result.merge_method})`, 'success');
+                
+            } catch (error) {
+                console.error('Failed to download complete JSON:', error);
+                showNotification(`Error: ${error.message}`, 'error');
             }
-            
-            const completeData = {
-                document_name: '{{ document.document_name or document.filename }}',
-                total_pages: totalPages,
-                pages: allPagesData
-            };
-            
-            const blob = new Blob([JSON.stringify(completeData, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'complete_document.json';
-            a.click();
-            URL.revokeObjectURL(url);
-            
-            showNotification('Complete JSON downloaded!', 'success');
         }
 
         async function clearDocumentCache() {

@@ -22,9 +22,18 @@ from typing import Dict, List, Optional, Tuple, Any
 
 # Import modular services
 from app.services.textract_service import extract_text_with_textract, try_extract_pdf_with_pypdf
-from app.services.account_splitter import split_accounts_strict
+from app.services.account_splitter import split_accounts_with_regex
 from app.services.document_detector import detect_document_type, SUPPORTED_DOCUMENT_TYPES
 from app.services.loan_processor import process_loan_document
+from app.services.cost_optimized_processor import CostOptimizedProcessor
+from app.services.ocr_cache_manager import OCRCacheManager
+
+# Import prompts from separate module
+from prompts import (
+    get_comprehensive_extraction_prompt,
+    get_drivers_license_prompt,
+    get_loan_document_prompt
+)
 
 # Advanced Background Processing System
 class DocumentProcessingStage:
@@ -154,6 +163,7 @@ class BackgroundDocumentProcessor:
                 
                 # Stage 1: Page-by-page OCR with caching
                 print(f"[BG_PROCESSOR] ⚡ Stage 1/4: Starting page-by-page OCR with smart caching...")
+                status["stage"] = DocumentProcessingStage.OCR_EXTRACTION
                 self._update_stage_status(doc_id, DocumentProcessingStage.OCR_EXTRACTION, "processing", 0)
                 
                 page_ocr_results, total_pages = self._stage_page_by_page_ocr(doc_id, pdf_path)
@@ -165,29 +175,25 @@ class BackgroundDocumentProcessor:
                 self._update_stage_status(doc_id, DocumentProcessingStage.OCR_EXTRACTION, "completed", 100)
                 status["total_pages"] = total_pages
                 
-                # Stage 2: Account splitting from OCR results
-                print(f"[BG_PROCESSOR] 🔍 Stage 2/4: Starting account splitting from OCR results...")
+                # Stage 2-4 COMBINED: Cost-optimized processing (account discovery + data extraction in single LLM call per page)
+                print(f"[BG_PROCESSOR] � Stage 2-44 COMBINED: Starting cost-optimized processing...")
+                status["stage"] = DocumentProcessingStage.ACCOUNT_SPLITTING
                 self._update_stage_status(doc_id, DocumentProcessingStage.ACCOUNT_SPLITTING, "processing", 0)
                 
-                accounts, page_mapping = self._stage_account_splitting_from_text(doc_id, page_ocr_results, total_pages)
+                accounts, page_mapping = self._stage_cost_optimized_processing(doc_id, page_ocr_results, total_pages)
                 
                 if not accounts:
-                    raise Exception("Account splitting failed - no accounts found")
+                    raise Exception("Cost-optimized processing failed - no accounts found")
                 
-                print(f"[BG_PROCESSOR] ✅ Stage 2/4: Account splitting completed ({len(accounts)} accounts, {len(page_mapping)} pages mapped)")
+                print(f"[BG_PROCESSOR] ✅ Stage 2-4 COMBINED: Cost-optimized processing completed ({len(accounts)} accounts, {len(page_mapping)} pages mapped)")
+                print(f"[BG_PROCESSOR] 💰 COST SAVINGS: Used {total_pages} LLM calls instead of {total_pages + 1} (saved ~{int(100/max(total_pages+1,1))}% cost)")
+                
+                # Mark all stages as completed since we did everything in one step
                 self._update_stage_status(doc_id, DocumentProcessingStage.ACCOUNT_SPLITTING, "completed", 100)
-                status["accounts"] = accounts
-                
-                # Stage 3: Skip separate page analysis (already done in splitting)
-                print(f"[BG_PROCESSOR] ⏭️ Stage 3/4: Skipping separate page analysis (already done in account splitting)")
                 self._update_stage_status(doc_id, DocumentProcessingStage.PAGE_ANALYSIS, "completed", 100)
-                
-                # Stage 4: LLM Extraction using cached OCR
-                print(f"[BG_PROCESSOR] 🤖 Stage 4/4: Starting LLM extraction using cached OCR...")
-                self._update_stage_status(doc_id, DocumentProcessingStage.LLM_EXTRACTION, "processing", 0)
-                self._stage_llm_extraction_from_cached_ocr(doc_id, page_ocr_results, accounts, page_mapping, total_pages)
-                print(f"[BG_PROCESSOR] ✅ Stage 4/4: LLM extraction completed for all {total_pages} pages")
+                status["stage"] = DocumentProcessingStage.LLM_EXTRACTION
                 self._update_stage_status(doc_id, DocumentProcessingStage.LLM_EXTRACTION, "completed", 100)
+                status["accounts"] = accounts
                 
                 # IMMEDIATE UPDATE: Save accounts to document record right after splitting
                 print(f"[BG_PROCESSOR] 💾 IMMEDIATE UPDATE: Saving {len(accounts)} accounts to document record...")
@@ -200,6 +206,7 @@ class BackgroundDocumentProcessor:
                 
                 # Stage 1: Page-by-page OCR with caching
                 print(f"[BG_PROCESSOR] ⚡ Stage 1/4: Starting page-by-page OCR with smart caching...")
+                status["stage"] = DocumentProcessingStage.OCR_EXTRACTION
                 self._update_stage_status(doc_id, DocumentProcessingStage.OCR_EXTRACTION, "processing", 0)
                 
                 page_ocr_results, total_pages = self._stage_page_by_page_ocr(doc_id, pdf_path)
@@ -219,6 +226,7 @@ class BackgroundDocumentProcessor:
                 
                 # Stage 4: Page-by-page LLM Extraction for death certificates
                 print(f"[BG_PROCESSOR] 🤖 Stage 4/4: Starting page-by-page LLM extraction for death certificate...")
+                status["stage"] = DocumentProcessingStage.LLM_EXTRACTION
                 self._update_stage_status(doc_id, DocumentProcessingStage.LLM_EXTRACTION, "processing", 0)
                 self._stage_llm_extraction_death_certificate(doc_id, page_ocr_results, total_pages)
                 print(f"[BG_PROCESSOR] ✅ Stage 4/4: Page-by-page LLM extraction completed for all {total_pages} pages")
@@ -590,67 +598,124 @@ class BackgroundDocumentProcessor:
         
         return page_mapping
     
-    def _stage_account_splitting_from_text(self, doc_id: str, page_ocr_results: Dict[int, str], total_pages: int) -> Tuple[List[Dict], Dict[int, str]]:
-        """NEW: Stage 2 - Account splitting from page OCR results with page mapping"""
-        print(f"[BG_PROCESSOR] 🔍 ACCOUNT SPLITTING: Analyzing {total_pages} pages to identify accounts and create page mapping...")
+    def _stage_cost_optimized_processing(self, doc_id: str, page_ocr_results: Dict[int, str], total_pages: int) -> Tuple[List[Dict], Dict[int, str]]:
+        """COST OPTIMIZED: Combined account discovery + data extraction in single LLM call per page"""
+        print(f"[BG_PROCESSOR] � COST-OPTS: Starting cost-optimized processing for {total_pages} pages...")
+        print(f"[BG_PROCESSOR] 💰 COST-OPT: Each page = 1 LLM call (account detection + data extraction)")
         
         try:
-            # Check if already cached
-            cache_key = f"account_splitting_cache/{doc_id}/accounts_and_mapping.json"
-            try:
-                cached_result = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
-                cached_data = json.loads(cached_result['Body'].read())
-                accounts = cached_data["accounts"]
-                page_mapping = {int(k): v for k, v in cached_data["page_mapping"].items()}
-                print(f"[BG_PROCESSOR] 🔍 ACCOUNT SPLITTING: Using cached result ({len(accounts)} accounts, {len(page_mapping)} pages mapped)")
-                return accounts, page_mapping
-            except:
-                pass  # Cache miss, proceed with splitting
+            # Use the updated regex-based account detection + LLM data extraction
+            from app.services.regex_account_detector import RegexAccountDetector
             
-            # Combine all page text for account detection
-            full_text = "\n".join([page_ocr_results.get(page_num, "") for page_num in range(total_pages)])
+            # Step 1: Account detection using BOUNDARY LOGIC (account XYZ owns all pages until account ABC is found)
+            detector = RegexAccountDetector()
             
-            # Process with loan processor to find accounts
-            loan_result = process_loan_document(full_text)
+            # First, find all account numbers in the document
+            all_account_numbers = set()
+            for page_num in sorted(page_ocr_results.keys()):
+                page_text = page_ocr_results[page_num]
+                page_accounts = detector.extract_accounts_from_text(page_text)
+                all_account_numbers.update(page_accounts)
             
-            if not loan_result or "documents" not in loan_result:
-                print(f"[BG_PROCESSOR] 🔍 ACCOUNT SPLITTING: No accounts found in {doc_id}")
-                return [], {}
+            print(f"[BG_PROCESSOR] 🔍 Found account numbers: {list(all_account_numbers)}")
             
-            raw_accounts = loan_result["documents"][0].get("accounts", [])
+            # Step 1.1: Create page mapping using BOUNDARY LOGIC
+            page_mapping_0_based = {}
+            current_account = None
             
-            # Normalize and merge duplicate accounts (e.g., "0000927800" and "927800")
-            accounts = normalize_and_merge_accounts(raw_accounts)
-            print(f"[BG_PROCESSOR] 🔍 ACCOUNT SPLITTING: Account normalization: {len(raw_accounts)} -> {len(accounts)} accounts")
+            for page_num in sorted(page_ocr_results.keys()):
+                page_text = page_ocr_results[page_num]
+                
+                # Check if this page contains a new account number
+                found_new_account = None
+                page_accounts = detector.extract_accounts_from_text(page_text)
+                
+                if page_accounts:
+                    # Use the first account found on this page
+                    found_new_account = page_accounts[0]
+                    print(f"[BG_PROCESSOR] 🗺️ Page {page_num + 1}: Found account {found_new_account}")
+                
+                # Update current account if we found a new one
+                if found_new_account and found_new_account != current_account:
+                    current_account = found_new_account
+                    print(f"[BG_PROCESSOR] 🗺️ Page {page_num + 1} - NEW ACCOUNT BOUNDARY: {current_account}")
+                
+                # Assign page to current account (BOUNDARY LOGIC)
+                if current_account:
+                    page_mapping_0_based[page_num] = current_account
+                    print(f"[BG_PROCESSOR] 🗺️ Page {page_num + 1} -> Account {current_account}")
+                else:
+                    print(f"[BG_PROCESSOR] 🗺️ Page {page_num + 1} - No account assigned (cover page)")
             
-            # Create page mapping using the user's requested logic
-            page_mapping = self._create_page_mapping_from_ocr_results(doc_id, page_ocr_results, accounts, total_pages)
+            # Step 1.2: Group pages by account using boundary logic
+            all_accounts = {}
+            for page_num, account_num in page_mapping_0_based.items():
+                if account_num not in all_accounts:
+                    all_accounts[account_num] = {'pages': [], 'page_texts': {}}
+                all_accounts[account_num]['pages'].append(page_num + 1)  # Convert to 1-based for processing
+                all_accounts[account_num]['page_texts'][page_num + 1] = page_ocr_results[page_num]
             
-            # Cache the result
-            cache_data = {
-                "accounts": accounts,
-                "page_mapping": page_mapping,
-                "split_time": time.time(),
-                "total_accounts": len(accounts),
-                "total_pages_mapped": len(page_mapping),
-                "cache_version": "account_splitting_v1"
-            }
+            print(f"[BG_PROCESSOR] 🗺️ BOUNDARY MAPPING: {len(all_accounts)} accounts with pages:")
+            for acc_num, acc_info in all_accounts.items():
+                print(f"   Account {acc_num}: pages {acc_info['pages']}")
             
-            try:
-                s3_client.put_object(
-                    Bucket=S3_BUCKET,
-                    Key=cache_key,
-                    Body=json.dumps(cache_data),
-                    ContentType='application/json'
-                )
-                print(f"[BG_PROCESSOR] 🔍 ACCOUNT SPLITTING: Cached {len(accounts)} accounts and {len(page_mapping)} page mappings to S3")
-            except Exception as e:
-                print(f"[BG_PROCESSOR] ⚠️ ACCOUNT SPLITTING: Failed to cache: {str(e)}")
+            # Step 2: LLM processing for data extraction (one call per account)
+            processor = CostOptimizedProcessor(
+                bedrock_client=bedrock,
+                s3_client=s3_client,
+                bucket_name=S3_BUCKET
+            )
             
-            return accounts, page_mapping
+            # Step 2: LLM processing for data extraction (one call per page)
+            accounts = []
+            total_pages_to_process = sum(len(info['pages']) for info in all_accounts.values())
+            pages_processed_count = 0
+            
+            for account_num, account_info in all_accounts.items():
+                account_pages = account_info['pages']
+                account_page_texts = account_info['page_texts']
+                
+                # Process each page individually with LLM (CORRECT APPROACH)
+                print(f"[BG_PROCESSOR] 🤖 Processing account {account_num} - {len(account_pages)} pages individually")
+                
+                page_results = []
+                for page_num in sorted(account_pages):
+                    page_text = account_page_texts[page_num]
+                    pages_processed_count += 1
+                    
+                    # Update progress with detailed message
+                    progress_pct = int((pages_processed_count / total_pages_to_process) * 100)
+                    self._update_stage_status(doc_id, DocumentProcessingStage.LLM_EXTRACTION, "processing", progress_pct)
+                    self.document_status[doc_id]["pages_processed"] = pages_processed_count
+                    
+                    print(f"   📄 Processing page {page_num} for account {account_num} ({pages_processed_count}/{total_pages_to_process})")
+                    print(f"       🔍 Page text preview: {page_text[:100].replace(chr(10), ' ')}...")
+                    
+                    # Process this single page with LLM
+                    page_result = processor.process_single_page_with_llm(
+                        account_number=account_num,
+                        page_text=page_text,
+                        page_number=page_num
+                    )
+                    
+                    if page_result:
+                        page_results.append(page_result)
+                
+                # Merge results from all pages for this account
+                if page_results:
+                    merged_result = processor.merge_page_results(
+                        account_number=account_num,
+                        page_results=page_results,
+                        pages=account_pages
+                    )
+                    if merged_result:
+                        accounts.append(merged_result)
+            
+            print(f"[BG_PROCESSOR] 💰 COST-OPT: ✅ Service completed - {len(accounts)} accounts, {len(page_mapping_0_based)} pages mapped")
+            return accounts, page_mapping_0_based
             
         except Exception as e:
-            print(f"[BG_PROCESSOR] ❌ ACCOUNT SPLITTING: Failed for {doc_id}: {str(e)}")
+            print(f"[BG_PROCESSOR] ❌ COST-OPT: Failed for {doc_id}: {str(e)}")
             return [], {}
     
     def _create_page_mapping_from_ocr_results(self, doc_id: str, page_ocr_results: Dict[int, str], accounts: List[Dict], total_pages: int) -> Dict[int, str]:
@@ -937,7 +1002,7 @@ class BackgroundDocumentProcessor:
         print(f"[BG_PROCESSOR] 🤖 LLM: Processing summary - {pages_cached} cached, {pages_queued} queued for extraction")
     
     def _process_single_page_from_cached_ocr(self, doc_id: str, page_num: int, page_ocr_results: Dict[int, str], page_mapping: Dict[int, str]):
-        """NEW: Process a single page using cached OCR results (for loan documents)"""
+        """COST OPTIMIZED: Process page once for BOTH account detection AND data extraction"""
         try:
             cache_key = f"page_data/{doc_id}/page_{page_num}.json"
             
@@ -952,22 +1017,37 @@ class BackgroundDocumentProcessor:
             page_text = page_ocr_results.get(page_num, "")
             
             if not page_text or len(page_text.strip()) < 10:
-                print(f"[BG_PROCESSOR] 🤖 CACHED OCR LLM: Page {page_num + 1} has no OCR text, skipping...")
+                print(f"[BG_PROCESSOR] 💰 COST-OPT: Page {page_num + 1} has no OCR text, skipping...")
                 return
             
-            # Get account for this page
-            account_number = page_mapping.get(page_num, "Unknown")
+            # COST OPTIMIZATION: Single LLM call extracts BOTH account numbers AND data
+            print(f"[BG_PROCESSOR] 💰 COST-OPT: Page {page_num + 1} - Single LLM call for account + data extraction...")
             
-            # Extract data using LLM
-            extracted_data = self._extract_with_llm(page_text, account_number)
+            # Extract both account numbers and data in one call
+            llm_result = self._extract_with_llm(page_text, "")
             
-            # Cache the result
+            # Parse the dual-purpose response
+            account_numbers_found = llm_result.get("account_numbers_found", [])
+            extracted_data = llm_result.get("extracted_fields", {})
+            
+            # Determine the account for this page
+            if account_numbers_found:
+                # Use the first account number found on this page
+                page_account = account_numbers_found[0]
+                print(f"[BG_PROCESSOR] 💰 COST-OPT: Page {page_num + 1} found account: {page_account}")
+            else:
+                # Fall back to page mapping or inherit from previous page
+                page_account = page_mapping.get(page_num, "Unknown")
+                print(f"[BG_PROCESSOR] 💰 COST-OPT: Page {page_num + 1} using mapped account: {page_account}")
+            
+            # Cache the result with account info
             cache_data = {
                 "extracted_data": extracted_data,
+                "account_numbers_found": account_numbers_found,
+                "page_account": page_account,
                 "page_text": page_text[:500],  # Store preview
-                "account_number": account_number,
                 "extraction_time": time.time(),
-                "cache_version": "cached_ocr_v1"
+                "cache_version": "cost_optimized_v1"
             }
             
             s3_client.put_object(
@@ -977,7 +1057,7 @@ class BackgroundDocumentProcessor:
                 ContentType='application/json'
             )
             
-            print(f"[BG_PROCESSOR] 🤖 CACHED OCR LLM: ✅ Processed and cached page {page_num + 1} (account: {account_number})")
+            print(f"[BG_PROCESSOR] 💰 COST-OPT: ✅ Page {page_num + 1} processed with single LLM call (account: {page_account}, {len(extracted_data)} fields)")
             
         except Exception as e:
             print(f"[BG_PROCESSOR] 🤖 CACHED OCR LLM: ❌ Failed to process page {page_num + 1}: {str(e)}")
@@ -1111,10 +1191,14 @@ class BackgroundDocumentProcessor:
             return ""
     
     def _extract_with_llm(self, page_text: str, account_number: str, custom_prompt: str = None) -> Dict:
-        """Extract data from page text using LLM"""
+        """Extract data from page text using LLM - COST OPTIMIZED VERSION"""
         try:
-            # Use custom prompt if provided, otherwise use comprehensive extraction prompt
-            prompt = custom_prompt if custom_prompt else get_comprehensive_extraction_prompt()
+            # Use custom prompt if provided, otherwise use loan document prompt
+            if custom_prompt:
+                prompt = custom_prompt
+            else:
+                # Use specialized loan document prompt for data extraction
+                prompt = get_loan_document_prompt()
             
             # Call Bedrock
             response = bedrock.invoke_model(
@@ -1157,6 +1241,8 @@ class BackgroundDocumentProcessor:
             print(f"[BG_PROCESSOR] LLM extraction failed: {str(e)}")
             return {"error": str(e)}
     
+
+    
     def _update_stage_status(self, doc_id: str, stage: str, status: str, progress: int):
         """Update the status of a processing stage"""
         if doc_id in self.stage_progress:
@@ -1165,6 +1251,10 @@ class BackgroundDocumentProcessor:
                 "progress": progress,
                 "timestamp": time.time()
             }
+        
+        # Also update document_status progress
+        if doc_id in self.document_status:
+            self.document_status[doc_id]["progress"] = progress
     
     def _update_extraction_progress(self, doc_id: str, pages_processed: int, total_pages: int):
         """Update LLM extraction progress"""
@@ -1449,8 +1539,11 @@ AWS_REGION = "us-east-1"
 bedrock = boto3.client("bedrock-runtime", region_name=AWS_REGION)
 textract = boto3.client("textract", region_name=AWS_REGION)
 s3_client = boto3.client("s3", region_name=AWS_REGION)
-MODEL_ID = "us.anthropic.claude-3-5-sonnet-20241022-v2:0"
+MODEL_ID = "anthropic.claude-3-5-sonnet-20240620-v1:0"
 S3_BUCKET = "awsidpdocs"
+
+# Initialize OCR Cache Manager
+ocr_cache_manager = OCRCacheManager(s3_client, S3_BUCKET)
 
 # In-memory Job Tracker
 job_status_map = {}
@@ -1869,984 +1962,11 @@ def scan_and_map_pages(doc_id, pdf_path, accounts):
     return page_to_account
 
 
-def get_comprehensive_extraction_prompt():
-    """Get comprehensive prompt for extracting ALL fields from any page"""
-    return """
-You are a data extraction expert. Extract ALL fields and their values from this document.
 
-🔴🔴🔴 CRITICAL PRIORITY #1: VERIFICATION DETECTION 🔴🔴🔴
-**THIS IS THE MOST IMPORTANT TASK - NEVER SKIP VERIFICATION DETECTION**
 
-**STEP 1: MANDATORY VERIFICATION SCAN (DO THIS FIRST):**
-Before extracting any other data, you MUST scan the ENTIRE page for verification indicators:
 
-1. **SEARCH FOR "VERIFIED" TEXT EVERYWHERE:**
-   - Look for "VERIFIED" stamps, seals, or text ANYWHERE on the page
-   - Look for "VERIFICATION" text or stamps  
-   - Look for "VERIFY" or "VERIFIED BY" text
-   - Look for checkboxes or boxes marked with "VERIFIED"
-   - Look for "✓ VERIFIED" or similar checkmark combinations
-   - Search in margins, corners, stamps, seals, form fields, and document body
-   - Extract as: Verified: {"value": "VERIFIED", "confidence": 95}
 
-2. **SEARCH FOR NAMES NEAR VERIFICATION:**
-   - Look for names immediately after "VERIFIED" (like "VERIFIED - RENDA")
-   - Look for "VERIFIED BY: [NAME]" patterns
-   - Look for names in verification stamps or seals
-   - Extract as: Verified_By: {"value": "Name", "confidence": 85}
-   
-3. **SEARCH FOR VERIFICATION DATES:**
-   - Look for dates on or near verification stamps
-   - Look for "VERIFIED ON: [DATE]" patterns
-   - Extract as: Verified_Date: {"value": "Date", "confidence": 85}
 
-**OTHER CRITICAL FIELDS:**
-4. **PHONE NUMBERS** - Look for "610-485-4979", "610- 485- 4979", "(302) 834-0382" - Extract as Phone_Number
-5. **STAMP DATES** - Look for "MAR 21 2016", "DEC 26 2014", "MAR 2 5 2015" - Extract as Stamp_Date  
-6. **REFERENCE NUMBERS** - Look for "#652", "#357", "#298" - Extract as Reference_Number
-7. **ACCOUNT NUMBERS** - Any 8-10 digit numbers - Extract as Account_Number
-8. **HANDWRITTEN TEXT** - Any handwritten numbers or text
-
-🔴🔴🔴 VERIFICATION SEARCH INSTRUCTIONS 🔴🔴🔴
-- **ALWAYS** scan the ENTIRE page text for the word "VERIFIED" (case-insensitive)
-- **ALWAYS** scan for "VERIFICATION" text
-- **ALWAYS** look for verification stamps, seals, or checkmarks
-- **NEVER** skip verification detection - it must be checked on every page
-- If you find "VERIFIED" anywhere, ALWAYS extract it as a field
-- Look in margins, corners, stamps, seals, and form fields
-
-CRITICAL: Extract EVERYTHING you see - printed text, handwritten text, stamps, seals, and marks.
-
-IMPORTANT: Use SIMPLE, SHORT field names. Do NOT copy the entire label text from the document.
-- Example: "DATE PRONOUNCED DEAD" → use "Death_Date" (NOT "Date_Pronounced_Dead")
-- Example: "ACCOUNT HOLDER NAMES" → use "Account_Holders" (NOT "Account_Holder_Names")
-- Example: If you see "VERIFIED" stamp → use "Verified" with value "Yes" or "VERIFIED"
-- Example: If you see handwritten "4630" near "Account" → use "Account_Number" with value "4630"
-- Simplify all verbose labels to their core meaning
-
-SPECIAL ATTENTION REQUIRED:
-🔴 **HANDWRITTEN TEXT:** Extract ALL handwritten numbers and text - these are CRITICAL data points
-   - Handwritten numbers are often account numbers, reference numbers, or IDs
-   - **HANDWRITTEN PHONE NUMBERS:** Look for patterns like "610-485-4979", "610- 485- 4979", "(610) 485-4979"
-   - Extract them with appropriate field names (Account_Number, Reference_Number, Phone_Number, Contact_Phone, etc.)
-   
-🔴 **STAMPS & SEALS:** Extract ALL stamps, seals, and verification marks
-   - "VERIFIED" stamp → Verified: "Yes" or "VERIFIED"
-   - Date stamps → Stamp_Date or Verified_Date (look for formats like "MAR 21 2016", "DEC 26 2014", "JAN 15 2023")
-   - Reference numbers with stamps → Reference_Number (look for "#652", "#357", "Ref #123")
-   - Names in stamps → Verified_By or Stamped_By
-   - Official seals → Official_Seal: "Present" or description
-   
-🔴 **MULTIPLE NUMBERS:** Documents often have MULTIPLE number types - extract ALL of them
-   - **Account_Number** (PRIMARY IDENTIFIER - handwritten or printed account/billing number)
-   - Certificate_Number (printed certificate ID - ONLY if clearly labeled as "Certificate Number")
-   - File_Number (state file number)
-   - Reference_Number (reference or tracking number)
-
-🔴🔴🔴 CRITICAL FOR DEATH CERTIFICATES 🔴🔴🔴
-- **ANY LARGE NUMBER (8-10 digits) on a death certificate should be extracted as Account_Number**
-- **Examples: 463085233, 468431466 → ALWAYS use Account_Number (NOT Certificate_Number)**
-- **Only use Certificate_Number if you see explicit labels like "Certificate Number:" or "Cert #:"**
-- **When in doubt on death certificates, use Account_Number for the main identifying number**
-
-PRIORITY ORDER (Extract in this order):
-1. **HANDWRITTEN NUMBERS** - These are often the most important (account numbers, IDs)
-2. **STAMPS & VERIFICATION MARKS** - Verified stamps, date stamps, official seals
-3. **IDENTIFYING NUMBERS** - Certificate numbers, file numbers, license numbers
-4. **NAMES** - All person names (full names, witness names, registrar names, stamped names)
-5. **DATES** - All dates (issue dates, birth dates, death dates, stamp dates)
-6. **LOCATIONS** - Cities, states, counties, countries, addresses
-7. **FORM FIELDS** - All labeled fields with values
-8. **CHECKBOXES** - Checkbox states (Yes/No, checked/unchecked)
-9. **ANY OTHER VISIBLE DATA** - Extract everything else you can see
-
-🔴🔴🔴 CRITICAL PHONE NUMBER EXTRACTION RULES 🔴🔴🔴
-- **PHONE NUMBERS ARE CRITICAL** - Look for ALL phone number patterns in the document
-- **COMMON PHONE NUMBER FORMATS:**
-  * "610-485-4979" (standard format with dashes)
-  * "610- 485- 4979" (with spaces around dashes - common in handwritten)
-  * "(302) 834-0382" (with parentheses and space)
-  * "302.834.0382" (with dots)
-  * "3028340382" (no separators)
-- **HANDWRITTEN PHONE NUMBERS:** Often have irregular spacing - still extract them
-- **WHERE TO FIND:** Can appear anywhere on the document - margins, forms, handwritten notes
-- **FIELD NAMES:** Use Phone_Number, Contact_Phone, Mobile_Phone, or Signer1_Phone as appropriate
-
-🔴🔴🔴 CRITICAL STAMP DATE EXTRACTION RULES 🔴🔴🔴
-- **STAMP DATES ARE CRITICAL** - Look for standalone dates that appear to be stamped on the document
-- **COMMON STAMP DATE FORMATS:**
-  * "MAR 21 2016" (month abbreviation, day, year)
-  * "DEC 26 2014" (month abbreviation, day, year)  
-  * "MAR 2 5 2015" (month abbreviation, day with space, year)
-  * "JAN 15 2023" (month abbreviation, day, year)
-- **STAMP REFERENCE NUMBERS:** Look for numbers with # symbol like "#652", "#357", "#298"
-- **WHERE TO FIND STAMPS:** Usually in margins, corners, or separate sections of certificates
-- **EXTRACT BOTH:** If you see a stamp date, also look for an associated reference number nearby
-
-CRITICAL RULES:
-- Extract EVERY field you can see - printed, handwritten, stamped, or sealed
-- **HANDWRITTEN TEXT IS CRITICAL** - Never skip handwritten numbers or text
-- **STAMPS ARE DATA** - Extract stamp text as actual field values, not descriptions
-- Include ALL identifying numbers (license #, certificate #, file #, reference #, account #, etc.)
-- Extract ALL names, even if they appear multiple times in different contexts
-- Extract ALL dates in their original format
-- Do NOT extract long legal text, disclaimers, or authorization paragraphs
-- Do NOT extract instructions about how to fill the form
-- Extract actual DATA, not explanatory text
-
-WHAT TO EXTRACT:
-✓ **IDENTIFYING NUMBERS (Extract ALL - Documents can have multiple number types):**
-  - **ALWAYS match the field name to the LABEL on the document**
-  - **A document can have MULTIPLE number types** (e.g., both Certificate_Number AND Account_Number)
-  - **Certificate_Number:** Use when you see "Certificate Number", "Certificate No", "Cert #"
-  - **Account_Number:** Use when you see "Account Number", "Account No", "Acct #", "Acct Number" (may be handwritten or printed)
-  - **File_Number:** Use when you see "File Number", "File No", "State File Number"
-  - **License_Number:** Use when you see "License Number", "License No", "DL #"
-  - **Reference_Number:** Use when you see "Reference Number", "Ref #", "Reference No"
-  - **Registration_Number:** Use when you see "Registration Number", "Registration No"
-  - **IMPORTANT:** Extract ALL numbers you find - don't skip any!
-  - **Example:** A death certificate might have BOTH Certificate_Number (for the certificate) AND Account_Number (handwritten for billing)
-  - **Rule:** If you see "Account" or "Acct" label → ALWAYS extract as Account_Number (even on certificates)
-✓ **ALL OTHER IDENTIFYING NUMBERS:**
-  - Document_Number, Reference_Number, Case_Number
-  - Any number with a label or identifier
-✓ **ALL NAMES:**
-  - Full_Name, Spouse_Name, Witness_Names, Registrar_Name
-  - Father_Name, Mother_Name, Maiden_Name
-  - Any person's name mentioned in the document
-✓ **ALL DATES:**
-  - Issue_Date, Birth_Date, Marriage_Date, Death_Date
-  - Expiration_Date, Filing_Date, Registration_Date
-  - Stamp_Date (look for stamps like "DEC 26 2014", "JAN 15 2023", "MAR 21 2016", "MAR 2 5 2015")
-  - Reference_Number (look for "#652", "#357", "Ref #123", numbers with # symbol)
-✓ **ALL LOCATIONS:**
-  - City, State, County, Country
-  - Place_of_Birth, Place_of_Marriage, Place_of_Death
-  - Address, Residence
-✓ **FORM FIELDS:**
-  - Business_Name, Account_Number
-  - Card_Details, Abbreviations_Needed
-  - Branch_Name, Associate_Name
-  - ALL other form fields with labels
-✓ **SIGNER INFORMATION (if applicable):**
-  - If ONE signer: Signer1_Name, Signer1_SSN, Signer1_DateOfBirth, Signer1_Address, Signer1_Phone, Signer1_DriversLicense
-  - If TWO signers: Add Signer2_Name, Signer2_SSN, Signer2_DateOfBirth, Signer2_Address, Signer2_Phone, Signer2_DriversLicense
-  - If THREE+ signers: Continue with Signer3_, Signer4_, etc.
-✓ **VERIFICATION & CERTIFICATION FIELDS:**
-  - Verified (Yes/No or checkbox state)
-  - Verified_By (name of person who verified)
-  - Verified_Date (date of verification)
-  - Certification_Date, Certified_By
-  - Registrar_Name, Registrar_Signature
-  - Official_Seal, Stamp_Date
-  - Any verification stamps or certification marks
-✓ **CHECKBOXES & STATUS FIELDS:**
-  - Extract ALL checkbox states (checked/unchecked, Yes/No, True/False)
-  - Status fields (Approved, Pending, Verified, etc.)
-  - Any marked or selected options
-✓ **PHONE NUMBERS & CONTACT INFO:**
-  - Phone_Number, Contact_Phone, Mobile_Phone (look for patterns like "610-485-4979", "610- 485- 4979", "(302) 834-0382")
-  - Fax_Number, Email_Address
-  - **CRITICAL:** Extract ALL phone numbers, even if handwritten or have unusual spacing
-✓ **ALL OTHER VISIBLE FIELDS**
-
-WHAT NOT TO EXTRACT:
-✗ Long authorization paragraphs
-✗ Legal disclaimers
-✗ "NOTE:" sections with instructions
-✗ "AUTHORIZATION:" sections with legal text
-✗ Form filling instructions
-✗ Page numbers
-✗ Headers and footers (unless they contain data)
-
-FIELD NAMING:
-- Use SIMPLE, SHORT field names (not the full label text)
-- Replace spaces with underscores
-- **MATCH THE LABEL ON THE DOCUMENT:**
-  * If document says "Certificate Number" → use "Certificate_Number"
-  * If document says "Account Number" → use "Account_Number"
-  * If document says "License Number" → use "License_Number"
-  * If document says "File Number" → use "File_Number"
-- Example: "License Number" → "License_Number"
-- Example: "Date of Birth" → "Date_Of_Birth"
-- Example: "DATE PRONOUNCED DEAD" → "Death_Date"
-- Example: "ACTUAL OR PRESUMED DATE OF DEATH" → "Death_Date"
-- Simplify verbose labels to their core meaning, but keep the field type accurate
-
-EXAMPLES OF MULTIPLE NUMBER TYPES:
-
-Example 1: Death Certificate with handwritten account number
-- Document shows: "Certificate Number: 2025-12345" (printed)
-- Document shows: "Account No: 987654321" (handwritten)
-- Extract BOTH:
-{
-  "Certificate_Number": {"value": "2025-12345", "confidence": 95},
-  "Account_Number": {"value": "987654321", "confidence": 75}
-}
-
-Example 2: Bank document with multiple numbers
-- Document shows: "Account Number: 1234567890"
-- Document shows: "Reference #: 298"
-- Extract BOTH:
-{
-  "Account_Number": {"value": "1234567890", "confidence": 95},
-  "Reference_Number": {"value": "298", "confidence": 90}
-}
-
-RETURN FORMAT:
-Return a JSON object where each field has both a value and a confidence score (0-100):
-
-{
-  "Field_Name": {
-    "value": "extracted value",
-    "confidence": 95
-  },
-  "Phone_Number": {
-    "value": "610-485-4979",
-    "confidence": 85
-  },
-  "Stamp_Date": {
-    "value": "MAR 21 2016",
-    "confidence": 90
-  },
-  "Reference_Number": {
-    "value": "#357",
-    "confidence": 95
-  }
-}
-
-CONFIDENCE SCORE GUIDELINES:
-- 90-100: Text is clear, printed, and easily readable
-- 70-89: Text is readable but slightly unclear (handwritten, faded, or small)
-- 50-69: Text is partially unclear or ambiguous
-- 30-49: Text is difficult to read or uncertain
-- 0-29: Very uncertain or guessed
-
-IMPORTANT:
-- Only include fields with actual values (omit empty fields)
-- Every field MUST have both "value" and "confidence"
-- Be honest about confidence - if text is unclear, use a lower score
-- Extract the phone number "610- 485- 4979" as "Phone_Number": {"value": "610-485-4979", "confidence": 75}
-
-EXTRACT EVERYTHING - BE THOROUGH AND COMPLETE!
-"""
-
-def get_drivers_license_prompt():
-    """Get specialized prompt for extracting driver's license / ID card information"""
-    return """
-You are a data extraction expert specializing in government-issued identification documents.
-
-Extract ALL information from this Driver's License or ID Card.
-
-CRITICAL FIELDS TO EXTRACT:
-1. **PERSONAL INFORMATION:**
-   - Full_Name (as shown on license)
-   - First_Name, Middle_Name, Last_Name
-   - Date_of_Birth (DOB)
-   - Sex / Gender
-   - Height
-   - Weight
-   - Eye_Color
-   - Hair_Color
-
-2. **LICENSE INFORMATION:**
-   - License_Number (DL #, ID #)
-   - State / Issuing_State
-   - License_Class (Class A, B, C, D, etc.)
-   - Issue_Date (ISS)
-   - Expiration_Date (EXP)
-   - Restrictions (if any)
-   - Endorsements (if any)
-
-3. **ADDRESS:**
-   - Street_Address
-   - City
-   - State
-   - ZIP_Code
-   - Full_Address (complete address as shown)
-
-4. **ADDITIONAL INFORMATION:**
-   - Document_Type (Driver License, ID Card, etc.)
-   - Card_Number (if different from license number)
-   - DD_Number (Document Discriminator)
-   - Organ_Donor (Yes/No if indicated)
-   - Veteran (if indicated)
-   - Any_Barcodes or QR_Codes
-   - Any_Other_Numbers or identifiers
-
-EXTRACTION RULES:
-- Extract EVERY visible field on the ID card
-- Include all numbers, dates, and text
-- Preserve exact formatting of license numbers and dates
-- Extract address exactly as shown
-- Include any stamps, seals, or watermarks mentioned
-- If a field is partially visible or unclear, still extract it and note "unclear" or "partially visible"
-- Look for information on BOTH front and back of the card if visible
-
-FIELD NAMING:
-- Use descriptive names with underscores
-- Example: "DL #" → "License_Number"
-- Example: "DOB" → "Date_of_Birth"
-- Example: "ISS" → "Issue_Date"
-- Example: "EXP" → "Expiration_Date"
-
-RETURN FORMAT:
-Return ONLY valid JSON in this exact format where EVERY field has both value and confidence:
-{
-  "documents": [
-    {
-      "document_id": "dl_001",
-      "document_type": "drivers_license",
-      "document_type_display": "Driver's License / ID Card",
-      "document_icon": "🪪",
-      "document_description": "Government-issued identification",
-      "extracted_fields": {
-        "Document_Type": {
-          "value": "Driver License",
-          "confidence": 95
-        },
-        "State": {
-          "value": "Delaware",
-          "confidence": 100
-        },
-        "License_Number": {
-          "value": "1234567",
-          "confidence": 95
-        },
-        "Full_Name": {
-          "value": "John Doe",
-          "confidence": 98
-        },
-        "Date_of_Birth": {
-          "value": "01/15/1980",
-          "confidence": 100
-        },
-        "Address": {
-          "value": "123 Main St",
-          "confidence": 95
-        },
-        "City": {
-          "value": "Wilmington",
-          "confidence": 100
-        },
-        "Issue_Date": {
-          "value": "12/03/2012",
-          "confidence": 100
-        },
-        "Expiration_Date": {
-          "value": "12/03/2020",
-          "confidence": 100
-        }
-      }
-    }
-  ]
-}
-
-CONFIDENCE SCORE GUIDELINES:
-- 90-100: Text is clear, printed, and easily readable
-- 70-89: Text is readable but slightly unclear (handwritten, faded, or small)
-- 50-69: Text is partially unclear or ambiguous
-- 30-49: Text is difficult to read or uncertain
-- 0-29: Very uncertain or guessed
-
-CRITICAL REQUIREMENTS:
-- EVERY field MUST have both "value" and "confidence"
-- Only include fields that are VISIBLE in the document
-- Do not use "N/A" or empty strings
-- Extract EVERYTHING you can see on the ID card - be thorough and complete!
-"""
-
-def get_loan_document_prompt():
-    """Get the specialized prompt for loan/account documents"""
-    # PROMPT VERSION: Increment this when prompt changes to invalidate old cache
-    # Current version: v7 (enhanced VERIFIED detection for loan documents)
-    return """
-You are an AI assistant that extracts ALL structured data from loan account documents.
-
-🔴🔴🔴 CRITICAL: RETURN ALL FIELDS WITH CONFIDENCE SCORES 🔴🔴🔴
-**EVERY field MUST be returned in this format:**
-```json
-{
-  "Field_Name": {
-    "value": "extracted value",
-    "confidence": 95
-  }
-}
-```
-
-**CONFIDENCE SCORE GUIDELINES:**
-- 90-100: Text is clear, printed, and easily readable
-- 70-89: Text is readable but slightly unclear (handwritten, faded, or small)
-- 50-69: Text is partially unclear or ambiguous
-- 30-49: Text is difficult to read or uncertain
-- 0-29: Very uncertain or guessed
-
-🔴🔴🔴 CRITICAL PRIORITY #1: VERIFICATION DETECTION 🔴🔴🔴
-**THIS IS THE MOST IMPORTANT TASK - NEVER SKIP VERIFICATION DETECTION**
-
-**STEP 1: MANDATORY VERIFICATION SCAN (DO THIS FIRST):**
-Before extracting any other data, you MUST scan the ENTIRE page for verification indicators:
-
-1. **SEARCH FOR "VERIFIED" TEXT EVERYWHERE:**
-   - Look for "VERIFIED" stamps, seals, or text ANYWHERE on the page
-   - Look for "VERIFICATION" text or stamps  
-   - Look for "VERIFY" or "VERIFIED BY" text
-   - Look for checkboxes or boxes marked with "VERIFIED"
-   - Look for "✓ VERIFIED" or similar checkmark combinations
-   - Search in margins, corners, stamps, seals, form fields, and document body
-   - Extract as: Verified: {"value": "VERIFIED", "confidence": 95}
-
-2. **SEARCH FOR NAMES NEAR VERIFICATION:**
-   - Look for names immediately after "VERIFIED" (like "VERIFIED - RENDA")
-   - Look for "VERIFIED BY: [NAME]" patterns
-   - Look for names in verification stamps or seals
-   - Extract as: Verified_By: {"value": "Name", "confidence": 85}
-   
-3. **SEARCH FOR VERIFICATION DATES:**
-   - Look for dates on or near verification stamps
-   - Look for "VERIFIED ON: [DATE]" patterns
-   - Extract as: Verified_Date: {"value": "Date", "confidence": 85}
-
-🚨 **VERIFICATION DETECTION RULES:**
-- **NEVER** skip verification detection - it must be checked on EVERY page
-- **ALWAYS** scan the ENTIRE page text for "VERIFIED" (case-insensitive)
-- **ALWAYS** extract verification fields if found, even if unclear
-- If you find ANY verification indicator, you MUST extract it
-- Look in ALL parts of the page: headers, footers, margins, stamps, seals, form fields
-
-🔴🔴🔴 VERIFICATION EXAMPLES - STUDY THESE PATTERNS 🔴🔴🔴
-
-**COMMON VERIFICATION PATTERNS TO LOOK FOR:**
-- "VERIFIED" (standalone stamp)
-- "VERIFIED - [NAME]" (stamp with name)
-- "VERIFIED BY: [NAME]" (formal verification)
-- "✓ VERIFIED" (checkmark with verified)
-- "VERIFICATION COMPLETE" (process completion)
-- "DOCUMENT VERIFIED" (document validation)
-- "IDENTITY VERIFIED" (identity confirmation)
-- "SIGNATURE VERIFIED" (signature validation)
-
-**EXAMPLE EXTRACTIONS:**
-- Text: "VERIFIED" → Extract: Verified: {"value": "VERIFIED", "confidence": 95}
-- Text: "VERIFIED - RENDA" → Extract: Verified: {"value": "VERIFIED", "confidence": 95}, Verified_By: {"value": "RENDA", "confidence": 90}
-- Text: "VERIFIED BY: MARIA SANTOS" → Extract: Verified: {"value": "VERIFIED", "confidence": 95}, Verified_By: {"value": "MARIA SANTOS", "confidence": 90}
-- Text: "✓ VERIFIED 03/15/2024" → Extract: Verified: {"value": "VERIFIED", "confidence": 95}, Verified_Date: {"value": "03/15/2024", "confidence": 90}
-- Text: "VERIFICATION COMPLETE" → Extract: Verified: {"value": "VERIFIED", "confidence": 90}
-
-🚨 **CRITICAL REMINDER:**
-- Verification detection is MANDATORY on every page
-- Even if the text is unclear, extract it with lower confidence
-- Look in ALL areas of the page, not just the main content
-- If you're unsure, extract it anyway - better to have false positives than miss verification
-
-🔴🔴🔴 MOST IMPORTANT - EXTRACT ALL ACCOUNT AND SIGNER FIELDS 🔴🔴🔴
-
-**CRITICAL ACCOUNT FIELDS TO EXTRACT:**
-1. **Account_Number** - Look for "ACCOUNT NUMBER:", "Account Number:", or similar labels
-2. **Account_Holders** - Look for "Account Holder Names:", "ACCOUNT HOLDER NAMES:", or names listed as account owners
-3. **Mailing_Address** - Look for "Mailing Address:", complete address with street, city, state, zip
-4. **Phone_Number** - Look for "Home Phone:", "Work Phone:", or any phone numbers
-5. **Date_Opened** - Look for "DATE OPENED:", "Date Opened:", opening date
-6. **CIF_Number** - Look for "CIF Number", "CIF #", customer identification number
-7. **Branch** - Look for branch name, location, or office name
-8. **Verified_By** - Look for "VERIFIED BY:", "Verified By:", name of verifier
-9. **Opened_By** - Look for "OPENED BY:", name of person who opened account
-10. **Signatures_Required** - Look for "Number of Signatures Required:", signature requirements
-
-**CRITICAL SIGNER FIELDS TO EXTRACT:**
-For EACH signer, you MUST extract EVERY piece of information visible:
-- Name, SSN, Date of Birth, Address (complete with street, city, state, zip)
-- Phone, Email, Driver's License, Citizenship, Occupation, Employer
-- DO NOT skip any signer fields - extract EVERYTHING you see
-- If a field exists for a signer, YOU MUST INCLUDE IT in the output
-
-**EXAMPLE FIELD MAPPINGS FROM DOCUMENT:**
-- "Account Holder Names: DANETTE EBERLY OR R BRUCE EBERLY" → Account_Holders: ["DANETTE EBERLY", "R BRUCE EBERLY"]
-- "Mailing Address: 512 PONDEROSA DR, BEAR, DE, 19701-2155" → Mailing_Address: "512 PONDEROSA DR, BEAR, DE, 19701-2155"
-- "Home Phone: (302) 834-0382" → Phone_Number: "(302) 834-0382"
-- "CIF Number 00000531825" → CIF_Number: "00000531825"
-- "VERIFIED BY: Kasie Mears" → Verified_By: "Kasie Mears"
-- "468869904" followed by "WSFS Core Savings" → WSFS_Account_Type: "WSFS Core Savings"
-
-🔴🔴🔴 CRITICAL PARSING RULES - READ THESE FIRST 🔴🔴🔴
-
-**RULE 1: WSFS PRODUCT NAME EXTRACTION**
-Look for this EXACT pattern in the text:
-```
-ACCOUNT NUMBER:
-Account Holder Names:
-468869904
-WSFS Core Savings
-```
-When you see an account number followed by "WSFS Core Savings" (or similar product name), extract it as:
-WSFS_Account_Type: "WSFS Core Savings"
-
-**RULE 2: COMBINED OCR TEXT PARSING**
-The OCR often reads form labels and values together without spaces. You MUST parse them correctly:
-
-IF YOU SEE THIS IN THE TEXT:
-- "PurposeConsumer" or "Purpose:Consumer" or "Purpose: Consumer" → Extract as: "Account_Purpose": "Consumer"
-- "TypePersonal" or "Type:Personal" or "Type: Personal" → Extract as: "Account_Type": "Personal"
-- "PurposeConsumer Personal" or "Purpose:Consumer Type:Personal" → Extract as TWO fields:
-  * "Account_Purpose": "Consumer"
-  * "Account_Type": "Personal"
-
-PARSING RULES:
-1. Look for the word "Purpose" followed by a value (Consumer, Checking, Savings, etc.) → Extract as Account_Purpose
-2. Look for the word "Type" followed by a value (Personal, Business, etc.) → Extract as Account_Type
-3. These are ALWAYS separate fields even if they appear together in the text
-4. NEVER combine them into one field
-
-WRONG ❌:
-{
-  "Account_Purpose": "Consumer Personal"
-}
-
-CORRECT ✅:
-{
-  "Account_Purpose": "Consumer",
-  "Account_Type": "Personal"
-}
-
-IF THE TEXT SAYS "PurposeConsumer Personal", PARSE IT AS:
-- Find "Purpose" → Next word is "Consumer" → Account_Purpose: "Consumer"
-- Find "Personal" (after Consumer) → This is the Type value → Account_Type: "Personal"
-
-CRITICAL: Use SIMPLE, SHORT field names. Do NOT copy verbose labels from the document.
-- Example: "ACCOUNT HOLDER NAMES" → use "Account_Holders" (NOT "AccountHolderNames")
-- Example: "DATE OF BIRTH" → use "DOB" or "Birth_Date" (NOT "DateOfBirth")
-- Example: "SOCIAL SECURITY NUMBER" → use "SSN" (NOT "SocialSecurityNumber")
-- Keep field names concise and readable
-
-**CRITICAL ACCOUNT NUMBER DETECTION RULES (FOR BANK/LOAN DOCUMENTS ONLY):**
-- This prompt is for BANK/LOAN documents, so Account_Number is the primary identifier
-- Account numbers may be HANDWRITTEN or printed on the document
-- Look for labels like: "Account", "Acct", "Account #", "Account No", "Acct Number", "Account Number"
-- Account numbers are typically 8-12 digits, may have dashes or spaces
-- If you see a handwritten number near an "Account" label, extract it as Account_Number
-- DO NOT use Account_Number for:
-  * Death/Birth/Marriage certificates (use Certificate_Number instead)
-  * Driver's licenses (use License_Number instead)
-  * File reference numbers (use File_Number instead)
-- ONLY use Account_Number if the document is clearly a bank/loan/account document
-
-Extract EVERY piece of information from the document and return it as valid JSON.
-
-REQUIRED FIELDS (extract if present):
-
-REQUIRED FIELDS TO EXTRACT (if present in document):
-{
-  "Account_Number": "string (e.g., 468869904)",
-  "Account_Holders": ["name1", "name2"] (e.g., ["DANETTE EBERLY", "R BRUCE EBERLY"]),
-  "Account_Purpose": "string (e.g., Consumer)",
-  "Account_Category": "string (e.g., Personal)", 
-  "Account_Type": "string (for backward compatibility)",
-  "WSFS_Account_Type": "string (e.g., WSFS Core Savings)",
-  "Ownership_Type": "string (e.g., Joint Owners)",
-  "Mailing_Address": "string (complete address)",
-  "Phone_Number": "string (e.g., (302) 834-0382)",
-  "Work_Phone": "string (if different from home phone)",
-  "Date_Opened": "string (e.g., 12/24/2014)",
-  "Date_Revised": "string (if present)",
-  "CIF_Number": "string (e.g., 00000531825)",
-  "Branch": "string (e.g., College Square)",
-  "Verified_By": "string (e.g., Kasie Mears)",
-  "Opened_By": "string (if present)",
-  "Signatures_Required": "string (e.g., 1)",
-  "Special_Instructions": "string (if present)",
-  "Form_Number": "string (if present)",
-  "Stamp_Date": "string (e.g., DEC 26 2014)",
-  "Reference_Number": "string (e.g., #298)",
-  "Signer1_Name": "string",
-  "Signer1_SSN": "string",
-  "Signer1_DOB": "string",
-  "Signer1_Address": "string",
-  "Signer1_Phone": "string",
-  "Signer1_DriversLicense": "string",
-  "Signer2_Name": "string (if multiple signers)",
-  "Signer2_SSN": "string",
-  "Signer2_DOB": "string",
-  "Signer2_Address": "string",
-  "Signer2_Phone": "string",
-  "Signer2_DriversLicense": "string"
-}
-
-For documents with MULTIPLE signers, add Signer2_, Signer3_, etc.:
-{
-  "Account_Number": "string",
-  "Signer1_Name": "string",
-  "Signer1_SSN": "string",
-  "Signer1_DOB": "string",
-  "Signer2_Name": "string",
-  "Signer2_SSN": "string",
-  "Signer2_DOB": "string"
-}
-
-FIELD DEFINITIONS - READ CAREFULLY:
-
-🔴 CRITICAL: Account_Purpose and Account_Type are TWO SEPARATE FIELDS - NEVER combine them!
-
-1. Account_Purpose: The CATEGORY or CLASSIFICATION of the account.
-   LOOK FOR: The word "Purpose" in the text (may appear as "Purpose:", "PurposeConsumer", "Purpose Consumer", etc.)
-   EXTRACT: The value that comes AFTER "Purpose"
-   POSSIBLE VALUES:
-   - "Consumer" (consumer banking)
-   - "Checking" (checking account)
-   - "Savings" (savings account)
-   - "Money Market" (money market account)
-   - "CD" or "Certificate of Deposit"
-   - "IRA" or "Retirement"
-   - "Loan" (loan account)
-   - "Mortgage" (mortgage account)
-   
-   PARSING EXAMPLES:
-   - Text: "Purpose: Consumer" → Account_Purpose: "Consumer"
-   - Text: "PurposeConsumer" → Account_Purpose: "Consumer"
-   - Text: "Purpose:Consumer Type:Personal" → Account_Purpose: "Consumer" (extract ONLY the Purpose value)
-   - Text: "PurposeConsumer Personal" → Account_Purpose: "Consumer" (extract ONLY "Consumer", NOT "Consumer Personal")
-
-2. Account_Type: The USAGE TYPE or WHO uses the account.
-   LOOK FOR: The word "Type" in the text (may appear as "Type:", "TypePersonal", "Type Personal", etc.)
-   EXTRACT: The value that comes AFTER "Type"
-   POSSIBLE VALUES:
-   - "Personal" (for individual/family use)
-   - "Business" (for business operations)
-   - "Commercial" (for commercial purposes)
-   - "Corporate" (for corporation)
-   - "Trust" (trust account)
-   - "Estate" (estate account)
-   
-   PARSING EXAMPLES:
-   - Text: "Type: Personal" → Account_Type: "Personal"
-   - Text: "TypePersonal" → Account_Type: "Personal"
-   - Text: "Purpose:Consumer Type:Personal" → Account_Type: "Personal" (extract ONLY the Type value)
-   - Text: "PurposeConsumer Personal" → Account_Type: "Personal" (extract ONLY "Personal", which comes after "Consumer")
-
-3. WSFS_Account_Type: The SPECIFIC internal bank account type code or classification. Look for:
-   - Specific product names like "Premier Checking", "Platinum Savings", "Gold CD", "WSFS Saving Core"
-   - Internal codes or account classifications
-   - Branded account names unique to the bank
-   - **IMPORTANT**: This field often appears WITHOUT a header label - just the value written on the form
-   - Look for bank-specific product names like "WSFS Saving Core", "WSFS Checking Plus", etc.
-   - These are usually written in a specific area of the form, even without a label
-   - If you see "WSFS Saving Core" or similar bank product names, extract as WSFS_Account_Type
-   - This is SEPARATE from Account_Type (Personal/Business) and Account_Purpose (Consumer/Checking)
-
-4. Ownership_Type: WHO owns the account legally. Common values:
-   - "Individual" or "Single Owner" (single owner)
-   - "Joint" or "Joint Owners" (multiple owners with equal rights)
-   - "Joint with Rights of Survivorship"
-   - "Trust" (held in trust)
-   - "Estate" (estate account)
-   - "Custodial" (for minor)
-   - "Business" or "Corporate"
-- DO NOT create a field called "Purpose" with value "Consumer Personal"
-- These are ALWAYS separate fields even if they appear together on the form
-
-🔴🔴🔴 SPECIFIC EXTRACTION PATTERNS FOR WSFS DOCUMENTS 🔴🔴🔴
-
-**ACCOUNT HOLDER NAMES EXTRACTION:**
-- Look for "Account Holder Names:" followed by names
-- Look for "ACCOUNT HOLDER NAMES:" in all caps
-- Names may be separated by "OR", "AND", or commas
-- Example: "DANETTE EBERLY OR R BRUCE EBERLY" → Account_Holders: ["DANETTE EBERLY", "R BRUCE EBERLY"]
-
-**ADDRESS EXTRACTION:**
-- Look for "Mailing Address:" followed by complete address
-- Extract the full address including street, city, state, zip
-- Example: "Mailing Address: 512 PONDEROSA DR, BEAR, DE, 19701-2155"
-
-**PHONE NUMBER EXTRACTION:**
-- Look for "Home Phone:", "Work Phone:", or just phone number patterns
-- Extract with proper formatting: (302) 834-0382
-- May appear as handwritten numbers
-
-🔴🔴🔴 CRITICAL BANK PRODUCT EXTRACTION 🔴🔴🔴
-**WSFS PRODUCT NAMES - EXTRACT THESE IMMEDIATELY:**
-- Look for "WSFS Core Savings", "WSFS Checking Plus", "WSFS Money Market", "WSFS Premier Checking"
-- These appear RIGHT AFTER the account number, often on the same line or next line
-- They appear WITHOUT any field label - just the product name
-- **PATTERN**: "ACCOUNT NUMBER: 468869904" followed by "WSFS Core Savings" on next line
-- **CRITICAL**: Extract as WSFS_Account_Type even if no label is present
-- **EXAMPLE**: If you see "468869904" followed by "WSFS Core Savings" → WSFS_Account_Type: "WSFS Core Savings"
-
-**OTHER BANK PRODUCTS TO LOOK FOR:**
-- "Premier Checking", "Platinum Savings", "Gold CD", "Business Checking"
-- "Money Market", "Certificate of Deposit", "IRA Savings"
-- Any product name that appears near account information
-
-**BRANCH AND STAFF EXTRACTION:**
-- Look for "VERIFIED BY:", "OPENED BY:" followed by staff names
-- Look for branch names like "College Square", "Main Branch"
-- Extract staff names and branch locations
-
-EXTRACTION RULES - EXTRACT EVERYTHING COMPLETELY:
-- 🔴 CRITICAL: Extract EVERY field visible in the document with COMPLETE information
-- 🔴 DO NOT skip any fields or partial information - extract EVERYTHING you see
-- Include ALL form fields, checkboxes, dates, amounts, addresses, phone numbers, emails
-- Extract ALL names, titles, positions, relationships with FULL details
-- Include ALL dates (opened, closed, effective, expiration, birth dates, etc.)
-- Extract COMPLETE addresses (street, city, state, zip) - not just partial
-- Extract COMPLETE phone numbers with area codes
-- Extract COMPLETE SSNs, license numbers, account numbers
-- **IMPORTANT: Extract ALL STAMP DATES** - Look for date stamps like "DEC 26 2014", "JAN 15 2023", "MAR 21 2016", "MAR 2 5 2015", etc.
-  * These often appear as standalone dates on certificates
-  * May be accompanied by reference numbers like "#652", "#357"
-  * Extract both the stamp date AND any associated reference numbers
-- **IMPORTANT: Extract REFERENCE NUMBERS** - Look for numbers like "#298", "Ref #123", "#652", "#357", etc.
-  * These often appear near stamp dates on certificates
-  * Extract any number preceded by # symbol
-  * Common on death certificates and other official documents
-- Extract ALL identification numbers (SSN, Tax ID, License numbers, etc.)
-- **CRITICAL: SEPARATE COMBINED VALUES** - If you see values combined without clear separation:
-  * "PurposeConsumer Personal" → Account_Purpose: "Consumer", Account_Type: "Personal"
-  * "TypeBusiness Commercial" → Account_Type: "Business", WSFS_Account_Type: "Commercial"
-  * Look for capital letters in the middle of text as indicators of separate fields
-  * Split combined values into their proper fields based on field definitions above
-- **🔴 CRITICAL: EXTRACT WSFS PRODUCT NAMES WITHOUT HEADERS 🔴** - Look for bank product names that appear without field labels:
-  * "WSFS Core Savings" (no header) → WSFS_Account_Type: "WSFS Core Savings"
-  * "WSFS Checking Plus" (no header) → WSFS_Account_Type: "WSFS Checking Plus"
-  * "WSFS Money Market" (no header) → WSFS_Account_Type: "WSFS Money Market"
-  * "Premier Checking" (no header) → WSFS_Account_Type: "Premier Checking"
-  * **PATTERN TO LOOK FOR**: Account number followed immediately by product name
-  * **EXAMPLE**: "ACCOUNT NUMBER: 468869904" then "WSFS Core Savings" on next line
-  * These product names are usually written RIGHT AFTER the account number
-  * Extract them even if they don't have a field label like "Account Type:" or "Product:"
-  * This is SEPARATE from Account_Type (Personal/Business) and Account_Purpose (Consumer/Checking)
-  * **DO NOT SKIP THESE** - They are critical bank product identifiers
-- Include ALL financial information (balances, limits, rates, fees)
-- Extract ALL addresses (mailing, physical, business, home)
-- Include ALL contact information (phone, fax, email, website)
-- **CRITICAL FOR PHONE NUMBERS:** Look for patterns like "610-485-4979", "610- 485- 4979", "(302) 834-0382"
-- Extract phone numbers even if they have unusual spacing or are handwritten
-- Extract ALL signatures, initials, and authorization details
-- **CRITICAL: Extract ALL SUPPORTING DOCUMENTS** - Look for:
-  * Driver's License (with number, state, expiration)
-  * Passport (with number, country)
-  * OFAC checks (with date and result)
-  * Background checks (with date and result)
-  * Verification stamps (with date and verifier name)
-  * ID verification (with type and details)
-  * Any other documents mentioned or verified
-- Extract ALL compliance information (OFAC, background checks, verifications)
-- Include ALL checkboxes and their states (checked/unchecked, Yes/No)
-- Extract ALL special instructions, notes, or comments
-- **IMPORTANT: Look for STAMPS, SEALS, and WATERMARKS** - Extract any visible stamps with dates, numbers, or text
-- Return ONLY valid JSON, no additional text before or after
-- **CRITICAL: DO NOT include fields that are NOT present in the document**
-- **CRITICAL: DO NOT use "N/A" or empty strings - ONLY include fields with actual values found in the document**
-- **CRITICAL: If a field is not visible in the document, DO NOT include it in the JSON response**
-- For Account_Holders: Return as array even if single name, e.g., ["John Doe"]
-- 🔴🔴🔴 CRITICAL FOR SIGNERS - EXTRACT COMPLETE INFORMATION - DO NOT SKIP ANYTHING 🔴🔴🔴
-  * SIGNERS ARE THE MOST IMPORTANT PART - Extract EVERY SINGLE piece of information for EACH signer
-  * DO NOT skip any signer fields - extract EVERYTHING you see
-  * For EACH signer, you MUST extract ALL of these fields if they are visible:
-    
-    SIGNER 1 - EXTRACT ALL OF THESE:
-    - Signer1_Name (full name - first, middle, last)
-    - Signer1_SSN (social security number - complete 9 digits)
-    - Signer1_DOB (date of birth in any format)
-    - Signer1_Address (COMPLETE address: street number, street name, apartment/unit, city, state, zip code)
-    - Signer1_Phone (phone number with area code)
-    - Signer1_Email (email address)
-    - Signer1_Drivers_License (driver's license number AND state)
-    - Signer1_Drivers_License_Expiration (expiration date if shown)
-    - Signer1_Citizenship (citizenship status: US Citizen, Permanent Resident, etc.)
-    - Signer1_Occupation (job title or occupation)
-    - Signer1_Employer (employer name and address if shown)
-    - Signer1_Employer_Phone (employer phone if shown)
-    - Signer1_Mothers_Maiden_Name (if shown)
-    - Signer1_Relationship (relationship to account: Owner, Joint Owner, etc.)
-    - Signer1_Signature (if signature is present, note "Signed" or "Signature present")
-    - Signer1_Signature_Date (date of signature if shown)
-    - ANY other signer-specific information you see
-    
-    SIGNER 2 - EXTRACT ALL OF THESE (if second signer exists):
-    - Signer2_Name, Signer2_SSN, Signer2_DOB, Signer2_Address, Signer2_Phone, Signer2_Email
-    - Signer2_Drivers_License, Signer2_Drivers_License_Expiration, Signer2_Citizenship
-    - Signer2_Occupation, Signer2_Employer, Signer2_Employer_Phone
-    - Signer2_Mothers_Maiden_Name, Signer2_Relationship, Signer2_Signature, Signer2_Signature_Date
-    - ANY other information for signer 2
-    
-    SIGNER 3+ - Continue with Signer3_, Signer4_, etc. if more signers exist
-  
-  * 🔴 CRITICAL RULES FOR SIGNERS:
-    - DO NOT USE NESTED OBJECTS - Use FLAT fields with underscore naming
-    - WRONG ❌: "Signer1": {"Name": "John", "SSN": "123"}
-    - CORRECT ✅: "Signer1_Name": "John", "Signer1_SSN": "123"
-    - Extract COMPLETE addresses - not just street, include city, state, zip
-    - Extract COMPLETE phone numbers - include area code
-    - Extract COMPLETE SSNs - all 9 digits
-    - If a signer field is visible, YOU MUST EXTRACT IT - do not skip anything
-    - Look in ALL sections of the document for signer information (may be in multiple places)
-    
-  * 🔴🔴🔴 REMINDER: SIGNERS ARE THE MOST IMPORTANT PART 🔴🔴🔴
-    - Extract EVERY field for EVERY signer
-    - Do NOT be conservative - extract ALL information you see
-    - Missing signer information is a CRITICAL ERROR
-    - If you see a signer's name, you MUST extract ALL their other information too
-- For Supporting_Documents: Create separate objects for EACH document type found
-- Preserve exact account numbers and SSNs as they appear
-- If you see multiple account types mentioned, use the most specific one
-- Look carefully at the entire document text for ALL fields
-- Pay special attention to compliance sections, checkboxes, verification stamps, and date stamps
-- **REMEMBER: Only extract what you can SEE in the document. Do not invent or assume fields.**
-
-EXAMPLES OF CORRECT FIELD SEPARATION:
-
-Example 1: Document shows "Purpose: Consumer" and "Type: Personal"
-{
-  "Account_Purpose": "Consumer",
-  "Account_Type": "Personal"
-}
-
-Example 2: Document shows "Purpose: Consumer", "Type: Personal", and "WSFS Saving Core" (no header for WSFS)
-{
-  "Account_Purpose": "Consumer",
-  "Account_Type": "Personal",
-  "WSFS_Account_Type": "WSFS Saving Core"
-}
-
-Example 3: Document shows combined text "PurposeConsumer Personal" (NO SPACES)
-{
-  "Account_Purpose": "Consumer",
-  "Account_Type": "Personal"
-}
-
-Example 4: Document shows "Purpose: Consumer Type: Business" and also has "WSFS Checking Plus" written somewhere
-{
-  "Account_Purpose": "Consumer",
-  "Account_Type": "Business",
-  "WSFS_Account_Type": "WSFS Checking Plus"
-}
-
-Example 5: Document says "Premier Checking Account for Business Operations, Consumer Banking"
-{
-  "Account_Type": "Business",
-  "WSFS_Account_Type": "Premier Checking",
-  "Account_Purpose": "Consumer"
-}
-
-Example 6: Document says "Personal IRA Savings Account"
-{
-  "Account_Type": "Personal",
-  "WSFS_Account_Type": "IRA Savings",
-  "Account_Purpose": "Retirement"
-}
-
-❌ WRONG: DO NOT combine them like this: {"Purpose": "Consumer Personal"}
-✅ CORRECT: Always separate: {"Account_Purpose": "Consumer", "Account_Type": "Personal", "WSFS_Account_Type": "WSFS Saving Core"}
-
-Example 4: Supporting_Documents with OFAC check and verification
-{
-  "Supporting_Documents": [
-    {
-      "Type": "Driver's License",
-      "Details": "DE #1234567, Expires: 12/03/2020"
-    },
-    {
-      "Type": "OFAC Check",
-      "Details": "Completed on 3/18/2016 - No match found"
-    },
-    {
-      "Type": "Background Check",
-      "Details": "Verified by Sara Halttunen on 12/24/2014"
-    },
-    {
-      "Type": "ID Verification",
-      "Details": "Drivers License #9243231 verified"
-    }
-  ]
-}
-
-Example 5: Multiple supporting documents
-{
-  "Supporting_Documents": [
-    {
-      "Type": "Driver's License",
-      "Details": "State: DE, Number: 719077, Issued: 12-03-2012, Expires: 12-03-2020"
-    },
-    {
-      "Type": "OFAC Screening",
-      "Details": "Date: 12/24/2014, Result: No match found, Verified by: System"
-    },
-    {
-      "DocumentType": "Signature Verification",
-      "Details": "Verified on 12/24/2014 by branch staff"
-    }
-  ]
-}
-
-Example 6: Multiple signers (CORRECT FORMAT - FLAT fields, NOT nested objects)
-{
-  "AccountNumber": "468869904",
-  "AccountType": "Personal",
-  "DateOpened": "12/24/2014",
-  "Signer1_Name": "Danette Eberly",
-  "Signer1_SSN": "222-50-2263",
-  "Signer1_DateOfBirth": "12/3/1956",
-  "Signer1_Address": "512 PONDEROSA DR, BEAR, DE, 19701-2155",
-  "Signer1_Phone": "(302) 834-0382",
-  "Signer1_DriversLicense": "719077",
-  "Signer2_Name": "R Bruce Eberly",
-  "Signer2_SSN": "199400336",
-  "Signer2_DateOfBirth": "11/17/1949",
-  "Signer2_Address": "512 PONDEROSA DR, BEAR, DE, 19701-2155",
-  "Signer2_Phone": "(302) 834-0382",
-  "Signer2_DriversLicense": "651782"
-}
-
-WRONG FORMAT (DO NOT USE):
-{
-  "Signer1": {
-    "Name": "Danette Eberly",
-    "SSN": "222-50-2263"
-  }
-}
-
-CORRECT FORMAT (USE THIS):
-{
-  "Signer1_Name": "Danette Eberly",
-  "Signer1_SSN": "222-50-2263"
-}
-
-RETURN FORMAT WITH CONFIDENCE SCORES:
-Return JSON where each field has both a value and confidence score (0-100):
-
-{
-  "Account_Number": {
-    "value": "0210630620",
-    "confidence": 95
-  },
-  "Signer1_Name": {
-    "value": "John Doe",
-    "confidence": 90
-  },
-  "Signer1_SSN": {
-    "value": "123-45-6789",
-    "confidence": 85
-  }
-}
-
-CONFIDENCE SCORE GUIDELINES:
-- 90-100: Text is clear, printed, and easily readable
-- 70-89: Text is readable but slightly unclear (handwritten, faded, or small)
-- 50-69: Text is partially unclear or ambiguous
-- 30-49: Text is difficult to read or uncertain
-- 0-29: Very uncertain or guessed
-
-CRITICAL RULES:
-1. ONLY extract fields that are VISIBLE in the document
-2. DO NOT include fields with "N/A" or empty values
-3. For multiple signers, use Signer1_, Signer2_, Signer3_ prefixes
-4. Each signer's information should be separate fields, not nested objects
-5. Every field MUST have both "value" and "confidence"
-
-🔴 FINAL REMINDER - DO NOT FORGET 🔴
-Account_Purpose and Account_Type are ALWAYS TWO SEPARATE FIELDS!
-NEVER combine them like "Account_Purpose": "Consumer Personal"
-ALWAYS separate: "Account_Purpose": "Consumer", "Account_Type": "Personal"
-"""
 
 # Supported Document Types with Expected Fields
 SUPPORTED_DOCUMENT_TYPES = {
@@ -2938,22 +2058,6 @@ SUPPORTED_DOCUMENT_TYPES = {
 
 # Persistent storage for processed documents
 DOCUMENTS_DB_FILE = "processed_documents.json"
-
-def load_documents_db():
-    """Load processed documents from file"""
-    if os.path.exists(DOCUMENTS_DB_FILE):
-        with open(DOCUMENTS_DB_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    return []
-
-def save_documents_db(documents):
-    """Save processed documents to file"""
-    with open(DOCUMENTS_DB_FILE, 'w', encoding='utf-8') as f:
-        json.dump(documents, indent=2, fp=f)
-
-# Load existing documents on startup
-processed_documents = load_documents_db()
-
 
 def parse_combined_ocr_fields(text):
     """
@@ -4300,12 +3404,12 @@ def process_job(job_id: str, file_bytes: bytes, filename: str, use_ocr: bool, do
         processed_documents.append(document_record)
         save_documents_db(processed_documents)
         
-        # Mark job as complete
+        # Mark job as processing (not complete yet - background processing will continue)
         job_status_map[job_id] = {
-            "status": "✅ Document uploaded successfully",
-            "progress": 100,
-            "result": {"documents": [placeholder_doc]},
-            "document_id": job_id
+            "status": "📤 Document uploaded - starting background processing...",
+            "progress": 15,
+            "document_id": job_id,
+            "is_complete": False
         }
         
         # 🚀 START BACKGROUND PROCESSING IMMEDIATELY
@@ -4411,8 +3515,22 @@ def process_loan_document_endpoint(doc_id):
         doc_data = doc.get("documents", [{}])[0]
         existing_accounts = doc_data.get("accounts", [])
         
-        # 🚀 PRIORITY: Check background processing results first
+        # 🚀 PRIORITY: Check background processing status
         bg_status = background_processor.get_document_status(doc_id)
+        
+        # If background processing is still running, wait for it or return pending status
+        if bg_status and bg_status.get("stage") and bg_status.get("stage") != "completed":
+            print(f"[LOAN_PROCESSING] ⏳ Background processing still running (stage: {bg_status.get('stage')})")
+            return jsonify({
+                "success": True,
+                "message": "Background processing in progress",
+                "accounts": [],
+                "total_accounts": 0,
+                "source": "background_processing_pending",
+                "stage": bg_status.get("stage")
+            })
+        
+        # If background processing completed, use those results
         if bg_status and bg_status.get("accounts") and len(bg_status.get("accounts", [])) > 0:
             bg_accounts = bg_status["accounts"]
             print(f"[LOAN_PROCESSING] ✅ Found {len(bg_accounts)} accounts from background processing")
@@ -4453,6 +3571,32 @@ def process_loan_document_endpoint(doc_id):
         
         print(f"[LOAN_PROCESSING] Processing loan document {doc_id} for account splitting...")
         
+        # 🚀 CHECK OCR STATUS FIRST - Prevent duplicate OCR calls
+        ocr_status = ocr_cache_manager.get_ocr_status(doc_id)
+        
+        if ocr_status and ocr_status.get("ocr_completed"):
+            print(f"[LOAN_PROCESSING] ✅ OCR already completed for {doc_id}, skipping OCR")
+            return jsonify({
+                "success": True,
+                "message": "OCR already completed, waiting for background processing",
+                "accounts": [],
+                "total_accounts": 0,
+                "source": "ocr_already_done"
+            })
+        
+        if ocr_status and ocr_status.get("ocr_in_progress"):
+            print(f"[LOAN_PROCESSING] ⏳ OCR already in progress for {doc_id}, skipping duplicate OCR")
+            return jsonify({
+                "success": True,
+                "message": "OCR already in progress",
+                "accounts": [],
+                "total_accounts": 0,
+                "source": "ocr_in_progress"
+            })
+        
+        # Mark OCR as in progress
+        ocr_cache_manager.mark_ocr_in_progress(doc_id)
+        
         # Extract text from entire PDF using fast OCR
         try:
             # Read PDF file bytes
@@ -4469,6 +3613,9 @@ def process_loan_document_endpoint(doc_id):
                 full_text, _ = try_extract_pdf_with_pypdf(pdf_bytes, os.path.basename(pdf_path))
             
             print(f"[LOAN_PROCESSING] Extracted {len(full_text)} characters from PDF")
+            
+            # Mark OCR as completed
+            ocr_cache_manager.mark_ocr_completed(doc_id, full_text, {"method": "textract"})
             
         except Exception as text_error:
             print(f"[LOAN_PROCESSING] Text extraction failed: {str(text_error)}")
@@ -4827,6 +3974,18 @@ def get_account_pages(doc_id, account_index):
         if not pdf_path or not os.path.exists(pdf_path):
             return jsonify({"success": False, "message": "PDF file not found"}), 404
         
+        # Get total pages from document metadata (avoid opening PDF if possible)
+        total_pages = doc.get("total_pages")
+        if not total_pages:
+            # Fallback: open PDF to get page count
+            import fitz
+            pdf_doc = fitz.open(pdf_path)
+            total_pages = len(pdf_doc)
+            pdf_doc.close()
+            print(f"[CACHE_LOAD] 📄 Got total pages from PDF: {total_pages}")
+        else:
+            print(f"[CACHE_LOAD] 📄 Got total pages from metadata: {total_pages}")
+        
         # Get account info
         doc_data = doc.get("documents", [{}])[0]
         accounts = doc_data.get("accounts", [])
@@ -4838,6 +3997,11 @@ def get_account_pages(doc_id, account_index):
             return jsonify({"success": False, "message": "Account index out of range"}), 400
         
         target_account_number = accounts[account_index].get("accountNumber", "").strip()
+        
+        # CRITICAL: Normalize account number to match background processing format
+        # Background processing removes leading zeros, so API must do the same
+        normalized_target_account = target_account_number.lstrip('0') or '0'
+        print(f"[BOUNDARY] Target account: {target_account_number} -> normalized: {normalized_target_account}")
         
         # Check cache first
         cache_key = f"page_mapping/{doc_id}/mapping.json"
@@ -4876,7 +4040,87 @@ def get_account_pages(doc_id, account_index):
         except Exception as cache_error:
             print(f"[CACHE_LOAD] ❌ Cache load failed: {str(cache_error)}, will scan pages")
         
-        # If no cache, scan pages and create mapping (with lock to prevent duplicates)
+        # PRIORITY 1: Check if background processing has completed and has page_data
+        if doc_data.get("background_processed") and accounts:
+            account = accounts[account_index] if account_index < len(accounts) else None
+            if account and account.get("page_data"):
+                print(f"[CACHE_LOAD] ✅ Background processing completed, using page_data from account")
+                # Get pages directly from account's page_data (much faster than scanning)
+                page_data = account.get("page_data", {})
+                account_pages = []
+                
+                for page_key in page_data.keys():
+                    if page_key.isdigit():
+                        page_num = int(page_key)  # page_data uses 1-based keys
+                        account_pages.append(page_num)
+                
+                if account_pages:
+                    account_pages.sort()
+                    print(f"[CACHE_LOAD] ✅ Found {len(account_pages)} pages from background processing: {account_pages}")
+                    
+                    # Return immediately without any OCR scanning
+                    return jsonify({
+                        "success": True,
+                        "total_pages": len(account_pages),
+                        "pages": account_pages,  # Already 1-based
+                        "account_number": normalized_target_account,
+                        "source": "background_processing_cache"
+                    })
+                else:
+                    print(f"[CACHE_LOAD] ⚠️ Account has page_data but no valid page numbers found")
+            else:
+                print(f"[CACHE_LOAD] ⚠️ Background processing completed but no page_data found for account {account_index}")
+        else:
+            print(f"[CACHE_LOAD] ⚠️ Background processing not completed or no accounts found")
+        
+        # PRIORITY 2: Check S3 cache for page mapping
+        cache_key = f"page_mapping/{doc_id}/mapping.json"
+        page_to_account = None
+        
+        try:
+            print(f"[CACHE_LOAD] 🔍 Checking S3 cache for page mapping: {cache_key}")
+            cache_response = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+            cached_data = cache_response['Body'].read().decode('utf-8')
+            cached_mapping = json.loads(cached_data)
+            
+            # Handle both old format (direct mapping) and new format (with metadata)
+            if isinstance(cached_mapping, dict):
+                # Filter out non-numeric keys and convert to int
+                page_to_account = {}
+                for k, v in cached_mapping.items():
+                    if str(k).isdigit():
+                        page_to_account[int(k)] = v
+                
+                if page_to_account:
+                    print(f"[CACHE_LOAD] ✅ Loaded cached page mapping with {len(page_to_account)} pages: {page_to_account}")
+                else:
+                    print(f"[CACHE_LOAD] ⚠️ Cache exists but no valid page mappings found")
+                    page_to_account = None
+            else:
+                print(f"[CACHE_LOAD] ❌ Invalid cache format (not dict), will scan pages")
+                page_to_account = None
+        except s3_client.exceptions.NoSuchKey:
+            print(f"[CACHE_LOAD] ℹ️ No S3 cache found, will scan pages")
+        except Exception as cache_error:
+            print(f"[CACHE_LOAD] ❌ S3 cache load failed: {str(cache_error)}, will scan pages")
+        
+        # PRIORITY 3: Check if background processing is still running
+        if page_to_account is None:
+            # Check if background processing is still running
+            bg_status = background_processor.document_status.get(doc_id, {})
+            if bg_status.get("stage") and bg_status.get("stage") != "completed":
+                print(f"[CACHE_LOAD] ⏳ Background processing still running (stage: {bg_status.get('stage')}), using fallback")
+                # Return a simple fallback mapping - all pages to this account
+                fallback_pages = list(range(total_pages))
+                return jsonify({
+                    "success": True,
+                    "total_pages": len(fallback_pages),
+                    "pages": [p + 1 for p in fallback_pages],  # Convert to 1-based
+                    "account_number": normalized_target_account,
+                    "note": "Background processing in progress, showing all pages"
+                })
+        
+        # If still no cache and background processing is complete, scan pages and create mapping (with lock to prevent duplicates)
         if page_to_account is None:
             # Check if another process is already scanning
             lock_key = f"scan_lock/{doc_id}/scanning.lock"
@@ -4931,14 +4175,12 @@ def get_account_pages(doc_id, account_index):
                 print(f"[WARNING] Failed to cache mapping: {str(s3_error)}")
         
         # Now assign pages to the target account using IMPROVED BOUNDARY LOGIC
-        pdf_doc = fitz.open(pdf_path)
-        total_pages = len(pdf_doc)
-        pdf_doc.close()
+        # (total_pages already calculated above)
         
         account_pages = []
         
         print(f"[BOUNDARY] Page to account mapping: {page_to_account}")
-        print(f"[BOUNDARY] Looking for account: {target_account_number}")
+        print(f"[BOUNDARY] Looking for account: {normalized_target_account}")
         print(f"[BOUNDARY] Total pages in document: {total_pages}")
         
         # IMPROVED ALGORITHM: Assign ALL pages between account boundaries
@@ -4947,13 +4189,16 @@ def get_account_pages(doc_id, account_index):
             boundary_pages = sorted(page_to_account.keys())
             print(f"[BOUNDARY] Account boundary pages: {boundary_pages}")
             
-            # Find account boundaries for this specific account
+            # Find account boundaries for this specific account (using normalized numbers)
             account_boundaries = []
             for page_num in boundary_pages:
-                if page_to_account[page_num] == target_account_number:
+                page_account = page_to_account[page_num]
+                # Normalize the page account number for comparison
+                normalized_page_account = page_account.lstrip('0') or '0'
+                if normalized_page_account == normalized_target_account:
                     account_boundaries.append(page_num)
             
-            print(f"[BOUNDARY] Account {target_account_number} found on pages: {account_boundaries}")
+            print(f"[BOUNDARY] Account {normalized_target_account} found on pages: {account_boundaries}")
             
             if account_boundaries:
                 # For each boundary where this account appears, assign pages until next different account
@@ -4966,7 +4211,9 @@ def get_account_pages(doc_id, account_index):
                     # Look for the next page with a different account number
                     for check_page in range(boundary_page + 1, total_pages):
                         if check_page in page_to_account:
-                            if page_to_account[check_page] != target_account_number:
+                            check_page_account = page_to_account[check_page]
+                            normalized_check_account = check_page_account.lstrip('0') or '0'
+                            if normalized_check_account != normalized_target_account:
                                 end_page = check_page
                                 print(f"[BOUNDARY] Found next different account at page {check_page + 1}")
                                 break
@@ -5160,6 +4407,35 @@ def get_account_page_data(doc_id, account_index, page_num):
     
     print(f"[API] 📄 Page data request: doc_id={doc_id}, account={account_index}, page={page_num}")
     
+    # 🚀 PRIORITY 0: Check account's page_data first (from background processing)
+    doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+    if doc:
+        doc_data = doc.get("documents", [{}])[0]
+        accounts = doc_data.get("accounts", [])
+        
+        if account_index < len(accounts):
+            account = accounts[account_index]
+            page_data = account.get("page_data", {})
+            
+            # Check if this page has data in the account's page_data (1-based keys)
+            page_key = str(page_num)
+            if page_key in page_data:
+                print(f"[CACHE] ✅ Serving page {page_num} from account page_data (account {account_index})")
+                print(f"[CACHE] 📊 Page data contains {len(page_data[page_key])} fields")
+                response = jsonify({
+                    "success": True,
+                    "data": page_data[page_key],
+                    "account_number": account.get("accountNumber", "Unknown"),
+                    "cache_source": "account_page_data",
+                    "cached": True
+                })
+                response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+                response.headers['Pragma'] = 'no-cache'
+                response.headers['Expires'] = '0'
+                return response
+            else:
+                print(f"[DEBUG] Page {page_num} not found in account page_data. Available pages: {list(page_data.keys())}")
+    
     # 🚀 PRIORITY 1: Check background processor cache first (convert 1-based to 0-based)
     if background_processor.is_page_cached(doc_id, page_num - 1):
         cached_data = background_processor.get_cached_page_data(doc_id, page_num - 1)
@@ -5227,7 +4503,7 @@ def get_account_page_data(doc_id, account_index, page_num):
             
             # Check prompt version - invalidate old cache
             cached_version = cached_data.get("prompt_version", "v1")
-            current_version = "v5_enhanced_verified"  # Updated to match new version
+            current_version = "v6_loan_document_prompt_fix"  # Updated to force re-extraction with correct prompt
             
             if cached_version != current_version:
                 print(f"[DEBUG] Cache version mismatch ({cached_version} vs {current_version}) - will re-extract")
@@ -5377,17 +4653,20 @@ def get_account_page_data(doc_id, account_index, page_num):
         # Extract data from this specific page using AI
         print(f"[DEBUG] Calling AI to extract data from page {page_num}")
         
-        # Detect document type on this page
-        detected_type = detect_document_type(page_text)
-        print(f"[DEBUG] Detected document type on page {page_num}: {detected_type}")
+        # Use document-level type instead of page-level detection
+        doc_type = doc.get("document_type_info", {}).get("type", "unknown")
+        print(f"[DEBUG] Using document-level type for page {page_num}: {doc_type}")
         
-        # Use appropriate prompt based on detected type
-        if detected_type == "drivers_license":
+        # Use appropriate prompt based on document type (not page-level detection)
+        if doc_type == "drivers_license":
             page_extraction_prompt = get_drivers_license_prompt()
             print(f"[DEBUG] Using specialized DL prompt for page {page_num}")
+        elif doc_type == "loan_document":
+            page_extraction_prompt = get_loan_document_prompt()
+            print(f"[DEBUG] Using specialized LOAN DOCUMENT prompt for page {page_num}")
         else:
             page_extraction_prompt = get_comprehensive_extraction_prompt()
-            print(f"[DEBUG] Using comprehensive prompt for page {page_num}")
+            print(f"[DEBUG] Using comprehensive prompt for page {page_num} (doc_type: {doc_type})")
         
         print(f"[DEBUG] Got page extraction prompt, calling Bedrock...")
         response = call_bedrock(page_extraction_prompt, page_text, max_tokens=8192)
@@ -5411,7 +4690,7 @@ def get_account_page_data(doc_id, account_index, page_num):
                 }), 500
             
             # Handle driver's license format: unwrap documents array if present
-            if detected_type == "drivers_license" and "documents" in parsed:
+            if doc_type == "drivers_license" and "documents" in parsed:
                 if len(parsed["documents"]) > 0:
                     doc_data = parsed["documents"][0]
                     # Extract the fields from extracted_fields
@@ -6009,7 +5288,7 @@ def extract_page_progressive(doc_id, account_index, page_index):
         # Use Claude AI to extract data from this page
         import boto3
         bedrock = boto3.client("bedrock-runtime", region_name="us-east-1")
-        MODEL_ID = "us.anthropic.claude-3-5-sonnet-20241022-v2:0"
+        MODEL_ID = "anthropic.claude-3-5-sonnet-20240620-v1:0"
         
         # Get document type for appropriate prompt
         doc_type = doc.get("document_type_info", {}).get("type", "unknown")
@@ -6514,7 +5793,7 @@ def extract_regular_page_progressive(doc_id, page_index):
         # Use Claude AI to extract data from this page
         import boto3
         bedrock = boto3.client("bedrock-runtime", region_name="us-east-1")
-        MODEL_ID = "us.anthropic.claude-3-5-sonnet-20241022-v2:0"
+        MODEL_ID = "anthropic.claude-3-5-sonnet-20240620-v1:0"
         
         # Get document type for appropriate prompt
         doc_type = doc.get("document_type_info", {}).get("type", "unknown")
@@ -6973,9 +6252,95 @@ def upload_file():
 
 @app.route("/status/<job_id>")
 def get_status(job_id):
-    """Get processing status for a job"""
-    status = job_status_map.get(job_id, {"status": "Unknown job ID", "progress": 0})
-    return jsonify(status)
+    """Get processing status for a job with detailed progress messages"""
+    
+    # Check background processor status FIRST (prioritize live processing status)
+    bg_status = background_processor.get_document_status(job_id)
+    
+    if bg_status:
+        stage = bg_status.get("stage", "unknown")
+        stage_progress = bg_status.get("progress", 0)
+        
+        # If background processing hasn't actually started yet (stage is initial but progress is 0),
+        # fall back to job_status_map to show upload progress
+        if stage == DocumentProcessingStage.OCR_EXTRACTION and stage_progress == 0 and job_id in job_status_map:
+            job_status = job_status_map[job_id]
+            return jsonify(job_status)
+        
+        # Calculate continuous overall progress across all stages
+        # Upload detection: 0-15% (already done before background processing starts)
+        # OCR extraction: 15-40%
+        # Account splitting: 40-65%
+        # LLM extraction: 65-95%
+        # Completion: 95-100%
+        
+        if stage == "ocr_extraction":
+            # OCR is 15-40% of total
+            overall_progress = 15 + int((stage_progress / 100) * 25)
+            message = f"🔍 OCR Extraction in progress... ({overall_progress}%)"
+            detailed_message = "Extracting text from PDF pages using OCR"
+        elif stage == "account_splitting":
+            # Account splitting is 40-65% of total
+            overall_progress = 40 + int((stage_progress / 100) * 25)
+            message = f"🔀 Splitting accounts & caching OCR results... ({overall_progress}%)"
+            detailed_message = "Detecting account boundaries, splitting pages, and caching OCR results"
+        elif stage == "page_analysis":
+            # Page analysis is 65-75% of total
+            overall_progress = 65 + int((stage_progress / 100) * 10)
+            message = f"📊 Analyzing pages... ({overall_progress}%)"
+            detailed_message = "Mapping pages to accounts"
+        elif stage == "llm_extraction":
+            # LLM extraction is 75-95% of total
+            pages_processed = bg_status.get("pages_processed", 0)
+            total_pages = bg_status.get("total_pages", 0)
+            overall_progress = 75 + int((stage_progress / 100) * 20)
+            if pages_processed > 0 and total_pages > 0:
+                message = f"🤖 LLM Processing: Page {pages_processed}/{total_pages} sent to LLM, done"
+                detailed_message = f"Extracting data from page {pages_processed} of {total_pages}"
+            else:
+                message = f"🤖 LLM Processing in progress... ({overall_progress}%)"
+                detailed_message = "Extracting data from pages using LLM"
+        elif stage == "completed":
+            message = "✅ Processing Complete!"
+            detailed_message = "All pages have been processed and cached"
+            overall_progress = 100
+        else:
+            overall_progress = stage_progress
+            message = f"⏳ Processing... ({overall_progress}%)"
+            detailed_message = f"Stage: {stage}"
+        
+        # When background processing is complete, get the document data and return it as result
+        response_data = {
+            "status": message,
+            "detailed_message": detailed_message,
+            "progress": overall_progress,
+            "stage": stage,
+            "pages_processed": bg_status.get("pages_processed", 0),
+            "total_pages": bg_status.get("total_pages", 0),
+            "accounts": bg_status.get("accounts", []),
+            "is_complete": stage == "completed"
+        }
+        
+        # If completed, include the document data as result
+        if stage == "completed":
+            doc = next((d for d in processed_documents if d["id"] == job_id), None)
+            if doc:
+                response_data["result"] = {"documents": doc.get("documents", [])}
+        
+        return jsonify(response_data)
+    
+    # Fall back to job status map if no background processing status
+    if job_id in job_status_map:
+        job_status = job_status_map[job_id]
+        return jsonify(job_status)
+    
+    # Default: unknown job
+    return jsonify({
+        "status": "Unknown job ID",
+        "detailed_message": "Job not found in processing queue",
+        "progress": 0,
+        "is_complete": False
+    })
 
 
 # Background Processing API Endpoints
@@ -7255,6 +6620,318 @@ def refresh_document_from_background(doc_id):
         
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/document/<doc_id>/complete-json")
+def get_complete_json(doc_id):
+    """Get complete merged JSON for entire document
+    
+    For loan documents: Merges all account JSONs without duplication
+    For death certificates: Uses LLM to intelligently merge all page JSONs
+    """
+    try:
+        # Find the document
+        doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+        if not doc:
+            return jsonify({"success": False, "message": "Document not found"}), 404
+        
+        doc_type = doc.get("document_type_info", {}).get("type", "unknown")
+        doc_data = doc.get("documents", [{}])[0]
+        
+        print(f"[COMPLETE_JSON] Building complete JSON for {doc_id} (type: {doc_type})")
+        
+        if doc_type == "loan_document":
+            # LOAN DOCUMENT: Merge all account JSONs
+            return _merge_loan_accounts_json(doc_id, doc, doc_data)
+        else:
+            # DEATH CERTIFICATE / OTHER: Merge all page JSONs using LLM
+            return _merge_death_certificate_pages_json(doc_id, doc, doc_data)
+            
+    except Exception as e:
+        print(f"[ERROR] Failed to get complete JSON: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+def _merge_loan_accounts_json(doc_id, doc, doc_data):
+    """Merge all account JSONs for loan documents without duplication"""
+    try:
+        accounts = doc_data.get("accounts", [])
+        
+        if not accounts:
+            return jsonify({
+                "success": True,
+                "document_id": doc_id,
+                "document_type": "loan_document",
+                "document_name": doc.get("document_name", "Unknown"),
+                "total_accounts": 0,
+                "accounts": [],
+                "merge_method": "manual_deduplication"
+            })
+        
+        print(f"[COMPLETE_JSON] Merging {len(accounts)} loan accounts...")
+        
+        merged_accounts = []
+        seen_keys = set()  # Track all keys we've seen to avoid duplication
+        
+        for account in accounts:
+            acc_num = account.get("accountNumber", "Unknown")
+            result = account.get("result", {})
+            
+            print(f"[COMPLETE_JSON] Processing account: {acc_num}")
+            
+            # Create merged account object
+            merged_account = {
+                "account_number": acc_num,
+                "pages": account.get("pages", []),
+                "accuracy_score": account.get("accuracy_score", 100),
+                "fields": {}
+            }
+            
+            # Merge fields without duplication
+            for key, value in result.items():
+                # Skip empty/N/A values
+                if not value or value == "N/A" or value == "":
+                    continue
+                
+                # Skip if we've already seen this key-value pair
+                pair_key = f"{key}:{value}"
+                if pair_key in seen_keys:
+                    print(f"[COMPLETE_JSON]   Skipping duplicate: {key} = {value}")
+                    continue
+                
+                seen_keys.add(pair_key)
+                merged_account["fields"][key] = value
+            
+            merged_accounts.append(merged_account)
+            print(f"[COMPLETE_JSON] ✅ Merged account {acc_num} with {len(merged_account['fields'])} unique fields")
+        
+        response_data = {
+            "success": True,
+            "document_id": doc_id,
+            "document_type": "loan_document",
+            "document_name": doc.get("document_name", "Unknown"),
+            "total_accounts": len(merged_accounts),
+            "accounts": merged_accounts,
+            "merge_method": "manual_deduplication",
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        print(f"[COMPLETE_JSON] ✅ Complete JSON ready: {len(merged_accounts)} accounts with deduplicated fields")
+        return jsonify(response_data)
+        
+    except Exception as e:
+        print(f"[ERROR] Failed to merge loan accounts: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+def _merge_death_certificate_pages_json(doc_id, doc, doc_data):
+    """Merge all page JSONs for death certificates using LLM"""
+    try:
+        # Collect all page data
+        all_pages_data = []
+        
+        # Try to get from cache first
+        try:
+            # Check if we have page-by-page extraction cache
+            for page_num in range(1, 100):  # Assume max 100 pages
+                cache_key = f"death_certificate_cache/{doc_id}/page_{page_num}.json"
+                try:
+                    cached_result = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+                    cached_data = json.loads(cached_result['Body'].read())
+                    extracted_data = cached_data.get("extracted_data", {})
+                    
+                    # Skip empty pages
+                    if extracted_data and any(v for v in extracted_data.values() if v and v != "N/A"):
+                        all_pages_data.append({
+                            "page_number": page_num,
+                            "data": extracted_data
+                        })
+                        print(f"[COMPLETE_JSON] Found page {page_num} data in cache")
+                except:
+                    # No more pages
+                    if page_num > 1:
+                        break
+                    continue
+        except Exception as e:
+            print(f"[COMPLETE_JSON] Warning: Could not load page cache: {str(e)}")
+        
+        if not all_pages_data:
+            # Fallback: use extracted_fields from document
+            extracted_fields = doc_data.get("extracted_fields", {})
+            if extracted_fields:
+                all_pages_data = [{
+                    "page_number": 1,
+                    "data": extracted_fields
+                }]
+        
+        if not all_pages_data:
+            return jsonify({
+                "success": True,
+                "document_id": doc_id,
+                "document_type": "death_certificate",
+                "document_name": doc.get("document_name", "Unknown"),
+                "merged_data": {},
+                "merge_method": "no_data_available"
+            })
+        
+        print(f"[COMPLETE_JSON] Merging {len(all_pages_data)} pages for death certificate...")
+        
+        # Use LLM to intelligently merge all pages
+        if len(all_pages_data) == 1:
+            # Single page - no merging needed
+            merged_data = all_pages_data[0]["data"]
+            merge_method = "single_page"
+        else:
+            # Multiple pages - use LLM to merge
+            print(f"[COMPLETE_JSON] Using LLM to merge {len(all_pages_data)} pages...")
+            
+            # Build merge prompt
+            pages_text = ""
+            for page_info in all_pages_data:
+                pages_text += f"\n\nPage {page_info['page_number']}:\n"
+                for key, value in page_info["data"].items():
+                    if value and value != "N/A":
+                        pages_text += f"  {key}: {value}\n"
+            
+            merge_prompt = f"""You are merging extracted data from multiple pages of a death certificate.
+
+Pages data:
+{pages_text}
+
+Please merge this data intelligently:
+1. Keep all unique information
+2. If the same field appears on multiple pages with different values, keep the most complete/accurate one
+3. Remove duplicates and conflicting information
+4. Return ONLY valid JSON with merged fields, no explanations
+
+Return as JSON object with field names as keys and values."""
+            
+            try:
+                # Call Bedrock to merge
+                response = bedrock_runtime.invoke_model(
+                    modelId=MODEL_ID,
+                    body=json.dumps({
+                        "anthropic_version": "bedrock-2023-06-01",
+                        "max_tokens": 2000,
+                        "messages": [{
+                            "role": "user",
+                            "content": merge_prompt
+                        }]
+                    })
+                )
+                
+                result_text = json.loads(response['body'].read())['content'][0]['text']
+                
+                # Extract JSON from response
+                import re
+                json_match = re.search(r'\{.*\}', result_text, re.DOTALL)
+                if json_match:
+                    merged_data = json.loads(json_match.group())
+                    merge_method = "llm_merge"
+                    print(f"[COMPLETE_JSON] ✅ LLM merged {len(all_pages_data)} pages into {len(merged_data)} fields")
+                else:
+                    # Fallback: manual merge
+                    merged_data = _manual_merge_pages(all_pages_data)
+                    merge_method = "manual_merge_fallback"
+                    print(f"[COMPLETE_JSON] ⚠️ LLM merge failed, using manual merge")
+                    
+            except Exception as e:
+                print(f"[COMPLETE_JSON] LLM merge failed: {str(e)}, using manual merge")
+                merged_data = _manual_merge_pages(all_pages_data)
+                merge_method = "manual_merge_fallback"
+        
+        response_data = {
+            "success": True,
+            "document_id": doc_id,
+            "document_type": "death_certificate",
+            "document_name": doc.get("document_name", "Unknown"),
+            "total_pages": len(all_pages_data),
+            "merged_data": merged_data,
+            "merge_method": merge_method,
+            "pages_merged": [p["page_number"] for p in all_pages_data],
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        print(f"[COMPLETE_JSON] ✅ Complete JSON ready: {len(merged_data)} fields merged from {len(all_pages_data)} pages")
+        return jsonify(response_data)
+        
+    except Exception as e:
+        print(f"[ERROR] Failed to merge death certificate pages: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+def _manual_merge_pages(all_pages_data):
+    """Manually merge page data without duplication"""
+    merged = {}
+    seen_pairs = set()
+    
+    for page_info in all_pages_data:
+        for key, value in page_info["data"].items():
+            # Skip empty values
+            if not value or value == "N/A" or value == "":
+                continue
+            
+            pair_key = f"{key}:{value}"
+            
+            # If we haven't seen this key-value pair, add it
+            if pair_key not in seen_pairs:
+                if key not in merged:
+                    merged[key] = value
+                    seen_pairs.add(pair_key)
+                elif merged[key] != value:
+                    # Different value for same key - keep the longer/more complete one
+                    if len(str(value)) > len(str(merged[key])):
+                        merged[key] = value
+                        seen_pairs.add(pair_key)
+    
+    return merged
+
+
+@app.route("/api/document/<doc_id>/account/<int:account_index>/complete-data")
+def get_complete_account_data(doc_id, account_index):
+    """Get complete account data from processed_documents.json (not page-by-page LLM extraction)"""
+    try:
+        # Find the document
+        doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+        if not doc:
+            return jsonify({"success": False, "message": "Document not found"}), 404
+        
+        # Get accounts from the document
+        doc_data = doc.get("documents", [{}])[0]
+        accounts = doc_data.get("accounts", [])
+        
+        if account_index >= len(accounts):
+            return jsonify({"success": False, "message": "Account index out of range"}), 400
+        
+        account = accounts[account_index]
+        
+        # Return the complete account data from processed_documents.json
+        response_data = {
+            "success": True,
+            "account_number": account.get("accountNumber", "Unknown"),
+            "account_index": account_index,
+            "fields": account.get("result", {}),
+            "accuracy_score": account.get("accuracy_score", 100),
+            "filled_fields": account.get("filled_fields", 0),
+            "total_fields": account.get("total_fields", 0),
+            "pages": account.get("pages", []),
+            "processing_method": account.get("processing_method", "unknown"),
+            "needs_human_review": account.get("needs_human_review", False),
+            "data_source": "processed_documents.json"
+        }
+        
+        # Add cache headers to prevent caching
+        response = jsonify(response_data)
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        
+        return response
+        
+    except Exception as e:
+        print(f"[ERROR] Failed to get complete account data: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
 
 if __name__ == "__main__":
     print(f"[INFO] Starting Universal IDP - region: {AWS_REGION}, model: {MODEL_ID}")

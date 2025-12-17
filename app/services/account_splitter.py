@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Account Splitter Service - Handles splitting loan documents by account numbers
+Uses ONLY regex-based account detection - NO LLM calls for account splitting
 """
 
 import re
@@ -10,115 +11,6 @@ ACCOUNT_INLINE_RE = re.compile(r"^ACCOUNT NUMBER[:\s]*([0-9]{6,15})\b")
 ACCOUNT_LINE_RE = re.compile(r"^[0-9]{6,15}\b$")
 ACCOUNT_HEADER_RE = re.compile(r"^ACCOUNT NUMBER:?\s*$")
 ACCOUNT_HOLDER_RE = re.compile(r"^Account Holder Names:?\s*$")
-
-
-def extract_account_numbers_with_llm(text: str):
-    """
-    Use LLM to intelligently extract account numbers from document text
-    More accurate than regex for distinguishing account numbers from SSNs, etc.
-    """
-    import boto3
-    import json
-    
-    print(f"\n{'='*50}")
-    print(f"[LLM_EXTRACT] Using LLM to extract account numbers...")
-    print(f"[LLM_EXTRACT] Text length: {len(text)} characters")
-    
-    try:
-        bedrock = boto3.client("bedrock-runtime", region_name="us-east-1")
-        MODEL_ID = "us.anthropic.claude-3-5-sonnet-20241022-v2:0"
-        
-        prompt = f"""
-You are an expert at analyzing banking and loan documents to extract account numbers.
-
-Your task: Find ALL account numbers in this document text.
-
-IMPORTANT RULES:
-1. Look for account numbers that are typically 8-10 digits long
-2. Account numbers may appear after labels like:
-   - "ACCOUNT NUMBER"
-   - "ACCOUNT NO" 
-   - "ACCT #"
-   - "I.D." (in banking context)
-   - Or standalone in account forms
-3. EXCLUDE the following (these are NOT account numbers):
-   - SSNs/Tax IDs (usually 9 digits, often in format XXX-XX-XXXX)
-   - Dates (like 20151201, 12/24/2014)
-   - Phone numbers
-   - Reference numbers or transaction IDs
-   - Certificate numbers
-4. Focus on numbers that appear in account opening or banking contexts
-5. Look for numbers associated with account holder names or signatures
-
-Document text:
-{text}
-
-CRITICAL: You MUST respond with ONLY a valid JSON array. Do not include any explanations, descriptions, or other text.
-
-Examples of correct responses:
-["468869904", "210701488"]
-["123456789"]
-[]
-
-Return ONLY the JSON array:
-"""
-
-        response = bedrock.invoke_model(
-            modelId=MODEL_ID,
-            body=json.dumps({
-                "anthropic_version": "bedrock-2023-05-31",
-                "max_tokens": 1000,
-                "messages": [{"role": "user", "content": prompt}]
-            })
-        )
-        
-        result = json.loads(response['body'].read())
-        llm_response = result['content'][0]['text'].strip()
-        
-        print(f"[LLM_EXTRACT] LLM response: {llm_response}")
-        
-        # Parse the JSON response
-        try:
-            # Clean up the response - remove any markdown formatting
-            clean_response = llm_response.strip()
-            if clean_response.startswith('```json'):
-                clean_response = clean_response.replace('```json', '').replace('```', '').strip()
-            elif clean_response.startswith('```'):
-                clean_response = clean_response.replace('```', '').strip()
-            
-            # Try to extract JSON array from descriptive text if direct parsing fails
-            if not clean_response.startswith('['):
-                # Look for account numbers mentioned in descriptive text
-                import re
-                numbers = re.findall(r'\b\d{8,10}\b', clean_response)
-                if numbers:
-                    print(f"[LLM_EXTRACT] ⚠️ LLM returned descriptive text, extracted numbers: {numbers}")
-                    return numbers
-            
-            account_numbers = json.loads(clean_response)
-            
-            if isinstance(account_numbers, list):
-                print(f"[LLM_EXTRACT] ✓ Found {len(account_numbers)} account numbers: {account_numbers}")
-                return account_numbers
-            else:
-                print(f"[LLM_EXTRACT] ⚠️ Unexpected response format: {account_numbers}")
-                return []
-                
-        except json.JSONDecodeError as e:
-            print(f"[LLM_EXTRACT] ❌ JSON parsing error: {str(e)}")
-            print(f"[LLM_EXTRACT] Raw response: {llm_response}")
-            
-            # Fallback: try to extract numbers from the text
-            import re
-            numbers = re.findall(r'\b\d{8,10}\b', llm_response)
-            if numbers:
-                print(f"[LLM_EXTRACT] 🔧 Fallback extraction found: {numbers}")
-                return numbers
-            return []
-            
-    except Exception as e:
-        print(f"[LLM_EXTRACT] ❌ LLM extraction failed: {str(e)}")
-        return []
 
 
 def extract_account_numbers_fast(text: str):
@@ -199,24 +91,25 @@ def extract_account_numbers_fast(text: str):
     return unique_accounts
 
 
-def split_accounts_strict(text: str):
+def split_accounts_with_regex(text: str):
     """
-    LLM-powered account splitter for loan documents:
-    - Uses OCR + LLM to intelligently extract account numbers
+    REGEX-ONLY account splitter for loan documents:
+    - Uses ONLY regex-based account detection (fast, accurate, no LLM costs)
     - Splits document text by identified account numbers
+    - Uses the same logic as regex_account_detector.py
     """
     print(f"\n{'='*80}")
-    print(f"[SPLIT_ACCOUNTS] Starting LLM-powered account splitting...")
+    print(f"[SPLIT_ACCOUNTS] Starting REGEX-ONLY account splitting...")
     print(f"[SPLIT_ACCOUNTS] Input text length: {len(text)} characters")
     
-    # Step 1: Use LLM to extract account numbers (more accurate than regex)
-    account_numbers = extract_account_numbers_with_llm(text)
+    # Step 1: Use regex to extract account numbers (fast and accurate)
+    account_numbers = extract_account_numbers_fast(text)
     
     if not account_numbers:
-        print(f"[SPLIT_ACCOUNTS] ⚠️ No account numbers found by LLM")
+        print(f"[SPLIT_ACCOUNTS] ⚠️ No account numbers found by regex")
         return []
     
-    print(f"[SPLIT_ACCOUNTS] LLM found {len(account_numbers)} account numbers: {account_numbers}")
+    print(f"[SPLIT_ACCOUNTS] Regex found {len(account_numbers)} account numbers: {account_numbers}")
     
     # Step 2: Split text by account numbers
     lines = text.splitlines()
@@ -226,16 +119,16 @@ def split_accounts_strict(text: str):
         print(f"[SPLIT_ACCOUNTS] Processing account: {account_num}")
         
         # Find all lines that contain this account number or are related to it
-        account_lines = []
-        account_context_started = False
-        
         for i, line in enumerate(lines):
             line_clean = line.strip()
             
-            # Check if this line contains the account number
-            if account_num in line_clean:
+            # Check if this line contains the account number (with or without leading zeros)
+            normalized_account = account_num.lstrip('0')
+            if (account_num in line_clean or 
+                normalized_account in line_clean or
+                f"0{normalized_account}" in line_clean):
+                
                 print(f"[SPLIT_ACCOUNTS] Found account {account_num} on line {i+1}: {line_clean[:100]}...")
-                account_context_started = True
                 
                 # Include context before and after the account number
                 start_idx = max(0, i - 5)  # 5 lines before
@@ -244,10 +137,14 @@ def split_accounts_strict(text: str):
                 # Check if there's another account number in the range that would cut this short
                 for j in range(i + 1, end_idx):
                     for other_acc in account_numbers:
-                        if other_acc != account_num and other_acc in lines[j]:
-                            end_idx = j
-                            print(f"[SPLIT_ACCOUNTS] Account {account_num} section ends at line {j} (next account: {other_acc})")
-                            break
+                        if other_acc != account_num:
+                            other_normalized = other_acc.lstrip('0')
+                            if (other_acc in lines[j] or 
+                                other_normalized in lines[j] or
+                                f"0{other_normalized}" in lines[j]):
+                                end_idx = j
+                                print(f"[SPLIT_ACCOUNTS] Account {account_num} section ends at line {j} (next account: {other_acc})")
+                                break
                     if end_idx == j:
                         break
                 
@@ -259,7 +156,7 @@ def split_accounts_strict(text: str):
     # Step 3: Handle case where accounts weren't found in text (fallback)
     if len(account_chunks) == 0:
         print(f"[SPLIT_ACCOUNTS] ⚠️ Account numbers not found in text, using full document")
-        # If LLM found account numbers but they're not in the text, 
+        # If regex found account numbers but they're not in the text, 
         # create chunks with the full text for each account
         for account_num in account_numbers:
             account_chunks[account_num] = text

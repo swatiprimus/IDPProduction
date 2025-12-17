@@ -5,7 +5,7 @@ import os
 # AWS Configuration
 AWS_REGION = "us-east-1"
 S3_BUCKET = "awsidpdocs"
-MODEL_ID = "us.anthropic.claude-3-5-sonnet-20241022-v2:0"
+MODEL_ID = "anthropic.claude-3-5-sonnet-20240620-v1:0"
 
 # Application Configuration
 OUTPUT_DIR = "ocr_results"
