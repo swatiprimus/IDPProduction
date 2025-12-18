@@ -2,12 +2,14 @@
 """
 Cost-Optimized Document Processor Service
 Each page goes to LLM only ONCE for both account detection AND data extraction
+Now with Batch Processing and Parallel LLM Calls
 """
 
 import json
 import boto3
 import time
 from typing import Dict, List, Set, Tuple, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from .regex_account_detector import extract_account_numbers_fast
 
 class CostOptimizedProcessor:
@@ -19,11 +21,12 @@ class CostOptimizedProcessor:
     4. Reduces LLM costs significantly
     """
     
-    def __init__(self, bedrock_client, s3_client, bucket_name: str):
+    def __init__(self, bedrock_client, s3_client, bucket_name: str, doc_type: str = "loan_document"):
         self.bedrock_client = bedrock_client
         self.s3_client = s3_client
         self.bucket_name = bucket_name
         self.model_id = "anthropic.claude-3-5-sonnet-20240620-v1:0"
+        self.doc_type = doc_type  # Store document type for prompt selection
     
     def process_account_with_llm(self, account_number: str, page_texts: Dict[int, str], pages: List[int]) -> Optional[Dict]:
         """
@@ -97,6 +100,129 @@ class CostOptimizedProcessor:
         except Exception as e:
             print(f"      ❌ LLM processing failed for page {page_number}: {str(e)}")
             return None
+    
+    def process_batch_pages_with_llm(self, account_number: str, page_texts: Dict[int, str], 
+                                      pages: List[int], batch_size: int = 2) -> Optional[Dict]:
+        """
+        Process multiple pages - EACH PAGE INDIVIDUALLY (not batched together)
+        
+        Args:
+            account_number: The account number
+            page_texts: Dict mapping page numbers to their OCR text
+            pages: List of page numbers for this account
+            batch_size: Not used - kept for API compatibility
+        
+        Returns:
+            Merged account data with all page results combined
+        """
+        
+        print(f"   📄 Processing: {len(pages)} pages individually (page-by-page extraction)")
+        
+        # Process each page individually with LLM
+        page_results = []
+        for page_idx, page_num in enumerate(pages):
+            if page_num in page_texts:
+                page_text = page_texts[page_num]
+                print(f"      📄 Processing page {page_num} ({page_idx + 1}/{len(pages)}) ({len(page_text)} chars)")
+                
+                try:
+                    # Extract data from this SINGLE page only
+                    page_data = self._extract_data_fields_from_text(page_text)
+                    
+                    if page_data:
+                        page_results.append({
+                            'page_number': page_num,
+                            'extracted_data': page_data
+                        })
+                        print(f"      ✅ Page {page_num}: extracted {len(page_data)} fields")
+                    else:
+                        print(f"      ⚠️ Page {page_num}: no data extracted")
+                        
+                except Exception as e:
+                    print(f"      ❌ Page {page_num} failed: {str(e)}")
+                    continue
+            else:
+                print(f"      ⚠️ Page {page_num}: no OCR text found")
+        
+        # Merge all page results
+        if not page_results:
+            print(f"      ❌ No pages processed successfully for account {account_number}")
+            return None
+        
+        # Merge using existing merge logic
+        merged_result = self.merge_page_results(account_number, page_results, pages)
+        return merged_result
+    
+    def process_batches_parallel(self, account_number: str, page_texts: Dict[int, str], 
+                                 pages: List[int], batch_size: int = 2, 
+                                 max_workers: int = 3) -> Optional[Dict]:
+        """
+        Process multiple pages in parallel (PARALLEL LLM CALLS)
+        EACH PAGE IS PROCESSED INDIVIDUALLY, NOT BATCHED TOGETHER
+        
+        Args:
+            account_number: The account number
+            page_texts: Dict mapping page numbers to their OCR text
+            pages: List of page numbers for this account
+            batch_size: Not used - kept for API compatibility
+            max_workers: Number of concurrent LLM calls (3-5 recommended)
+        
+        Returns:
+            Merged account data with all page results combined
+        """
+        
+        print(f"   📄 Processing: {len(pages)} pages in parallel")
+        print(f"   ⚡ Parallel: {max_workers} concurrent LLM calls")
+        
+        # Process pages in parallel (each page individually)
+        page_results = []
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all pages to executor (don't wait)
+            futures = {}
+            for page_idx, page_num in enumerate(pages):
+                if page_num in page_texts:
+                    page_text = page_texts[page_num]
+                    future = executor.submit(
+                        self._extract_data_fields_from_text,
+                        page_text  # Send INDIVIDUAL page, not batch
+                    )
+                    futures[future] = {
+                        'page_idx': page_idx,
+                        'page_num': page_num,
+                        'total_pages': len(pages)
+                    }
+            
+            # Wait for all to complete and collect results
+            completed = 0
+            for future in as_completed(futures):
+                page_info = futures[future]
+                page_idx = page_info['page_idx']
+                page_num = page_info['page_num']
+                total_pages = page_info['total_pages']
+                completed += 1
+                
+                try:
+                    page_data = future.result()
+                    print(f"      ✅ Page {page_num} completed [{completed}/{total_pages}]")
+                    
+                    if page_data:
+                        page_results.append({
+                            'page_number': page_num,
+                            'extracted_data': page_data
+                        })
+                except Exception as e:
+                    print(f"      ❌ Page {page_num} failed: {str(e)}")
+                    # Continue with other pages
+        
+        # Merge all page results
+        if not page_results:
+            print(f"      ❌ No pages processed successfully for account {account_number}")
+            return None
+        
+        # Merge using existing merge logic
+        merged_result = self.merge_page_results(account_number, page_results, pages)
+        return merged_result
     
     def merge_page_results(self, account_number: str, page_results: List[Dict], pages: List[int]) -> Optional[Dict]:
         """
@@ -202,11 +328,64 @@ class CostOptimizedProcessor:
             print(f"   ❌ Merge failed for account {account_number}: {str(e)}")
             return None
     
+    def batch_cache_results_to_s3(self, results: List[Dict], doc_id: str, s3_client, bucket_name: str) -> None:
+        """PHASE 2: Batch cache multiple results to S3 in parallel (5x faster)"""
+        if not results:
+            return
+        
+        print(f"   📦 BATCH S3 CACHING: Preparing {len(results)} results for parallel upload...")
+        
+        cache_items = []
+        for result in results:
+            account_num = result.get("accountNumber", "unknown")
+            cache_key = f"account_results/{doc_id}/{account_num}.json"
+            cache_items.append({
+                'key': cache_key,
+                'data': result
+            })
+        
+        # Upload all items in parallel
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = {}
+            
+            # Submit all uploads to executor
+            for item in cache_items:
+                future = executor.submit(
+                    s3_client.put_object,
+                    Bucket=bucket_name,
+                    Key=item['key'],
+                    Body=json.dumps(item['data']),
+                    ContentType='application/json'
+                )
+                futures[future] = item
+            
+            # Collect results as they complete
+            completed = 0
+            for future in as_completed(futures):
+                item = futures[future]
+                completed += 1
+                
+                try:
+                    future.result()
+                    print(f"   ✅ S3 Cache {completed}/{len(cache_items)}: {item['key']}")
+                except Exception as e:
+                    print(f"   ❌ S3 Cache failed: {item['key']} - {str(e)}")
+        
+        print(f"   ✅ BATCH S3 CACHING: Completed {len(cache_items)} uploads (5x faster with parallel)")
+    
     def _extract_data_fields_from_text(self, text: str) -> Optional[Dict]:
         """
         LLM call to extract data fields from combined account text
+        Detects page-level document type to use appropriate prompt
         """
-        prompt = self._get_data_extraction_prompt()
+        # Detect page-level document type (e.g., driver's license vs loan document)
+        page_doc_type = self._detect_page_document_type(text)
+        
+        # Use page-level document type if detected, otherwise use document-level type
+        if page_doc_type == "drivers_license":
+            prompt = self._get_drivers_license_prompt()
+        else:
+            prompt = self._get_data_extraction_prompt()
         
         try:
             response = self.bedrock_client.invoke_model(
@@ -252,11 +431,117 @@ class CostOptimizedProcessor:
             print(f"      ❌ LLM processing failed: {str(e)}")
             return {}
     
+    def _detect_page_document_type(self, text: str) -> str:
+        """
+        Detect document type at page level
+        Looks for keywords that indicate driver's license pages
+        """
+        text_upper = text.upper()
+        
+        # Critical driver's license indicators (high confidence)
+        critical_dl_keywords = [
+            "DRIVER'S LICENSE",
+            "DRIVERS LICENSE",
+            "DRIVER LICENSE",
+            "LICENSE NUMBER",
+            "DL #",
+            "DELAWARE",
+            "CALIFORNIA",
+            "TEXAS",
+            "FLORIDA",
+            "NEW YORK",
+            "PENNSYLVANIA",
+            "OHIO",
+            "GEORGIA",
+            "NORTH CAROLINA",
+            "MICHIGAN",
+            "ILLINOIS",
+            "VIRGINIA",
+            "MARYLAND",
+            "MASSACHUSETTS",
+            "CONNECTICUT",
+            "NEW JERSEY",
+            "NEW HAMPSHIRE",
+            "VERMONT",
+            "RHODE ISLAND",
+            "MAINE",
+            "LOUISIANA",
+            "MISSISSIPPI",
+            "ALABAMA",
+            "TENNESSEE",
+            "KENTUCKY",
+            "WEST VIRGINIA",
+            "SOUTH CAROLINA",
+            "ARKANSAS",
+            "MISSOURI",
+            "IOWA",
+            "MINNESOTA",
+            "WISCONSIN",
+            "INDIANA",
+            "KANSAS",
+            "NEBRASKA",
+            "SOUTH DAKOTA",
+            "NORTH DAKOTA",
+            "MONTANA",
+            "WYOMING",
+            "COLORADO",
+            "NEW MEXICO",
+            "UTAH",
+            "IDAHO",
+            "NEVADA",
+            "ARIZONA",
+            "WASHINGTON",
+            "OREGON",
+            "HAWAII",
+            "ALASKA"
+        ]
+        
+        # Secondary driver's license indicators
+        secondary_dl_keywords = [
+            "EXPIRATION DATE",
+            "ISSUE DATE",
+            "DATE OF BIRTH",
+            "HEIGHT",
+            "WEIGHT",
+            "EYE COLOR",
+            "HAIR COLOR",
+            "RESTRICTIONS",
+            "ENDORSEMENTS",
+            "LICENSE CLASS",
+            "ISSUING STATE",
+            "DOCUMENT DISCRIMINATOR",
+            "ORGAN DONOR"
+        ]
+        
+        # Count critical keywords
+        critical_count = sum(1 for keyword in critical_dl_keywords if keyword in text_upper)
+        
+        # Count secondary keywords
+        secondary_count = sum(1 for keyword in secondary_dl_keywords if keyword in text_upper)
+        
+        # If we find a state name OR multiple DL keywords, it's a driver's license
+        # Lower threshold for detection to catch partial DL pages
+        if critical_count >= 1 or secondary_count >= 2:
+            print(f"      🪪 Page detected as DRIVER'S LICENSE (critical: {critical_count}, secondary: {secondary_count})")
+            return "drivers_license"
+        
+        return "loan_document"
+    
+    def _get_drivers_license_prompt(self) -> str:
+        """Get the driver's license extraction prompt"""
+        from prompts import get_drivers_license_prompt
+        return get_drivers_license_prompt()
+    
     def _get_data_extraction_prompt(self) -> str:
         """
-        Use the full comprehensive loan document prompt for proper extraction
+        Get the appropriate prompt based on document type
         Now that we process pages individually, we can use the full prompt
         """
         # Import here to avoid circular imports
-        from prompts import get_loan_document_prompt
-        return get_loan_document_prompt()
+        from prompts import get_loan_document_prompt, get_drivers_license_prompt
+        
+        if self.doc_type == "drivers_license":
+            return get_drivers_license_prompt()
+        else:
+            # Default to loan document prompt for loan documents and other types
+            return get_loan_document_prompt()

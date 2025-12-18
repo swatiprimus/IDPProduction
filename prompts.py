@@ -285,7 +285,7 @@ CRITICAL FIELDS TO EXTRACT:
 
 2. **LICENSE INFORMATION:**
    - License_Number (DL #, ID #)
-   - State / Issuing_State
+   - State (State name at top of license - e.g., "DELAWARE", "CALIFORNIA")
    - License_Class (Class A, B, C, D, etc.)
    - Issue_Date (ISS)
    - Expiration_Date (EXP)
@@ -316,6 +316,8 @@ EXTRACTION RULES:
 - Include any stamps, seals, or watermarks mentioned
 - If a field is partially visible or unclear, still extract it and note "unclear" or "partially visible"
 - Look for information on BOTH front and back of the card if visible
+- **CRITICAL: Extract the STATE NAME from the top of the license (e.g., "DELAWARE", "CALIFORNIA")**
+- State name is usually printed prominently at the top of the ID card
 
 FIELD NAMING:
 - Use descriptive names with underscores
