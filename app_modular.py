@@ -4615,7 +4615,36 @@ def get_account_page_data(doc_id, account_index, page_num):
     
     print(f"[API] 📄 Page data request: doc_id={doc_id}, account={account_index}, page={page_num} (0-based: {page_num_0based})")
     
-    # 🚀 PRIORITY 0: Check account's page_data first (from background processing)
+    # 🚀 PRIORITY 0: Check S3 cache FIRST for user edits (this is where savePage stores data)
+    cache_key = f"page_data/{doc_id}/account_{account_index}/page_{page_num}.json"
+    try:
+        print(f"[DEBUG] Checking S3 cache for user edits: {cache_key}")
+        cache_response = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+        cached_data = json.loads(cache_response['Body'].read().decode('utf-8'))
+        
+        cached_fields = cached_data.get("data", {})
+        print(f"[CACHE] ✅ Serving page {page_num} from S3 user edits cache (account {account_index})")
+        print(f"[CACHE] 📊 Cache contains {len(cached_fields)} fields with confidence scores")
+        
+        response = jsonify({
+            "success": True,
+            "page_number": page_num + 1,
+            "account_number": cached_data.get("account_number"),
+            "data": cached_fields,
+            "overall_confidence": cached_data.get("overall_confidence"),
+            "cached": True,
+            "cache_source": "s3_user_edits"
+        })
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
+    except s3_client.exceptions.NoSuchKey:
+        print(f"[DEBUG] No S3 user edits cache found, checking other sources")
+    except Exception as s3_error:
+        print(f"[DEBUG] S3 cache check failed: {str(s3_error)}, checking other sources")
+    
+    # 🚀 PRIORITY 1: Check account's page_data (from background processing)
     doc = next((d for d in processed_documents if d["id"] == doc_id), None)
     if doc:
         doc_data = doc.get("documents", [{}])[0]
@@ -4644,7 +4673,7 @@ def get_account_page_data(doc_id, account_index, page_num):
             else:
                 print(f"[DEBUG] Page {page_num} not found in account page_data. Available pages: {list(page_data.keys())}")
     
-    # 🚀 PRIORITY 1: Check background processor cache first (convert 1-based to 0-based)
+    # 🚀 PRIORITY 2: Check background processor cache (convert 1-based to 0-based)
     if background_processor.is_page_cached(doc_id, page_num_0based):
         cached_data = background_processor.get_cached_page_data(doc_id, page_num_0based)
         if cached_data and cached_data.get("extracted_data"):
@@ -4701,46 +4730,6 @@ def get_account_page_data(doc_id, account_index, page_num):
     print(f"[DEBUG] Document found, pdf_path={doc.get('pdf_path')}")
     
     try:
-        # Check S3 cache first
-        cache_key = f"page_data/{doc_id}/account_{account_index}/page_{page_num}.json"
-        
-        try:
-            print(f"[DEBUG] Checking S3 cache: {cache_key}")
-            cache_response = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
-            cached_data = json.loads(cache_response['Body'].read().decode('utf-8'))
-            
-            # Check prompt version - invalidate old cache
-            cached_version = cached_data.get("prompt_version", "v1")
-            current_version = "v6_loan_document_prompt_fix"  # Updated to force re-extraction with correct prompt
-            
-            if cached_version != current_version:
-                print(f"[DEBUG] Cache version mismatch ({cached_version} vs {current_version}) - will re-extract")
-                raise Exception("Cache version outdated")
-            
-            print(f"[DEBUG] Found cached data in S3 (version {cached_version})")
-            
-            # CRITICAL: Apply flattening to cached data too!
-            cached_fields = cached_data.get("data", {})
-            cached_fields = flatten_nested_objects(cached_fields)
-            print(f"[DEBUG] Applied flattening to cached data")
-            
-            response = jsonify({
-                "success": True,
-                "page_number": page_num + 1,
-                "account_number": cached_data.get("account_number"),
-                "data": cached_fields,
-                "cached": True,
-                "prompt_version": cached_version
-            })
-            # Prevent browser caching - always fetch fresh data
-            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-            response.headers['Pragma'] = 'no-cache'
-            response.headers['Expires'] = '0'
-            return response
-        except s3_client.exceptions.NoSuchKey:
-            print(f"[DEBUG] No cache found, will extract data")
-        except Exception as cache_error:
-            print(f"[DEBUG] Cache check failed: {str(cache_error)}, will extract data")
         
         # Get PDF path
         pdf_path = doc.get("pdf_path")
@@ -6313,15 +6302,44 @@ def extract_regular_page_progressive(doc_id, page_index):
         return jsonify({"success": False, "message": str(e)}), 500
 
 
+def _calculate_overall_confidence(fields_data: Dict) -> float:
+    """Calculate weighted average confidence across all fields"""
+    if not fields_data:
+        return 0.0
+    
+    total_confidence = 0.0
+    field_count = 0
+    
+    for field_name, field_value in fields_data.items():
+        field_count += 1
+        
+        # Extract confidence from field value
+        if isinstance(field_value, dict) and "confidence" in field_value:
+            confidence = field_value.get("confidence", 0)
+        else:
+            # If no confidence info, assume 0 (AI-extracted without confidence)
+            confidence = 0
+        
+        total_confidence += confidence
+    
+    return round(total_confidence / field_count, 2) if field_count > 0 else 0.0
+
+
 @app.route("/api/document/<doc_id>/page/<int:page_num>/update", methods=["POST"])
-def update_page_data(doc_id, page_num):
-    """Update page data and save to S3 cache"""
+@app.route("/api/document/<doc_id>/account/<int:account_index>/page/<int:page_num>/update", methods=["POST"])
+def update_page_data(doc_id, page_num, account_index=None):
+    """Update page data and save to S3 cache with confidence tracking"""
     import json
     
     try:
         data = request.get_json()
         page_data = data.get("page_data")
-        account_index = data.get("account_index")  # Get account index if provided
+        action_type = data.get("action_type", "edit")  # 'edit', 'add', 'delete'
+        deleted_fields = data.get("deleted_fields", [])  # List of field names to delete
+        
+        # If account_index not in URL, try to get it from request body
+        if account_index is None:
+            account_index = data.get("account_index")
         
         if not page_data:
             return jsonify({"success": False, "message": "No page data provided"}), 400
@@ -6340,20 +6358,118 @@ def update_page_data(doc_id, page_num):
             cache_key = f"page_data/{doc_id}/page_{page_num - 1}.json"
             print(f"[INFO] Updating regular cache: {cache_key}")
         
-        # Get existing cache to preserve metadata
+        # Get existing cache to preserve metadata and original field structure
+        existing_fields = {}
+        existing_cache = {}
+        account_number = None
         try:
             cache_response = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
             existing_cache = json.loads(cache_response['Body'].read().decode('utf-8'))
+            existing_fields = existing_cache.get("data", {})
             account_number = existing_cache.get("account_number")
-        except:
-            account_number = None
+            print(f"[INFO] Loaded existing fields from S3 cache: {list(existing_fields.keys())}")
+        except Exception as cache_error:
+            # Cache miss - try to load from document's page_data
+            print(f"[INFO] No S3 cache found ({str(cache_error)}), loading from document page_data")
+            if account_index is not None:
+                doc_data = doc.get("documents", [{}])[0]
+                accounts = doc_data.get("accounts", [])
+                print(f"[DEBUG] Document has {len(accounts)} accounts")
+                if account_index < len(accounts):
+                    account = accounts[account_index]
+                    page_data = account.get("page_data", {})
+                    page_key = str(page_num)
+                    print(f"[DEBUG] Account {account_index} has pages: {list(page_data.keys())}")
+                    if page_key in page_data:
+                        existing_fields = page_data[page_key]
+                        account_number = account.get("accountNumber", "Unknown")
+                        print(f"[INFO] Loaded existing fields from document page_data: {list(existing_fields.keys())}")
+                    else:
+                        print(f"[DEBUG] Page {page_key} not found in account page_data")
+                else:
+                    print(f"[DEBUG] Account index {account_index} out of range (only {len(accounts)} accounts)")
         
+        # Start with existing fields (preserve all fields)
+        processed_data = {}
+        for field_name, field_value in existing_fields.items():
+            processed_data[field_name] = field_value
+        print(f"[INFO] Starting with {len(processed_data)} existing fields")
+        
+        # Process ONLY the updated fields from page_data
+        for field_name, field_value in page_data.items():
+            # Skip deleted fields
+            if field_name in deleted_fields:
+                print(f"[INFO] Deleting field: {field_name}")
+                if field_name in processed_data:
+                    del processed_data[field_name]
+                continue
+            
+            # Determine if this field was edited/added by human
+            existing_field = existing_fields.get(field_name)
+            is_new_field = field_name not in existing_fields
+            
+            # Extract the actual value (handle both string and object formats)
+            if isinstance(field_value, dict):
+                actual_value = field_value.get("value", field_value)
+            else:
+                actual_value = field_value
+            
+            # Check if value changed from original
+            existing_value = None
+            if existing_field:
+                if isinstance(existing_field, dict):
+                    existing_value = existing_field.get("value", existing_field)
+                else:
+                    existing_value = existing_field
+            
+            value_changed = existing_value != actual_value
+            
+            # Build field object with confidence
+            if is_new_field:
+                # NEW FIELD: Set confidence to 100 and mark as human_added
+                processed_data[field_name] = {
+                    "value": actual_value,
+                    "confidence": 100,
+                    "source": "human_added",
+                    "edited_at": datetime.now().isoformat()
+                }
+                print(f"[INFO] Added new field: {field_name} (confidence: 100, source: human_added)")
+            
+            elif value_changed:
+                # EDITED FIELD: Set confidence to 100 and mark as human_corrected
+                processed_data[field_name] = {
+                    "value": actual_value,
+                    "confidence": 100,
+                    "source": "human_corrected",
+                    "edited_at": datetime.now().isoformat()
+                }
+                print(f"[INFO] Edited field: {field_name} (confidence: 100, source: human_corrected)")
+            
+            else:
+                # UNCHANGED FIELD: Preserve original confidence and source
+                if isinstance(existing_field, dict):
+                    processed_data[field_name] = existing_field
+                else:
+                    # Old format without confidence, assume AI-extracted
+                    processed_data[field_name] = {
+                        "value": actual_value,
+                        "confidence": 0,
+                        "source": "ai_extracted"
+                    }
+                print(f"[INFO] Preserved field: {field_name}")
+        
+        # Build cache data (do NOT recalculate overall confidence)
         cache_data = {
-            "data": page_data,
+            "data": processed_data,
             "extracted_at": datetime.now().isoformat(),
             "edited": True,
-            "edited_at": datetime.now().isoformat()
+            "edited_at": datetime.now().isoformat(),
+            "action_type": action_type
         }
+        
+        # Preserve existing overall_confidence if it exists
+        if existing_cache and "overall_confidence" in existing_cache:
+            cache_data["overall_confidence"] = existing_cache["overall_confidence"]
         
         if account_number:
             cache_data["account_number"] = account_number
@@ -6366,7 +6482,21 @@ def update_page_data(doc_id, page_num):
                 ContentType='application/json'
             )
             print(f"[INFO] Updated cache: {cache_key}")
-            return jsonify({"success": True, "message": "Page data updated successfully"})
+            print(f"[INFO] Total fields in response: {len(processed_data)}")
+            print(f"[INFO] All fields: {list(processed_data.keys())}")
+            
+            # Log each field's confidence
+            for field_name, field_data in processed_data.items():
+                if isinstance(field_data, dict):
+                    confidence = field_data.get("confidence", "N/A")
+                    source = field_data.get("source", "N/A")
+                    print(f"[INFO]   - {field_name}: confidence={confidence}, source={source}")
+            
+            return jsonify({
+                "success": True,
+                "message": "Page data updated successfully",
+                "data": processed_data
+            })
         except Exception as s3_error:
             print(f"[ERROR] Failed to update cache: {str(s3_error)}")
             return jsonify({"success": False, "message": f"Failed to update cache: {str(s3_error)}"}), 500

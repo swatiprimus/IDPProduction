@@ -985,6 +985,7 @@
         let currentRotation = 0;
         let originalData = {};
         let editedFields = {};
+        let renamedFields = {};
         let sidebarCollapsed = false;
 
         // Toggle sidebar visibility
@@ -1439,6 +1440,89 @@
 
         // Use complete account data instead of page-specific data
 
+        // Direct render function - uses currentPageData without API fetch
+        function renderPageDataDirect(fields) {
+            const account = accounts[currentAccountIndex];
+            const container = document.getElementById('dataContent');
+            const accountNumber = account.accountNumber || accounts[currentAccountIndex]?.accountNumber || 'Unknown';
+            
+            document.getElementById('dataMeta').textContent = `Account ${accountNumber} - Page ${currentPageIndex + 1} Data`;
+            
+            if (!fields || Object.keys(fields).length === 0) {
+                container.innerHTML = '<div style="padding: 20px; color: #6b7280;">No data available for this page</div>';
+                return;
+            }
+            
+            // Process confidence objects
+            const processedFields = {};
+            const fieldConfidence = {};
+            
+            function processConfidenceRecursive(obj, prefix = '') {
+                const processed = {};
+                for (const [key, value] of Object.entries(obj)) {
+                    const fullKey = prefix ? `${prefix}_${key}` : key;
+                    
+                    if (value && typeof value === 'object' && !Array.isArray(value)) {
+                        if ('value' in value && 'confidence' in value) {
+                            // This is a confidence object - extract value and confidence
+                            processed[key] = value.value;
+                            fieldConfidence[fullKey] = value.confidence;
+                        } else {
+                            // This is a nested object - convert to string representation
+                            processed[key] = JSON.stringify(value);
+                        }
+                    } else if (Array.isArray(value)) {
+                        // Handle arrays - convert to string
+                        processed[key] = Array.isArray(value) ? value.join(', ') : value;
+                    } else {
+                        processed[key] = value;
+                    }
+                }
+                return processed;
+            }
+            
+            const processedData = processConfidenceRecursive(fields);
+            
+            let html = '';
+            for (const [key, value] of Object.entries(processedData)) {
+                if (key === 'AccountNumber' || key === 'Account_Number') continue;
+                
+                const confidence = fieldConfidence[key] || 0;
+                const confidenceColor = confidence >= 90 ? '#10b981' : confidence >= 70 ? '#f59e0b' : '#ef4444';
+                
+                // Convert value to string if it's an object
+                let displayValue = value;
+                if (typeof value === 'object') {
+                    displayValue = JSON.stringify(value);
+                }
+                
+                html += `
+                    <div class="field-item">
+                        <div class="field-label">${key}</div>
+                        <div class="field-value" data-field="${key}">
+                            ${displayValue || 'N/A'}
+                            <span style="margin-left: 8px; font-size: 0.8em; color: ${confidenceColor}; font-weight: 600;">
+                                ${confidence}%
+                            </span>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            container.innerHTML = html;
+            
+            // Update field count
+            document.getElementById('fieldCount').textContent = `${Object.keys(processedData).length} fields`;
+            
+            // Show field actions
+            document.getElementById('addFieldBtnMain').style.display = 'inline-block';
+            document.getElementById('editBtn').style.display = 'inline-block';
+            document.getElementById('deleteFieldBtn').style.display = 'inline-block';
+            document.getElementById('downloadPageBtn').style.display = 'inline-block';
+            document.getElementById('downloadAccountBtn').style.display = 'inline-block';
+            document.getElementById('fieldsSection').style.display = 'block';
+        }
+
         async function renderPageData() {
             const account = accounts[currentAccountIndex];
             const container = document.getElementById('dataContent');
@@ -1489,9 +1573,12 @@
                                     fieldConfidence[fullKey] = value.confidence;
                                     console.log(`✓ Processed confidence object: ${fullKey} = ${value.value} (${value.confidence}% confidence)`);
                                 } else {
-                                    // Recursively process nested objects
-                                    processed[key] = processConfidenceRecursive(value, fullKey);
+                                    // This is a nested object - convert to JSON string
+                                    processed[key] = JSON.stringify(value);
                                 }
+                            } else if (Array.isArray(value)) {
+                                // Handle arrays - convert to comma-separated string
+                                processed[key] = value.join(', ');
                             } else {
                                 processed[key] = value;
                             }
@@ -2093,6 +2180,7 @@
             });
             
             editedFields = {};
+            renamedFields = {};
             originalData = {};
         }
 
@@ -2161,36 +2249,39 @@
                     }
                 }
                 
-                // Prepare the data to save - preserve existing field formats and confidence scores
+                // Prepare the data to save - ONLY send edited fields to backend
                 const dataToSave = {};
                 
-                // Copy all existing fields as-is (preserving their confidence scores)
-                for (const [key, value] of Object.entries(currentPageData)) {
-                    dataToSave[key] = value;
-                }
-                
-                // Update only the edited fields as simple values
+                // Only include edited fields (not all fields)
                 for (const [fieldName, fieldValue] of Object.entries(editedFields)) {
                     // Check if this field was renamed
                     const actualFieldName = renamedFields[fieldName] || fieldName;
                     
-                    // Store as simple value (not confidence object)
+                    // Send only the new value (backend will handle confidence update)
                     dataToSave[actualFieldName] = fieldValue;
+                    console.log(`Sending edited field: ${actualFieldName} = ${fieldValue}`);
                 }
                 
-                // Update currentPageData
-                currentPageData = dataToSave;
+                // Update currentPageData locally
+                for (const [fieldName, fieldValue] of Object.entries(editedFields)) {
+                    const actualFieldName = renamedFields[fieldName] || fieldName;
+                    if (typeof currentPageData[actualFieldName] === 'object' && currentPageData[actualFieldName].value !== undefined) {
+                        currentPageData[actualFieldName].value = fieldValue;
+                    } else {
+                        currentPageData[actualFieldName] = fieldValue;
+                    }
+                }
                 
                 // Get the actual PDF page number for this account page
                 const actualPageNum = accountPageNumbers[currentPageIndex] || currentPageIndex;
                 
                 // Save to backend and update S3 cache
-                const response = await fetch(`/api/document/${documentId}/page/${actualPageNum}/update`, {
+                const response = await fetch(`/api/document/${documentId}/account/${currentAccountIndex}/page/${actualPageNum}/update`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         page_data: dataToSave,
-                        account_index: currentAccountIndex
+                        action_type: 'edit'
                     })
                 });
                 
@@ -2199,10 +2290,16 @@
                     throw new Error(result.message);
                 }
                 
+                // Update currentPageData with the response data (includes confidence scores)
+                if (result.data) {
+                    currentPageData = result.data;
+                }
+                
                 showNotification('✅ Saved successfully! Changes will persist after refresh.', 'success');
                 exitEditMode();
                 
-                // Reload page data to show updated values
+                // Reload page data to show updated values with confidence badges
+                // Fetch fresh data from API to ensure all fields are displayed
                 renderPageData();
             } catch (error) {
                 showNotification('❌ Failed to save: ' + error.message, 'error');
@@ -2283,20 +2380,15 @@
                     currentPageData = {};
                 }
                 
-                // Prepare the data to save - preserve existing field formats
+                // Prepare the data to save - ONLY send the new field to backend
                 const dataToSave = {};
                 
-                // Copy all existing fields as-is (preserving their confidence scores)
-                for (const [key, value] of Object.entries(currentPageData)) {
-                    dataToSave[key] = value;
-                }
-                
-                // Add the new field as a simple value (not a confidence object)
-                // This prevents it from being split into multiple fields
+                // Add ONLY the new field (not all fields)
                 dataToSave[fieldName] = fieldValue;
+                console.log(`Sending new field: ${fieldName} = ${fieldValue}`);
                 
-                // Update currentPageData
-                currentPageData = dataToSave;
+                // Update currentPageData locally with new field
+                currentPageData[fieldName] = fieldValue;
                 
                 // Save to backend and update S3 cache
                 const account = accounts[currentAccountIndex];
@@ -2306,7 +2398,8 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        page_data: dataToSave
+                        page_data: dataToSave,
+                        action_type: 'add'
                     })
                 });
                 
@@ -2315,14 +2408,18 @@
                     throw new Error(result.message);
                 }
                 
+                // Update currentPageData with the response data (includes confidence scores)
+                if (result.data) {
+                    currentPageData = result.data;
+                }
+                
                 console.log('Field added successfully, cache updated:', result);
                 showNotification(`Field "${fieldName}" added successfully!`, 'success');
                 closeAddFieldDialog();
                 
                 // Reload the current page to show the updated data
-                setTimeout(() => {
-                    showPage(currentPageIndex);
-                }, 300);
+                // Fetch fresh data from API to ensure all fields are displayed
+                renderPageData();
             } catch (error) {
                 console.error('Add field error:', error);
                 console.error('Error details:', {
@@ -2638,10 +2735,16 @@
             }
             
             try {
-                // Remove selected fields from currentPageData
-                selectedFieldsForDelete.forEach(fieldName => {
+                // Send ONLY the deleted fields to backend
+                const dataToSave = {};
+                for (const fieldName of selectedFieldsForDelete) {
+                    dataToSave[fieldName] = null;  // Mark for deletion
+                }
+                
+                // Update currentPageData locally (remove deleted fields)
+                for (const fieldName of selectedFieldsForDelete) {
                     delete currentPageData[fieldName];
-                });
+                }
                 
                 // Save updated data to backend
                 const actualPageNum = accountPageNumbers[currentPageIndex] || currentPageIndex;
@@ -2649,7 +2752,9 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        page_data: currentPageData
+                        page_data: dataToSave,
+                        deleted_fields: Array.from(selectedFieldsForDelete),
+                        action_type: 'delete'
                     })
                 });
                 
@@ -2658,13 +2763,17 @@
                     throw new Error(result.message);
                 }
                 
+                // Update currentPageData with the response data (includes recalculated confidence)
+                if (result.data) {
+                    currentPageData = result.data;
+                }
+                
                 showNotification(`${count} field${count > 1 ? 's' : ''} deleted successfully!`, 'success');
                 cancelDeleteMode();
                 
-                // Reload the page to show updated data
-                setTimeout(() => {
-                    showPage(currentPageIndex);
-                }, 300);
+                // Reload the page to show updated data with recalculated confidence
+                // Fetch fresh data from API to ensure all fields are displayed
+                renderPageData();
                 
             } catch (error) {
                 showNotification('Failed to delete fields: ' + error.message, 'error');
