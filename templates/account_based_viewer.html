@@ -1007,6 +1007,29 @@
             }
         }
 
+        // Restore page and account index from URL parameters
+        function restorePageFromURL() {
+            const url = new URL(window.location);
+            const accountParam = url.searchParams.get('account');
+            const pageParam = url.searchParams.get('page');
+            
+            if (accountParam !== null) {
+                const accountIndex = parseInt(accountParam);
+                if (accountIndex >= 0 && accountIndex < accounts.length) {
+                    currentAccountIndex = accountIndex;
+                    console.log(`Restored account index from URL: ${accountIndex}`);
+                }
+            }
+            
+            if (pageParam !== null) {
+                const pageIndex = parseInt(pageParam);
+                if (pageIndex >= 0 && pageIndex < totalPages) {
+                    currentPageIndex = pageIndex;
+                    console.log(`Restored page index from URL: ${pageIndex}`);
+                }
+            }
+        }
+        
         // Load accounts on page load
         async function loadAccounts() {
             try {
@@ -1050,8 +1073,15 @@
                         
 
                         renderAccountsList();
-                        // Auto-select first account
-                        selectAccount(0);
+                        
+                        // Restore page and account from URL if available
+                        restorePageFromURL();
+                        
+                        // Auto-select account (restored from URL or default to 0)
+                        // Pass skipPageReset=true to preserve the restored page index
+                        const accountToSelect = currentAccountIndex >= 0 ? currentAccountIndex : 0;
+                        const hasRestoredPage = new URL(window.location).searchParams.get('page') !== null;
+                        selectAccount(accountToSelect, hasRestoredPage);
                     } else {
                         console.log('❌ No accounts found or accounts array is empty');
                         console.log('docData exists:', !!docData);
@@ -1344,14 +1374,18 @@
             showPage(pageIndex);
         }
 
-        async function selectAccount(index) {
+        async function selectAccount(index, skipPageReset = false) {
             // Exit edit mode if active
             if (editMode) {
                 exitEditMode();
             }
             
             currentAccountIndex = index;
-            currentPageIndex = 0;
+            
+            // Only reset page index if not restoring from URL
+            if (!skipPageReset) {
+                currentPageIndex = 0;
+            }
             
             // Update active state
             document.querySelectorAll('.account-item').forEach((item, i) => {
@@ -1390,7 +1424,11 @@
                     totalPages = data.total_pages;
                     document.getElementById('totalPages').textContent = totalPages;
                     console.log(`Account ${data.account_number} has ${totalPages} pages:`, accountPageNumbers);
-                    showPage(0);
+                    
+                    // Preserve current page index if it's still valid, otherwise go to page 0
+                    const pageToShow = (currentPageIndex >= 0 && currentPageIndex < totalPages) ? currentPageIndex : 0;
+                    console.log(`Loading account pages: currentPageIndex=${currentPageIndex}, totalPages=${totalPages}, showing page ${pageToShow}`);
+                    showPage(pageToShow);
                 } else {
                     showNotification('Failed to load pages: ' + data.message, 'error');
                 }
@@ -1411,6 +1449,12 @@
             currentPageIndex = pageIndex;
             document.getElementById('currentPage').textContent = pageIndex + 1;
             
+            // Update URL to preserve page index for refresh
+            const url = new URL(window.location);
+            url.searchParams.set('account', currentAccountIndex);
+            url.searchParams.set('page', pageIndex);
+            window.history.replaceState({}, '', url);
+            
             // Update active thumbnail highlighting
             document.querySelectorAll('.page-thumbnail-item').forEach(item => {
                 item.classList.remove('active');
@@ -1425,7 +1469,14 @@
             document.getElementById('nextBtn').disabled = pageIndex === totalPages - 1;
             
             // Get the actual PDF page number for this account page
-            const actualPageNum = accountPageNumbers[pageIndex] || pageIndex;
+            // accountPageNumbers contains 1-based page numbers, pageIndex is 0-based
+            const actualPageNum = accountPageNumbers[pageIndex] || (pageIndex + 1);
+            
+            console.log('DEBUG showPage:', {
+                pageIndex,
+                accountPageNumbers,
+                actualPageNum
+            });
             
             // Load page image using actual page number
             const viewer = document.getElementById('viewerContent');
@@ -1453,54 +1504,84 @@
                 return;
             }
             
-            // Process confidence objects
-            const processedFields = {};
+            console.log('renderPageDataDirect received fields:', fields);
+            console.log('First field sample:', Object.entries(fields)[0]);
+            
+            // Process confidence objects - SIMPLIFIED VERSION
+            const processedData = {};
             const fieldConfidence = {};
             
-            function processConfidenceRecursive(obj, prefix = '') {
-                const processed = {};
-                for (const [key, value] of Object.entries(obj)) {
-                    const fullKey = prefix ? `${prefix}_${key}` : key;
-                    
-                    if (value && typeof value === 'object' && !Array.isArray(value)) {
-                        if ('value' in value && 'confidence' in value) {
-                            // This is a confidence object - extract value and confidence
-                            processed[key] = value.value;
-                            fieldConfidence[fullKey] = value.confidence;
-                        } else {
-                            // This is a nested object - convert to string representation
-                            processed[key] = JSON.stringify(value);
-                        }
-                    } else if (Array.isArray(value)) {
-                        // Handle arrays - convert to string
-                        processed[key] = Array.isArray(value) ? value.join(', ') : value;
-                    } else {
-                        processed[key] = value;
-                    }
-                }
-                return processed;
-            }
-            
-            const processedData = processConfidenceRecursive(fields);
-            
-            let html = '';
-            for (const [key, value] of Object.entries(processedData)) {
+            for (const [key, value] of Object.entries(fields)) {
+                // Skip account number fields
                 if (key === 'AccountNumber' || key === 'Account_Number') continue;
                 
+                let displayValue = '';
+                let confidence = 0;
+                
+                console.log(`Processing field: ${key}, type: ${typeof value}, value:`, value);
+                
+                // Check if this is a confidence object (has 'value' and 'confidence' properties)
+                if (value && typeof value === 'object' && !Array.isArray(value) && 'value' in value && 'confidence' in value) {
+                    // Extract value and confidence from confidence object
+                    const innerValue = value.value;
+                    if (typeof innerValue === 'object' && !Array.isArray(innerValue)) {
+                        // Inner value is also an object, convert to JSON
+                        displayValue = JSON.stringify(innerValue);
+                    } else if (Array.isArray(innerValue)) {
+                        // Inner value is an array, convert to comma-separated
+                        displayValue = innerValue.join(', ');
+                    } else {
+                        // Inner value is a simple value
+                        displayValue = String(innerValue || '');
+                    }
+                    confidence = value.confidence || 0;
+                    console.log(`✓ Extracted confidence object: ${key} = "${displayValue}" (confidence: ${confidence}%)`);
+                } else if (Array.isArray(value)) {
+                    // Handle arrays - convert to comma-separated string
+                    displayValue = value.map(v => {
+                        if (typeof v === 'object') {
+                            return JSON.stringify(v);
+                        }
+                        return String(v);
+                    }).join(', ');
+                    console.log(`✓ Converted array: ${key} = "${displayValue}"`);
+                } else if (value && typeof value === 'object') {
+                    // Handle nested objects - check if it has a 'value' property (might be missing confidence)
+                    if ('value' in value) {
+                        displayValue = String(value.value || '');
+                        confidence = value.confidence || 0;
+                        console.log(`✓ Extracted object with value property: ${key} = "${displayValue}"`);
+                    } else {
+                        // Convert to JSON string
+                        displayValue = JSON.stringify(value);
+                        console.log(`✓ Converted nested object: ${key} = "${displayValue}"`);
+                    }
+                } else {
+                    // Simple value (string, number, etc.)
+                    displayValue = String(value || '');
+                    console.log(`✓ Simple value: ${key} = "${displayValue}"`);
+                }
+                
+                processedData[key] = displayValue;
+                fieldConfidence[key] = confidence;
+            }
+            
+            console.log('Processed data:', processedData);
+            console.log('Field confidence:', fieldConfidence);
+            
+            let html = '';
+            for (const [key, displayValue] of Object.entries(processedData)) {
                 const confidence = fieldConfidence[key] || 0;
                 const confidenceColor = confidence >= 90 ? '#10b981' : confidence >= 70 ? '#f59e0b' : '#ef4444';
                 
-                // Convert value to string if it's an object
-                let displayValue = value;
-                if (typeof value === 'object') {
-                    displayValue = JSON.stringify(value);
-                }
+                // displayValue should already be a string from processedData
+                const finalValue = displayValue || 'N/A';
                 
                 html += `
                     <div class="field-item">
                         <div class="field-label">${key}</div>
                         <div class="field-value" data-field="${key}">
-                            ${displayValue || 'N/A'}
+                            ${finalValue}
                             <span style="margin-left: 8px; font-size: 0.8em; color: ${confidenceColor}; font-weight: 600;">
                                 ${confidence}%
                             </span>
@@ -1531,15 +1612,25 @@
             const accountNumber = account.accountNumber || accounts[currentAccountIndex]?.accountNumber || 'Unknown';
             
             // Get the actual PDF page number for this account page
-            const actualPageNum = accountPageNumbers[currentPageIndex] || currentPageIndex;
+            // accountPageNumbers contains 1-based page numbers, currentPageIndex is 0-based
+            const actualPageNum = accountPageNumbers[currentPageIndex] || (currentPageIndex + 1);
 
             document.getElementById('dataMeta').textContent = `Account ${accountNumber} - Page ${currentPageIndex + 1} Data`;
             container.innerHTML = '<div class="loading"><div class="spinner"></div><div>Loading page data...</div></div>';
             
             try {
                 // Fetch page-specific data from the API
+                console.log('DEBUG renderPageData API call:', {
+                    documentId,
+                    currentAccountIndex,
+                    actualPageNum,
+                    currentPageIndex,
+                    accountPageNumbers,
+                    totalPages
+                });
                 const response = await fetch(`/api/document/${documentId}/account/${currentAccountIndex}/page/${actualPageNum}/data`);
                 const result = await response.json();
+                console.log('DEBUG renderPageData API response:', result);
                 
                 let fields = {};
                 if (result.success && result.data) {
@@ -1832,7 +1923,11 @@
                             continue;
                         }
                         
-                        regularFields[key] = value;
+                        // Only add simple values (strings, numbers, booleans, etc.) to regularFields
+                        // Skip objects that weren't handled above
+                        if (typeof value !== 'object' || value === null) {
+                            regularFields[key] = value;
+                        }
                     }
                     
                     // Helper function to escape HTML
@@ -2262,18 +2357,21 @@
                     console.log(`Sending edited field: ${actualFieldName} = ${fieldValue}`);
                 }
                 
-                // Update currentPageData locally
-                for (const [fieldName, fieldValue] of Object.entries(editedFields)) {
-                    const actualFieldName = renamedFields[fieldName] || fieldName;
-                    if (typeof currentPageData[actualFieldName] === 'object' && currentPageData[actualFieldName].value !== undefined) {
-                        currentPageData[actualFieldName].value = fieldValue;
-                    } else {
-                        currentPageData[actualFieldName] = fieldValue;
-                    }
-                }
+                // DON'T update currentPageData locally - wait for response from backend
+                // The backend will return the complete updated data with confidence scores
                 
                 // Get the actual PDF page number for this account page
-                const actualPageNum = accountPageNumbers[currentPageIndex] || currentPageIndex;
+                // accountPageNumbers contains 1-based page numbers, currentPageIndex is 0-based
+                const actualPageNum = accountPageNumbers[currentPageIndex] || (currentPageIndex + 1);
+                
+                console.log('DEBUG savePage:', {
+                    currentPageIndex,
+                    accountPageNumbers,
+                    actualPageNum,
+                    currentAccountIndex,
+                    'accountPageNumbers[currentPageIndex]': accountPageNumbers[currentPageIndex],
+                    'totalPages': totalPages
+                });
                 
                 // Save to backend and update S3 cache
                 const response = await fetch(`/api/document/${documentId}/account/${currentAccountIndex}/page/${actualPageNum}/update`, {
@@ -2293,14 +2391,38 @@
                 // Update currentPageData with the response data (includes confidence scores)
                 if (result.data) {
                     currentPageData = result.data;
+                    console.log('Updated currentPageData from response:', currentPageData);
+                    console.log('Sample field:', Object.entries(currentPageData)[0]);
+                    console.log('currentPageData type:', typeof currentPageData);
+                    console.log('currentPageData keys:', Object.keys(currentPageData));
+                } else {
+                    console.warn('No data in response:', result);
                 }
                 
                 showNotification('✅ Saved successfully! Changes will persist after refresh.', 'success');
                 exitEditMode();
                 
                 // Reload page data to show updated values with confidence badges
-                // Fetch fresh data from API to ensure all fields are displayed
-                renderPageData();
+                // Use renderPageDataDirect to display updated data immediately
+                console.log('Calling renderPageDataDirect with:', currentPageData);
+                console.log('currentPageData is object?', typeof currentPageData === 'object');
+                console.log('currentPageData has keys?', Object.keys(currentPageData).length > 0);
+                
+                if (!currentPageData || typeof currentPageData !== 'object' || Object.keys(currentPageData).length === 0) {
+                    console.warn('currentPageData is empty or invalid, falling back to renderPageData');
+                    renderPageData();
+                } else {
+                    try {
+                        renderPageDataDirect(currentPageData);
+                        console.log('renderPageDataDirect completed successfully');
+                    } catch (renderError) {
+                        console.error('Error in renderPageDataDirect:', renderError);
+                        console.error('renderError stack:', renderError.stack);
+                        // Fallback to renderPageData if renderPageDataDirect fails
+                        console.log('Falling back to renderPageData');
+                        renderPageData();
+                    }
+                }
             } catch (error) {
                 showNotification('❌ Failed to save: ' + error.message, 'error');
             }
@@ -2387,13 +2509,14 @@
                 dataToSave[fieldName] = fieldValue;
                 console.log(`Sending new field: ${fieldName} = ${fieldValue}`);
                 
-                // Update currentPageData locally with new field
-                currentPageData[fieldName] = fieldValue;
+                // DON'T update currentPageData locally - wait for response from backend
+                // The backend will return the complete updated data with confidence scores
                 
                 // Save to backend and update S3 cache
                 const account = accounts[currentAccountIndex];
                 // Use the actual PDF page number, not the index
-                const actualPageNum = accountPageNumbers[currentPageIndex] || currentPageIndex;
+                // accountPageNumbers contains 1-based page numbers, currentPageIndex is 0-based
+                const actualPageNum = accountPageNumbers[currentPageIndex] || (currentPageIndex + 1);
                 const response = await fetch(`/api/document/${documentId}/account/${currentAccountIndex}/page/${actualPageNum}/update`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -2426,7 +2549,7 @@
                     documentId,
                     currentAccountIndex,
                     currentPageIndex,
-                    actualPageNum: accountPageNumbers[currentPageIndex] || currentPageIndex,
+                    actualPageNum: accountPageNumbers[currentPageIndex] || (currentPageIndex + 1),
                     fieldName,
                     fieldValue
                 });
@@ -2741,13 +2864,12 @@
                     dataToSave[fieldName] = null;  // Mark for deletion
                 }
                 
-                // Update currentPageData locally (remove deleted fields)
-                for (const fieldName of selectedFieldsForDelete) {
-                    delete currentPageData[fieldName];
-                }
+                // DON'T update currentPageData locally - wait for response from backend
+                // The backend will return the complete updated data with confidence scores
                 
                 // Save updated data to backend
-                const actualPageNum = accountPageNumbers[currentPageIndex] || currentPageIndex;
+                // accountPageNumbers contains 1-based page numbers, currentPageIndex is 0-based
+                const actualPageNum = accountPageNumbers[currentPageIndex] || (currentPageIndex + 1);
                 const response = await fetch(`/api/document/${documentId}/account/${currentAccountIndex}/page/${actualPageNum}/update`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },

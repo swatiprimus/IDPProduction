@@ -1,0 +1,292 @@
+================================================================================
+                    DEVELOPER QUICK REFERENCE CARD
+================================================================================
+
+FEATURE: Per-Field Confidence Updates with Complete Data Reflection
+
+================================================================================
+                          CONFIDENCE RULES
+================================================================================
+
+ADD FIELD:
+  - New field: confidence = 100, source = "human_added"
+  - Other fields: confidence UNCHANGED
+  - Response: All fields (existing + new)
+
+EDIT FIELD:
+  - Edited field: confidence = 100, source = "human_corrected"
+  - Other fields: confidence UNCHANGED
+  - Response: All fields (with edited field updated)
+
+DELETE FIELD:
+  - Deleted field: REMOVED
+  - Other fields: confidence UNCHANGED
+  - Response: All remaining fields
+
+================================================================================
+                          CODE LOCATIONS
+================================================================================
+
+Frontend: templates/account_based_viewer.html
+  - savePage() - Line 2148 - Edit operation
+  - addNewField() - Line 2269 - Add operation
+  - confirmDeleteFields() - Line 2640 - Delete operation
+  - renamedFields init - Line 988 - Variable initialization
+  - exitEditMode() - Line 2080 - Reset state
+
+Backend: app_modular.py
+  - update_page_data() - Line 6234 - Main update endpoint
+  - get_account_page_data() - Line 4552 - Retrieve page data
+
+================================================================================
+                          DATA FLOW
+================================================================================
+
+1. Frontend sends ONLY changed fields:
+   {
+     "page_data": { "field_name": "new_value" },
+     "action_type": "edit|add|delete",
+     "deleted_fields": ["field_to_delete"]
+   }
+
+2. Backend loads existing fields:
+   - Try S3 cache first (Priority 0)
+   - Fall back to document page_data (Priority 1)
+
+3. Backend processes ONLY changed fields:
+   - Start with existing_fields (all preserved)
+   - Update only fields in request
+   - Preserve other fields' confidence
+
+4. Backend returns ALL fields:
+   {
+     "success": true,
+     "data": {
+       "field1": { "value": "...", "confidence": 95, "source": "ai_extracted" },
+       "field2": { "value": "...", "confidence": 100, "source": "human_corrected" },
+       "field3": { "value": "...", "confidence": 85, "source": "ai_extracted" }
+     }
+   }
+
+5. Frontend updates currentPageData with all fields
+
+6. Frontend renders all fields with correct confidence
+
+================================================================================
+                          KEY LOGIC
+================================================================================
+
+Backend Processing (app_modular.py, Line 6300-6360):
+
+# Load existing fields
+existing_fields = load_from_cache_or_document()
+
+# Start with existing fields (preserve all)
+processed_data = copy(existing_fields)
+
+# Process ONLY updated fields
+for field_name in page_data:
+    if is_deleted:
+        del processed_data[field_name]
+    elif is_new:
+        processed_data[field_name] = {
+            "value": new_value,
+            "confidence": 100,
+            "source": "human_added"
+        }
+    elif value_changed:
+        processed_data[field_name] = {
+            "value": new_value,
+            "confidence": 100,
+            "source": "human_corrected"
+        }
+    else:
+        # Keep original (unchanged)
+        processed_data[field_name] = existing_fields[field_name]
+
+# Return all fields
+return processed_data
+
+================================================================================
+                          TESTING CHECKLIST
+================================================================================
+
+ADD FIELD:
+  [ ] New field appears with confidence 100
+  [ ] All existing fields visible with original confidence
+  [ ] Total field count increased by 1
+  [ ] Changes persist after refresh
+
+EDIT FIELD:
+  [ ] Edited field updated with confidence 100
+  [ ] All other fields visible with original confidence
+  [ ] Total field count unchanged
+  [ ] Changes persist after refresh
+
+DELETE FIELD:
+  [ ] Deleted field removed
+  [ ] All remaining fields visible with original confidence
+  [ ] Total field count decreased by 1
+  [ ] Changes persist after refresh
+
+PAGE INDEPENDENCE:
+  [ ] Add field on Page 1
+  [ ] Field does NOT appear on Page 2
+  [ ] Add same field on Page 2 with different value
+  [ ] Both pages have independent values
+
+CONFIDENCE PRESERVATION:
+  [ ] Other fields' confidence unchanged after add
+  [ ] Other fields' confidence unchanged after edit
+  [ ] Other fields' confidence unchanged after delete
+  [ ] Only updated field has confidence 100
+
+================================================================================
+                          DEBUGGING TIPS
+================================================================================
+
+Check Frontend Data Sending:
+  console.log('Sending to backend:', dataToSave);
+  // Should show ONLY changed fields, not all fields
+
+Check Backend Processing:
+  # In app_modular.py logs:
+  [INFO] Starting with X existing fields
+  [INFO] Processing fields: [list of fields in request]
+  [INFO] Total fields in response: Y
+  [INFO] All fields: [list of all fields]
+
+Check S3 Cache:
+  # Read cache from S3:
+  cache_response = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+  cache_data = json.loads(cache_response['Body'].read())
+  print(json.dumps(cache_data, indent=2))
+  # Should show all fields with correct confidence
+
+Check Page Independence:
+  # Verify each page has separate cache:
+  page_data/doc_id/account_0/page_1.json
+  page_data/doc_id/account_0/page_2.json
+  # Each should have independent data
+
+================================================================================
+                          COMMON ISSUES
+================================================================================
+
+Issue: All fields' confidence updated
+  Solution: Check that frontend sends ONLY changed fields
+  Location: savePage(), addNewField(), confirmDeleteFields()
+
+Issue: Other fields' confidence changed
+  Solution: Check that backend preserves existing_fields
+  Location: app_modular.py, Line 6300-6302
+
+Issue: Response missing some fields
+  Solution: Check that backend loads from document page_data
+  Location: app_modular.py, Line 6260-6295
+
+Issue: Changes don't persist after refresh
+  Solution: Check that S3 cache is being saved
+  Location: app_modular.py, Line 6365-6375
+
+Issue: Field appears on multiple pages
+  Solution: Check that each page has separate cache key
+  Location: app_modular.py, Line 6245-6250
+
+================================================================================
+                          API REFERENCE
+================================================================================
+
+GET /api/document/{id}/account/{idx}/page/{num}/data
+  Returns: Page-specific data with confidence scores
+  Cache: Checked from S3 user edits cache first
+
+POST /api/document/{id}/account/{idx}/page/{num}/update
+  Request: page_data (only changed fields), action_type, deleted_fields
+  Returns: All fields with updated confidence
+  Cache: Saved to S3 user edits cache
+
+================================================================================
+                          RESPONSE EXAMPLES
+================================================================================
+
+ADD FIELD Response:
+{
+  "success": true,
+  "data": {
+    "name": { "value": "John", "confidence": 95, "source": "ai_extracted" },
+    "email": { "value": "john@example.com", "confidence": 90, "source": "ai_extracted" },
+    "phone": { "value": "555-1234", "confidence": 100, "source": "human_added" }
+  }
+}
+
+EDIT FIELD Response:
+{
+  "success": true,
+  "data": {
+    "name": { "value": "Jane", "confidence": 100, "source": "human_corrected" },
+    "email": { "value": "john@example.com", "confidence": 90, "source": "ai_extracted" },
+    "phone": { "value": "555-1234", "confidence": 85, "source": "ai_extracted" }
+  }
+}
+
+DELETE FIELD Response:
+{
+  "success": true,
+  "data": {
+    "name": { "value": "Jane", "confidence": 100, "source": "human_corrected" },
+    "email": { "value": "john@example.com", "confidence": 90, "source": "ai_extracted" }
+  }
+}
+
+================================================================================
+                          CONFIDENCE SCORES
+================================================================================
+
+AI Extracted: 0-99 (varies by extraction quality)
+Human Added: 100 (user manually added)
+Human Corrected: 100 (user edited existing value)
+Unchanged: Original score (preserved from cache)
+
+================================================================================
+                          S3 CACHE STRUCTURE
+================================================================================
+
+Cache Key: page_data/{doc_id}/account_{idx}/page_{num}.json
+
+Cache Data:
+{
+  "data": {
+    "field_name": {
+      "value": "field_value",
+      "confidence": 100,
+      "source": "human_corrected",
+      "edited_at": "2025-12-18T12:34:56.789123"
+    }
+  },
+  "overall_confidence": 92.5,
+  "account_number": "ACC123",
+  "edited": true,
+  "edited_at": "2025-12-18T12:34:56.789123",
+  "action_type": "edit"
+}
+
+================================================================================
+                          QUICK FACTS
+================================================================================
+
+✅ Only specific field's confidence updated to 100
+✅ Other fields' confidence remains UNCHANGED
+✅ Overall confidence preserved (not recalculated)
+✅ All fields returned in response
+✅ Each page has independent data
+✅ Changes persist after refresh
+✅ No breaking changes
+✅ Backward compatible
+
+================================================================================
+
+Last Updated: December 18, 2025
+Version: 1.0 - Final
+
+================================================================================

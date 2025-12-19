@@ -6325,8 +6325,16 @@ def _calculate_overall_confidence(fields_data: Dict) -> float:
     return round(total_confidence / field_count, 2) if field_count > 0 else 0.0
 
 
-@app.route("/api/document/<doc_id>/page/<int:page_num>/update", methods=["POST"])
 @app.route("/api/document/<doc_id>/account/<int:account_index>/page/<int:page_num>/update", methods=["POST"])
+def update_page_data_account(doc_id, account_index, page_num):
+    """Update page data for account-based documents"""
+    return update_page_data(doc_id, page_num, account_index)
+
+@app.route("/api/document/<doc_id>/page/<int:page_num>/update", methods=["POST"])
+def update_page_data_regular(doc_id, page_num):
+    """Update page data for regular documents"""
+    return update_page_data(doc_id, page_num, None)
+
 def update_page_data(doc_id, page_num, account_index=None):
     """Update page data and save to S3 cache with confidence tracking"""
     import json

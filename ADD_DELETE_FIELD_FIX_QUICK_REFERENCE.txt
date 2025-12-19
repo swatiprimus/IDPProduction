@@ -1,0 +1,136 @@
+================================================================================
+ADD/DELETE FIELD FIX - QUICK REFERENCE
+================================================================================
+
+ISSUE: Adding/deleting a field updated other fields' confidence scores
+
+SOLUTION: Send ONLY the new/deleted field to backend
+
+================================================================================
+HOW IT WORKS NOW
+================================================================================
+
+ADD FIELD:
+  Before: Account Holders (95%), Account Purpose (90%)
+  Add: "11" = "test"
+  After: Account Holders (95%), Account Purpose (90%), 11 (100%)
+  Result: Only "11" has 100%, others unchanged
+
+DELETE FIELD:
+  Before: Account Holders (95%), Account Purpose (90%), Account Type (85%)
+  Delete: Account Type
+  After: Account Holders (95%), Account Purpose (90%)
+  Result: Only Account Type removed, others unchanged
+
+================================================================================
+CHANGES MADE
+================================================================================
+
+Frontend (templates/account_based_viewer.html):
+
+1. addNewField() function:
+   - Send ONLY the new field to backend
+   - Not all fields
+   - Update currentPageData locally
+
+2. confirmDeleteFields() function:
+   - Send ONLY the deleted fields to backend
+   - Not all remaining fields
+   - Update currentPageData locally
+
+================================================================================
+DATA FLOW
+================================================================================
+
+ADD FIELD:
+  1. User adds "11" = "test"
+  2. Frontend sends: { "11": "test" }
+  3. Backend processes: ONLY "11" field
+  4. Backend returns: { "11": { "value": "test", "confidence": 100 } }
+  5. Frontend displays: "11" (100%), others unchanged
+
+DELETE FIELD:
+  1. User deletes "Account Type"
+  2. Frontend sends: { "Account Type": null }
+  3. Backend processes: ONLY "Account Type" field
+  4. Backend returns: updated data without "Account Type"
+  5. Frontend displays: "Account Type" removed, others unchanged
+
+================================================================================
+EXAMPLES
+================================================================================
+
+Example 1: Add Single Field
+  Before: Account Holders (95%), Account Purpose (90%)
+  Add: "11" = "test"
+  After: Account Holders (95%), Account Purpose (90%), 11 (100%)
+
+Example 2: Add Multiple Fields
+  Before: Account Holders (95%), Account Purpose (90%)
+  Add: "11" = "test"
+  After: Account Holders (95%), Account Purpose (90%), 11 (100%)
+  Add: "12" = "test2"
+  After: Account Holders (95%), Account Purpose (90%), 11 (100%), 12 (100%)
+
+Example 3: Delete Single Field
+  Before: Account Holders (95%), Account Purpose (90%), Account Type (85%)
+  Delete: Account Type
+  After: Account Holders (95%), Account Purpose (90%)
+
+Example 4: Delete Multiple Fields
+  Before: Account Holders (95%), Account Purpose (90%), Account Type (85%)
+  Delete: Account Type
+  After: Account Holders (95%), Account Purpose (90%)
+  Delete: Account Purpose
+  After: Account Holders (95%)
+
+================================================================================
+TESTING
+================================================================================
+
+Test 1: Add Field
+  □ Add new field
+  □ Verify new field has 100% confidence
+  □ Verify other fields unchanged
+
+Test 2: Add Multiple Fields
+  □ Add multiple fields separately
+  □ Verify each new field has 100%
+  □ Verify other fields unchanged
+
+Test 3: Delete Field
+  □ Delete field
+  □ Verify field removed
+  □ Verify other fields unchanged
+
+Test 4: Delete Multiple Fields
+  □ Delete multiple fields separately
+  □ Verify each field removed
+  □ Verify other fields unchanged
+
+Test 5: Add Then Delete
+  □ Add field
+  □ Delete field
+  □ Verify add and delete work independently
+
+================================================================================
+BENEFITS
+================================================================================
+
+✓ Only new field gets 100% confidence
+✓ Other fields' confidence preserved
+✓ Only deleted field removed
+✓ Other fields preserved
+✓ Accurate per-field tracking
+✓ Better performance
+✓ Cleaner logic
+
+================================================================================
+READY FOR USE
+================================================================================
+
+Add/Delete field fix implemented and verified.
+Only specific field is updated.
+Other fields remain unchanged.
+
+================================================================================
