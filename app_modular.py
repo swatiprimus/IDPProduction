@@ -32,6 +32,7 @@ from app.services.document_detector import detect_document_type, SUPPORTED_DOCUM
 from app.services.loan_processor import process_loan_document
 from app.services.cost_optimized_processor import CostOptimizedProcessor
 from app.services.ocr_cache_manager import OCRCacheManager
+from app.services.cost_tracker import get_cost_tracker, get_all_costs, get_total_costs
 
 # Import prompts from separate module
 from prompts import (
@@ -156,6 +157,10 @@ class BackgroundDocumentProcessor:
             pdf_path = status["pdf_path"]
             
             print(f"[BG_PROCESSOR] 🚀 Starting OPTIMIZED processing pipeline for document {doc_id}")
+            
+            # Initialize cost tracker for this document
+            cost_tracker = get_cost_tracker(doc_id)
+            print(f"[COST] 💰 Cost tracking initialized for document {doc_id}")
             
             # Determine document type from the main document record
             doc_type = self._get_document_type(doc_id)
@@ -404,6 +409,9 @@ class BackgroundDocumentProcessor:
         try:
             import fitz
             
+            # Get cost tracker
+            cost_tracker = get_cost_tracker(doc_id)
+            
             # PHASE 5: Use cached PDF object if available, otherwise open
             pdf_cache_key = f"_pdf_cache_{pdf_path}"
             if hasattr(self, pdf_cache_key):
@@ -432,6 +440,9 @@ class BackgroundDocumentProcessor:
             
             # Call Textract for OCR
             response = textract.detect_document_text(Document={'Bytes': image_bytes})
+            
+            # Track Textract cost (sync API)
+            cost_tracker.track_textract_sync(pages=1)
             
             # Extract text from response
             ocr_text = ""
@@ -514,6 +525,22 @@ class BackgroundDocumentProcessor:
     
     def _upload_to_s3(self, key: str, data: Dict) -> None:
         """Upload single item to S3"""
+        # Extract doc_id from key (format: prefix/doc_id/...)
+        try:
+            parts = key.split('/')
+            if len(parts) >= 2:
+                doc_id = parts[1]
+                cost_tracker = get_cost_tracker(doc_id)
+                
+                # Calculate data size
+                data_json = json.dumps(data)
+                data_size = len(data_json.encode('utf-8'))
+                
+                # Track S3 PUT cost
+                cost_tracker.track_s3_put(count=1, size_bytes=data_size)
+        except Exception as e:
+            print(f"[COST] Failed to track S3 cost: {str(e)}")
+        
         s3_client.put_object(
             Bucket=S3_BUCKET,
             Key=key,
@@ -1173,7 +1200,7 @@ class BackgroundDocumentProcessor:
             print(f"[BG_PROCESSOR] 💰 COST-OPT: Page {page_num + 1} - Single LLM call for account + data extraction...")
             
             # Extract both account numbers and data in one call
-            llm_result = self._extract_with_llm(page_text, "")
+            llm_result = self._extract_with_llm(page_text, "", doc_id=doc_id)
             
             # Parse the dual-purpose response
             account_numbers_found = llm_result.get("account_numbers_found", [])
@@ -1232,7 +1259,7 @@ class BackgroundDocumentProcessor:
                 return
             
             # Extract data using LLM with death certificate specific prompt
-            extracted_data = self._extract_with_llm(page_text, "N/A", get_comprehensive_extraction_prompt())
+            extracted_data = self._extract_with_llm(page_text, "N/A", get_comprehensive_extraction_prompt(), doc_id=doc_id)
             
             # Cache the result with unique key structure
             cache_data = {
@@ -1283,7 +1310,7 @@ class BackgroundDocumentProcessor:
             account_number = page_mapping.get(page_num, "Unknown")
             
             # Extract data using LLM
-            extracted_data = self._extract_with_llm(page_text, account_number)
+            extracted_data = self._extract_with_llm(page_text, account_number, doc_id=doc_id)
             
             # Cache the result
             cache_data = {
@@ -1339,7 +1366,7 @@ class BackgroundDocumentProcessor:
             print(f"[BG_PROCESSOR] OCR failed for page {page_num}: {str(e)}")
             return ""
     
-    def _extract_with_llm(self, page_text: str, account_number: str, custom_prompt: str = None) -> Dict:
+    def _extract_with_llm(self, page_text: str, account_number: str, custom_prompt: str = None, doc_id: str = None) -> Dict:
         """Extract data from page text using LLM - COST OPTIMIZED VERSION"""
         try:
             # Use custom prompt if provided, otherwise use loan document prompt
@@ -1349,23 +1376,38 @@ class BackgroundDocumentProcessor:
                 # Use specialized loan document prompt for data extraction
                 prompt = get_loan_document_prompt()
             
+            # Prepare request body
+            request_body = {
+                "anthropic_version": "bedrock-2023-05-31",
+                "max_tokens": 8192,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": f"{prompt}\n\nDocument text:\n{page_text[:8000]}"
+                    }
+                ]
+            }
+            
             # Call Bedrock
             response = bedrock.invoke_model(
                 modelId=MODEL_ID,
-                body=json.dumps({
-                    "anthropic_version": "bedrock-2023-05-31",
-                    "max_tokens": 8192,
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": f"{prompt}\n\nDocument text:\n{page_text[:8000]}"
-                        }
-                    ]
-                })
+                body=json.dumps(request_body)
             )
             
             response_body = json.loads(response['body'].read())
             llm_response = response_body['content'][0]['text']
+            
+            # Track Bedrock cost if doc_id is provided
+            if doc_id:
+                try:
+                    input_tokens = response_body.get('usage', {}).get('input_tokens', 0)
+                    output_tokens = response_body.get('usage', {}).get('output_tokens', 0)
+                    
+                    if input_tokens > 0 or output_tokens > 0:
+                        cost_tracker = get_cost_tracker(doc_id)
+                        cost_tracker.track_bedrock_call(input_tokens, output_tokens)
+                except Exception as e:
+                    print(f"[COST] Failed to track Bedrock cost: {str(e)}")
             
             # Parse JSON response
             json_start = llm_response.find('{')
@@ -1475,7 +1517,7 @@ class BackgroundDocumentProcessor:
                 prompt = get_comprehensive_extraction_prompt()  # Use comprehensive prompt for all document types
             
             # Extract data using LLM
-            extracted_fields = self._extract_with_llm(full_text, "N/A", prompt)
+            extracted_fields = self._extract_with_llm(full_text, "N/A", prompt, doc_id=doc_id)
             
             # Cache the result
             cache_data = {
@@ -1563,6 +1605,15 @@ class BackgroundDocumentProcessor:
                     })
                 
                 print(f"[BG_PROCESSOR] 💾 DATABASE: Updated {doc_type} document with {len(extracted_fields)} extracted fields and processing metadata")
+            
+            # Get and save cost information
+            try:
+                cost_tracker = get_cost_tracker(doc_id)
+                cost_summary = cost_tracker.get_summary()
+                doc["processing_cost"] = cost_summary
+                print(f"[BG_PROCESSOR] 💰 COST: Saved cost data - Total: ${cost_summary['total_cost']:.6f}")
+            except Exception as e:
+                print(f"[BG_PROCESSOR] ⚠️ Failed to save cost data: {str(e)}")
             
             # Update document status
             doc.update({
@@ -3620,6 +3671,7 @@ def test_account_display():
 @app.route("/api/documents")
 def get_all_documents():
     """API endpoint to get all processed documents"""
+    # Return documents with their saved cost information
     response = jsonify({"documents": processed_documents, "total": len(processed_documents)})
     
     # Add cache-busting headers to ensure fresh data
@@ -3642,6 +3694,9 @@ def get_document_detail(doc_id):
             if doc.get("documents") and len(doc["documents"]) > 0:
                 doc["documents"][0]["accounts"] = bg_status["accounts"]
                 print(f"[API] 🔄 Updated document {doc_id} with {len(bg_status['accounts'])} accounts from background processing")
+        
+        # Cost information is already saved in the document record
+        # No need to fetch from in-memory tracker
         
         return jsonify({"success": True, "document": doc})
     return jsonify({"success": False, "message": "Document not found"}), 404
@@ -5414,6 +5469,14 @@ def extract_page_progressive(doc_id, account_index, page_index):
                 # Use Textract for OCR
                 textract_response = textract.detect_document_text(Document={'Bytes': image_bytes})
                 
+                # Track Textract cost
+                try:
+                    cost_tracker = get_cost_tracker(doc_id)
+                    cost_tracker.track_textract_sync(pages=1)
+                    print(f"[COST] ✅ Tracked Textract cost for page {page_index}")
+                except Exception as e:
+                    print(f"[COST] Failed to track Textract cost: {str(e)}")
+                
                 ocr_text = ""
                 for block in textract_response.get('Blocks', []):
                     if block['BlockType'] == 'LINE':
@@ -5575,6 +5638,18 @@ CONFIDENCE SCORE GUIDELINES:
         
         response_body = json.loads(response['body'].read())
         claude_response = response_body['content'][0]['text']
+        
+        # Track Bedrock cost
+        try:
+            input_tokens = response_body.get('usage', {}).get('input_tokens', 0)
+            output_tokens = response_body.get('usage', {}).get('output_tokens', 0)
+            
+            if input_tokens > 0 or output_tokens > 0:
+                cost_tracker = get_cost_tracker(doc_id)
+                cost_tracker.track_bedrock_call(input_tokens, output_tokens)
+                print(f"[COST] ✅ Tracked Bedrock cost for progressive extraction: {input_tokens} input + {output_tokens} output tokens")
+        except Exception as e:
+            print(f"[COST] Failed to track Bedrock cost: {str(e)}")
         
         # Parse extracted data with better error handling
         try:
@@ -5919,6 +5994,14 @@ def extract_regular_page_progressive(doc_id, page_index):
                 # Use Textract for OCR
                 textract_response = textract.detect_document_text(Document={'Bytes': image_bytes})
                 
+                # Track Textract cost
+                try:
+                    cost_tracker = get_cost_tracker(doc_id)
+                    cost_tracker.track_textract_sync(pages=1)
+                    print(f"[COST] ✅ Tracked Textract cost for page {page_index}")
+                except Exception as e:
+                    print(f"[COST] Failed to track Textract cost: {str(e)}")
+                
                 ocr_text = ""
                 for block in textract_response.get('Blocks', []):
                     if block['BlockType'] == 'LINE':
@@ -5974,6 +6057,18 @@ def extract_regular_page_progressive(doc_id, page_index):
         
         response_body = json.loads(response['body'].read())
         claude_response = response_body['content'][0]['text']
+        
+        # Track Bedrock cost
+        try:
+            input_tokens = response_body.get('usage', {}).get('input_tokens', 0)
+            output_tokens = response_body.get('usage', {}).get('output_tokens', 0)
+            
+            if input_tokens > 0 or output_tokens > 0:
+                cost_tracker = get_cost_tracker(doc_id)
+                cost_tracker.track_bedrock_call(input_tokens, output_tokens)
+                print(f"[COST] ✅ Tracked Bedrock cost for progressive extraction: {input_tokens} input + {output_tokens} output tokens")
+        except Exception as e:
+            print(f"[COST] Failed to track Bedrock cost: {str(e)}")
         
         # Parse extracted data with better error handling
         try:
@@ -6881,110 +6976,130 @@ def _merge_loan_accounts_json(doc_id, doc, doc_data):
 
 
 def _merge_death_certificate_pages_json(doc_id, doc, doc_data):
-    """Merge all page JSONs for death certificates using LLM"""
+    """Merge all page JSONs for death certificates using LLM
+    
+    Smart logic:
+    1. Collect all cached pages
+    2. Get total page count from document
+    3. For any missing pages, extract them NOW (don't wait for background)
+    4. Merge all pages with LLM
+    """
     try:
-        # Collect all page data
+        # Get total pages from document
+        total_pages = doc.get("total_pages", 0)
+        print(f"[COMPLETE_JSON] Death certificate has {total_pages} total pages")
+        
+        # Collect all page data - both cached and missing
         all_pages_data = []
+        pages_to_extract = []
         
-        # First, list what's actually in S3 for this document
-        print(f"[COMPLETE_JSON] Scanning S3 for cached pages for {doc_id}...")
-        try:
-            # List all objects with death_cert_page_data prefix
-            response = s3_client.list_objects_v2(
-                Bucket=S3_BUCKET,
-                Prefix=f"death_cert_page_data/{doc_id}/"
-            )
+        # Step 1: Collect all CACHED pages
+        print(f"[COMPLETE_JSON] Step 1: Scanning for cached pages...")
+        for page_num in range(total_pages):
+            cache_keys = [
+                f"death_cert_page_data/{doc_id}/page_{page_num}.json",  # Primary pattern
+                f"page_data/{doc_id}/page_{page_num}.json",  # Fallback pattern
+                f"death_certificate_cache/{doc_id}/page_{page_num}.json"  # Legacy pattern
+            ]
             
-            if 'Contents' in response:
-                print(f"[COMPLETE_JSON] Found {len(response['Contents'])} objects in death_cert_page_data")
-                for obj in response['Contents']:
-                    print(f"[COMPLETE_JSON]   - {obj['Key']}")
-        except Exception as e:
-            print(f"[COMPLETE_JSON] Could not list S3 objects: {str(e)}")
-        
-        # Try to get from cache first - check multiple cache key patterns
-        try:
-            # Check if we have page-by-page extraction cache
-            for page_num in range(0, 100):  # Try 0-based indexing first
-                # Try multiple cache key patterns
-                cache_keys = [
-                    f"death_cert_page_data/{doc_id}/page_{page_num}.json",  # Primary pattern
-                    f"page_data/{doc_id}/page_{page_num}.json",  # Fallback pattern
-                    f"death_certificate_cache/{doc_id}/page_{page_num}.json"  # Legacy pattern
-                ]
-                
-                found = False
-                for cache_key in cache_keys:
-                    try:
-                        cached_result = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
-                        cached_data = json.loads(cached_result['Body'].read())
-                        
-                        # Try different field names for extracted data
-                        extracted_data = cached_data.get("extracted_data", {}) or cached_data.get("data", {})
-                        
-                        # Include page even if it has some empty fields - we'll filter later
-                        if extracted_data:
-                            all_pages_data.append({
-                                "page_number": page_num,
-                                "data": extracted_data
-                            })
-                            print(f"[COMPLETE_JSON] Found page {page_num} data in cache (key: {cache_key}, fields: {len(extracted_data)})")
-                            found = True
-                            break
-                    except Exception as e:
-                        continue
-                
-                if not found and page_num > 0:
-                    # No more pages found
-                    break
+            found = False
+            for cache_key in cache_keys:
+                try:
+                    cached_result = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+                    cached_data = json.loads(cached_result['Body'].read())
+                    extracted_data = cached_data.get("extracted_data", {}) or cached_data.get("data", {})
                     
-        except Exception as e:
-            print(f"[COMPLETE_JSON] Warning: Could not load page cache: {str(e)}")
+                    if extracted_data:
+                        all_pages_data.append({
+                            "page_number": page_num,
+                            "data": extracted_data,
+                            "source": "cache"
+                        })
+                        print(f"[COMPLETE_JSON]   ✓ Page {page_num} found in cache ({len(extracted_data)} fields)")
+                        found = True
+                        break
+                except:
+                    continue
+            
+            if not found:
+                pages_to_extract.append(page_num)
+                print(f"[COMPLETE_JSON]   ✗ Page {page_num} NOT cached - will extract now")
         
+        # Step 2: Extract any MISSING pages NOW (don't wait for background)
+        if pages_to_extract:
+            print(f"[COMPLETE_JSON] Step 2: Extracting {len(pages_to_extract)} missing pages...")
+            
+            # Get OCR results for missing pages
+            page_ocr_results = {}
+            for page_num in pages_to_extract:
+                # Try to get OCR from cache
+                ocr_cache_key = f"page_ocr/{doc_id}/page_{page_num}.json"
+                try:
+                    ocr_result = s3_client.get_object(Bucket=S3_BUCKET, Key=ocr_cache_key)
+                    ocr_data = json.loads(ocr_result['Body'].read())
+                    page_ocr_results[page_num] = ocr_data.get("page_text", "")
+                    print(f"[COMPLETE_JSON]   ✓ OCR for page {page_num} found in cache")
+                except:
+                    print(f"[COMPLETE_JSON]   ✗ OCR for page {page_num} not found")
+            
+            # Extract missing pages with LLM
+            for page_num in pages_to_extract:
+                try:
+                    page_text = page_ocr_results.get(page_num, "")
+                    
+                    if not page_text or len(page_text.strip()) < 10:
+                        print(f"[COMPLETE_JSON]   ⚠️ Page {page_num} has no OCR text, skipping")
+                        continue
+                    
+                    # Extract with LLM (this ensures it's called only ONCE per page)
+                    print(f"[COMPLETE_JSON]   🤖 Extracting page {page_num} with LLM...")
+                    extracted_data = _extract_death_cert_page_with_llm(page_text)
+                    
+                    # Cache the result immediately
+                    cache_key = f"death_cert_page_data/{doc_id}/page_{page_num}.json"
+                    cache_data = {
+                        "extracted_data": extracted_data,
+                        "page_text": page_text[:500],
+                        "page_number": page_num,
+                        "document_type": "death_certificate",
+                        "extraction_time": time.time(),
+                        "cache_version": "death_cert_v1"
+                    }
+                    
+                    s3_client.put_object(
+                        Bucket=S3_BUCKET,
+                        Key=cache_key,
+                        Body=json.dumps(cache_data),
+                        ContentType='application/json'
+                    )
+                    
+                    all_pages_data.append({
+                        "page_number": page_num,
+                        "data": extracted_data,
+                        "source": "extracted_now"
+                    })
+                    print(f"[COMPLETE_JSON]   ✅ Page {page_num} extracted and cached ({len(extracted_data)} fields)")
+                    
+                except Exception as e:
+                    print(f"[COMPLETE_JSON]   ❌ Failed to extract page {page_num}: {str(e)}")
+        
+        # Step 3: Check if we have any data at all
         if not all_pages_data:
             # Fallback: use extracted_fields from document
             extracted_fields = doc_data.get("extracted_fields", {})
             if extracted_fields and isinstance(extracted_fields, dict):
-                # Filter out empty/N/A values
                 filtered_fields = {k: v for k, v in extracted_fields.items() 
                                  if v and v != "N/A" and v != "" and not (isinstance(v, dict) and not v)}
                 if filtered_fields:
                     all_pages_data = [{
-                        "page_number": 1,
-                        "data": filtered_fields
+                        "page_number": 0,
+                        "data": filtered_fields,
+                        "source": "document_extracted_fields"
                     }]
                     print(f"[COMPLETE_JSON] Using extracted_fields from document ({len(filtered_fields)} fields)")
         
         if not all_pages_data:
-            # Last resort: Try to load all pages from S3 cache even if not found in initial loop
-            print(f"[COMPLETE_JSON] No data found in initial search, doing comprehensive S3 scan...")
-            try:
-                for page_num in range(0, 100):
-                    cache_keys = [
-                        f"death_cert_page_data/{doc_id}/page_{page_num}.json",
-                        f"page_data/{doc_id}/page_{page_num}.json",
-                    ]
-                    
-                    for cache_key in cache_keys:
-                        try:
-                            cached_result = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
-                            cached_data = json.loads(cached_result['Body'].read())
-                            extracted_data = cached_data.get("extracted_data", {}) or cached_data.get("data", {})
-                            
-                            if extracted_data:
-                                all_pages_data.append({
-                                    "page_number": page_num,
-                                    "data": extracted_data
-                                })
-                                print(f"[COMPLETE_JSON] Found page {page_num} in comprehensive scan ({len(extracted_data)} fields)")
-                                break
-                        except:
-                            continue
-            except Exception as e:
-                print(f"[COMPLETE_JSON] Comprehensive scan failed: {str(e)}")
-        
-        if not all_pages_data:
-            print(f"[COMPLETE_JSON] ⚠️ No data found for document {doc_id} after all attempts")
+            print(f"[COMPLETE_JSON] ⚠️ No data found for document {doc_id}")
             return jsonify({
                 "success": True,
                 "document_id": doc_id,
@@ -7084,6 +7199,59 @@ Return as JSON object with field names as keys and values."""
         return jsonify({"success": False, "message": str(e)}), 500
 
 
+def _extract_death_cert_page_with_llm(page_text, doc_id=None):
+    """Extract data from a single death certificate page using LLM
+    
+    This function is called ONLY ONCE per page to ensure no duplicate LLM calls
+    """
+    try:
+        prompt = get_comprehensive_extraction_prompt()
+        
+        # Call Bedrock
+        response = bedrock_runtime.invoke_model(
+            modelId=MODEL_ID,
+            body=json.dumps({
+                "anthropic_version": "bedrock-2023-06-01",
+                "max_tokens": 2000,
+                "messages": [{
+                    "role": "user",
+                    "content": f"{prompt}\n\nPage text:\n{page_text}"
+                }]
+            })
+        )
+        
+        # Read response body once and reuse it
+        response_body = json.loads(response['body'].read())
+        result_text = response_body['content'][0]['text']
+        
+        # Track Bedrock cost if doc_id is provided
+        if doc_id:
+            try:
+                input_tokens = response_body.get('usage', {}).get('input_tokens', 0)
+                output_tokens = response_body.get('usage', {}).get('output_tokens', 0)
+                
+                if input_tokens > 0 or output_tokens > 0:
+                    cost_tracker = get_cost_tracker(doc_id)
+                    cost_tracker.track_bedrock_call(input_tokens, output_tokens)
+                    print(f"[COST] ✅ Tracked Bedrock cost: {input_tokens} input + {output_tokens} output tokens")
+            except Exception as e:
+                print(f"[COST] Failed to track Bedrock cost: {str(e)}")
+        
+        # Parse JSON response
+        import re
+        json_match = re.search(r'\{.*\}', result_text, re.DOTALL)
+        if json_match:
+            extracted_data = json.loads(json_match.group())
+            return extracted_data
+        else:
+            print(f"[EXTRACT_PAGE] Could not parse JSON from LLM response")
+            return {}
+            
+    except Exception as e:
+        print(f"[EXTRACT_PAGE] LLM extraction failed: {str(e)}")
+        return {}
+
+
 def _manual_merge_pages(all_pages_data):
     """Manually merge page data without duplication"""
     merged = {}
@@ -7151,6 +7319,111 @@ def get_complete_account_data(doc_id, account_index):
         response.headers['Expires'] = '0'
         
         return response
+        
+    except Exception as e:
+        print(f"[ERROR] Failed to get complete account data: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/document/<doc_id>/cost")
+def get_document_cost(doc_id):
+    """Get processing cost for a specific document"""
+    try:
+        # Get document from processed_documents
+        doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+        if not doc:
+            return jsonify({"success": False, "message": "Document not found"}), 404
+        
+        # Return saved cost data
+        cost_summary = doc.get("processing_cost")
+        if not cost_summary:
+            return jsonify({"success": False, "message": "Cost data not available yet"}), 404
+        
+        return jsonify({
+            "success": True,
+            "cost": cost_summary
+        })
+        
+    except Exception as e:
+        print(f"[ERROR] Failed to get document cost: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/costs/all")
+def get_all_costs_endpoint():
+    """Get costs for all documents"""
+    try:
+        # Collect costs from all documents
+        all_costs = {}
+        total_cost = 0.0
+        textract_cost = 0.0
+        bedrock_cost = 0.0
+        s3_cost = 0.0
+        
+        for doc in processed_documents:
+            doc_id = doc.get("id")
+            cost_data = doc.get("processing_cost")
+            
+            if cost_data:
+                all_costs[doc_id] = cost_data
+                total_cost += cost_data.get("total_cost", 0)
+                textract_cost += cost_data.get("textract", {}).get("cost", 0)
+                bedrock_cost += cost_data.get("bedrock", {}).get("cost", 0)
+                s3_cost += cost_data.get("s3", {}).get("cost", 0)
+        
+        total_costs = {
+            "total_cost": total_cost,
+            "textract_cost": textract_cost,
+            "bedrock_cost": bedrock_cost,
+            "s3_cost": s3_cost,
+            "documents_processed": len([d for d in processed_documents if d.get("processing_cost")])
+        }
+        
+        return jsonify({
+            "success": True,
+            "all_documents": all_costs,
+            "total": total_costs
+        })
+        
+    except Exception as e:
+        print(f"[ERROR] Failed to get all costs: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/costs/summary")
+def get_costs_summary():
+    """Get summary of all costs"""
+    try:
+        # Calculate totals from saved cost data
+        total_cost = 0.0
+        textract_cost = 0.0
+        bedrock_cost = 0.0
+        s3_cost = 0.0
+        docs_with_cost = 0
+        
+        for doc in processed_documents:
+            cost_data = doc.get("processing_cost")
+            if cost_data:
+                total_cost += cost_data.get("total_cost", 0)
+                textract_cost += cost_data.get("textract", {}).get("cost", 0)
+                bedrock_cost += cost_data.get("bedrock", {}).get("cost", 0)
+                s3_cost += cost_data.get("s3", {}).get("cost", 0)
+                docs_with_cost += 1
+        
+        return jsonify({
+            "success": True,
+            "summary": {
+                "total_cost": round(total_cost, 6),
+                "textract_cost": round(textract_cost, 6),
+                "bedrock_cost": round(bedrock_cost, 6),
+                "s3_cost": round(s3_cost, 6),
+                "documents_processed": docs_with_cost
+            }
+        })
+        
+    except Exception as e:
+        print(f"[ERROR] Failed to get costs summary: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
         
     except Exception as e:
         print(f"[ERROR] Failed to get complete account data: {str(e)}")
