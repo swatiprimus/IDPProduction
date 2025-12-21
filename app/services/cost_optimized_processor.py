@@ -337,12 +337,16 @@ class CostOptimizedProcessor:
         print(f"   📦 BATCH S3 CACHING: Preparing {len(results)} results for parallel upload...")
         
         cache_items = []
+        total_size = 0
         for result in results:
             account_num = result.get("accountNumber", "unknown")
             cache_key = f"account_results/{doc_id}/{account_num}.json"
+            result_json = json.dumps(result)
+            total_size += len(result_json.encode('utf-8'))
             cache_items.append({
                 'key': cache_key,
-                'data': result
+                'data': result,
+                'body': result_json
             })
         
         # Upload all items in parallel
@@ -355,7 +359,7 @@ class CostOptimizedProcessor:
                     s3_client.put_object,
                     Bucket=bucket_name,
                     Key=item['key'],
-                    Body=json.dumps(item['data']),
+                    Body=item['body'],
                     ContentType='application/json'
                 )
                 futures[future] = item
@@ -371,6 +375,15 @@ class CostOptimizedProcessor:
                     print(f"   ✅ S3 Cache {completed}/{len(cache_items)}: {item['key']}")
                 except Exception as e:
                     print(f"   ❌ S3 Cache failed: {item['key']} - {str(e)}")
+        
+        # Track S3 costs for all uploads
+        try:
+            from app.services.cost_tracker import get_cost_tracker
+            cost_tracker = get_cost_tracker(doc_id)
+            cost_tracker.track_s3_put(count=len(cache_items), size_bytes=total_size)
+            print(f"   💰 S3 COST: Tracked {len(cache_items)} PUT requests ({total_size} bytes)")
+        except Exception as e:
+            print(f"   ⚠️ Failed to track S3 cost: {str(e)}")
         
         print(f"   ✅ BATCH S3 CACHING: Completed {len(cache_items)} uploads (5x faster with parallel)")
     
