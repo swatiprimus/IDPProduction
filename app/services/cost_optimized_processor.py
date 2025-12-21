@@ -21,12 +21,13 @@ class CostOptimizedProcessor:
     4. Reduces LLM costs significantly
     """
     
-    def __init__(self, bedrock_client, s3_client, bucket_name: str, doc_type: str = "loan_document"):
+    def __init__(self, bedrock_client, s3_client, bucket_name: str, doc_type: str = "loan_document", doc_id: str = None):
         self.bedrock_client = bedrock_client
         self.s3_client = s3_client
         self.bucket_name = bucket_name
         self.model_id = "anthropic.claude-3-5-sonnet-20240620-v1:0"
         self.doc_type = doc_type  # Store document type for prompt selection
+        self.doc_id = doc_id  # Store doc_id for cost tracking
     
     def process_account_with_llm(self, account_number: str, page_texts: Dict[int, str], pages: List[int]) -> Optional[Dict]:
         """
@@ -399,6 +400,35 @@ class CostOptimizedProcessor:
             
             result = json.loads(response['body'].read())
             llm_response = result['content'][0]['text'].strip()
+            
+            # Track Bedrock cost if doc_id is provided
+            if self.doc_id:
+                try:
+                    from app.services.cost_tracker import get_cost_tracker
+                    
+                    # Try to extract token counts from response
+                    input_tokens = result.get('usage', {}).get('input_tokens', 0)
+                    output_tokens = result.get('usage', {}).get('output_tokens', 0)
+                    
+                    # If no usage info in response, estimate based on text length
+                    # Claude typically uses ~4 characters per token on average
+                    if input_tokens == 0:
+                        # Estimate input tokens from prompt + text
+                        estimated_input_text = f"{prompt}\n\nDocument text:\n{text[:12000]}"
+                        input_tokens = len(estimated_input_text) // 4
+                    
+                    if output_tokens == 0:
+                        # Estimate output tokens from response
+                        output_tokens = len(llm_response) // 4
+                    
+                    if input_tokens > 0 or output_tokens > 0:
+                        cost_tracker = get_cost_tracker(self.doc_id)
+                        cost_tracker.track_bedrock_call(input_tokens, output_tokens)
+                        print(f"      [COST] ✅ Tracked Bedrock: {input_tokens} input + {output_tokens} output tokens (estimated)")
+                    else:
+                        print(f"      [COST] ⚠️ Could not estimate tokens. Response keys: {list(result.keys())}")
+                except Exception as e:
+                    print(f"      [COST] ❌ Failed to track cost: {str(e)}")
             
             # Parse JSON response
             json_start = llm_response.find('{')

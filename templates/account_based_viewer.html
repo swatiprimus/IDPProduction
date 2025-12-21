@@ -775,7 +775,21 @@
 </head>
 <body>
     <div class="header">
-        <a href="/dashboard" class="back-btn">← {{ document.document_name or document.filename }}</a>
+        <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+            <a href="/dashboard" class="back-btn">← {{ document.document_name or document.filename }}</a>
+            <div id="costDisplay" style="display: flex; align-items: center; gap: 20px; padding: 0 20px;">
+                <div id="costInfo" style="background: rgba(255,255,255,0.15); padding: 10px 16px; border-radius: 8px; backdrop-filter: blur(10px); display: none;">
+                    <div style="font-size: 0.85em; opacity: 0.9; margin-bottom: 4px;">Processing Cost</div>
+                    <div style="font-size: 1.3em; font-weight: 700;">$<span id="totalCost">0.00</span></div>
+                    <div style="font-size: 0.75em; opacity: 0.8; margin-top: 4px;">
+                        <span id="costBreakdown">Loading...</span>
+                    </div>
+                </div>
+                <button onclick="toggleCostDetails()" style="padding: 8px 12px; background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3); border-radius: 6px; cursor: pointer; font-size: 0.9em; transition: all 0.3s;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+                    💰 Cost Details
+                </button>
+            </div>
+        </div>
     </div>
 
     {% if document.needs_review %}
@@ -915,9 +929,6 @@
                     <div class="control-section">
                         <div class="section-title">Data Actions</div>
                         <div class="data-controls">
-                            <button class="control-btn" id="clearCacheBtn" onclick="clearDocumentCache()" style="background:#f59e0b;color:white;">
-                                🔄 Refresh
-                            </button>
                             <button class="control-btn btn-download" id="downloadPageBtn" onclick="downloadPageJSON()" style="display:none;">
                                 📄 Page JSON
                             </button>
@@ -1041,6 +1052,11 @@
                 if (data.success) {
                     console.log('=== DEBUGGING ACCOUNT DETECTION ===');
                     console.log('Full API Response:', JSON.stringify(data, null, 2));
+                    
+                    // Load and display cost information
+                    if (data.document.processing_cost) {
+                        displayCostInfo(data.document.processing_cost);
+                    }
                     
                     // IMMEDIATE DEBUG: Check account number in the raw data
                     const rawAccounts = data.document.documents[0].accounts;
@@ -1403,7 +1419,6 @@
             document.getElementById('downloadAccountBtn').style.display = 'flex';
             document.getElementById('addFieldBtnMain').style.display = 'flex';
             document.getElementById('deleteFieldBtn').style.display = 'flex';
-            document.getElementById('clearCacheBtn').style.display = 'flex';
         }
 
         let accountPageNumbers = []; // Store actual page numbers for this account
@@ -2627,37 +2642,6 @@
             showNotification('Page-specific account JSON downloaded!', 'success');
         }
 
-        async function clearDocumentCache() {
-            const account = accounts[currentAccountIndex];
-            const accountNumber = account.accountNumber;
-            
-            if (!confirm(`Clear cache for Account ${accountNumber}?\n\nThis will:\n- Delete cached data for all pages of this account\n- Force fresh extraction on next page click\n- Extract updated fields with current prompts\n\nOther accounts will NOT be affected.`)) {
-                return;
-            }
-            
-            try {
-                showNotification(`Clearing cache for Account ${accountNumber}...`, 'success');
-                
-                const response = await fetch(`/api/document/${documentId}/account/${currentAccountIndex}/clear-cache`, {
-                    method: 'POST'
-                });
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    showNotification(`✅ Cache cleared for Account ${accountNumber}. ${result.pages_cleared} pages affected.`, 'success');
-                    
-                    // Reload current page to get fresh data
-                    setTimeout(() => {
-                        showPage(currentPageIndex);
-                    }, 2000);
-                } else {
-                    showNotification(`❌ ${result.message}`, 'error');
-                }
-            } catch (error) {
-                showNotification(`❌ Failed to clear cache: ${error.message}`, 'error');
-            }
-        }
 
         function formatJsonWithConfidence(data) {
             // Format JSON with syntax highlighting and colored confidence scores
@@ -2932,36 +2916,6 @@
                 notification.classList.remove('show');
             }, 3000);
         }
-
-        async function clearDocumentCache() {
-            if (!confirm('Clear cache and re-extract all data with updated prompts?\n\nThis will delete cached data and you\'ll need to click on pages again to re-extract.')) {
-                return;
-            }
-            
-            try {
-                const response = await fetch(`/api/document/{{ document.id }}/clear-cache`, {
-                    method: 'POST'
-                });
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    showNotification('✓ Cache cleared! Click on pages to re-extract with new prompts.', 'success');
-                    // Reload the current page data
-                    if (currentAccountIndex !== null && currentPageIndex !== null) {
-                        setTimeout(() => {
-                            loadPageData(currentAccountIndex, currentPageIndex, true);
-                        }, 1000);
-                    }
-                } else {
-                    showNotification('Failed to clear cache: ' + result.message, 'error');
-                }
-            } catch (error) {
-                console.error('Error clearing cache:', error);
-                showNotification('Error clearing cache', 'error');
-            }
-        }
-
         // Helper function to convert technical field names to user-friendly names
         function formatFieldName(fieldPath) {
             // Remove prefixes like "basic_fields.", "documents[type].", etc.
@@ -3198,8 +3152,178 @@
             }
         }
 
+        // Cost Display Functions
+        function formatCost(cost) {
+            // Always show 6 decimal places for consistency
+            return '$' + cost.toFixed(6);
+        }
+        
+        function displayCostInfo(costData) {
+            if (!costData) return;
+            
+            const totalCost = costData.total_cost || 0;
+            const textractCost = costData.textract?.cost || 0;
+            const bedrockCost = costData.bedrock?.cost || 0;
+            const s3Cost = costData.s3?.cost || 0;
+            
+            // Display in header
+            document.getElementById('totalCost').textContent = totalCost.toFixed(6);
+            
+            const breakdown = `Textract: ${formatCost(textractCost)} | Bedrock: ${formatCost(bedrockCost)} | S3: ${formatCost(s3Cost)}`;
+            document.getElementById('costBreakdown').textContent = breakdown;
+            document.getElementById('costInfo').style.display = 'block';
+            
+            // Store for modal
+            window.costData = costData;
+        }
+
+        function toggleCostDetails() {
+            if (!window.costData) {
+                showNotification('Cost information not available yet', 'info');
+                return;
+            }
+            
+            const modal = document.getElementById('costModal');
+            const modalContent = document.getElementById('costModalContent');
+            const loadingMessage = document.getElementById('costLoadingMessage');
+            
+            // Populate modal
+            const cost = window.costData;
+            const total = cost.total_cost || 0;
+            const textract = cost.textract || {};
+            const bedrock = cost.bedrock || {};
+            const s3 = cost.s3 || {};
+            
+            document.getElementById('modalTotalCost').textContent = total.toFixed(6);
+            document.getElementById('modalTextractCost').textContent = (textract.cost || 0).toFixed(6);
+            document.getElementById('modalTextractPages').textContent = (textract.total_pages || 0);
+            document.getElementById('modalBedrockCost').textContent = (bedrock.cost || 0).toFixed(6);
+            document.getElementById('modalBedrockCalls').textContent = (bedrock.calls || 0);
+            document.getElementById('modalBedrockTokens').textContent = (bedrock.total_tokens || 0).toLocaleString();
+            document.getElementById('modalS3Cost').textContent = (s3.cost || 0).toFixed(6);
+            document.getElementById('modalS3Requests').textContent = (s3.total_requests || 0);
+            document.getElementById('modalS3Put').textContent = (s3.put_requests || 0);
+            document.getElementById('modalS3Get').textContent = (s3.get_requests || 0);
+            
+            // Calculate percentages
+            const textractPercent = total > 0 ? ((textract.cost || 0) / total * 100).toFixed(1) : 0;
+            const bedrockPercent = total > 0 ? ((bedrock.cost || 0) / total * 100).toFixed(1) : 0;
+            const s3Percent = total > 0 ? ((s3.cost || 0) / total * 100).toFixed(1) : 0;
+            
+            document.getElementById('modalTextractPercent').textContent = textractPercent;
+            document.getElementById('modalBedrockPercent').textContent = bedrockPercent;
+            document.getElementById('modalS3Percent').textContent = s3Percent;
+            
+            // Format timestamp
+            if (cost.timestamp) {
+                const date = new Date(cost.timestamp);
+                document.getElementById('modalCostTimestamp').textContent = date.toLocaleString();
+            }
+            
+            loadingMessage.style.display = 'none';
+            modalContent.style.display = 'block';
+            modal.style.display = 'flex';
+        }
+
+        function closeCostModal() {
+            document.getElementById('costModal').style.display = 'none';
+        }
+
         // Load accounts on page load
         loadAccounts();
     </script>
+
+    <!-- Cost Details Modal -->
+    <div id="costModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:10000;align-items:center;justify-content:center;">
+        <div style="background:white;border-radius:12px;width:90%;max-width:600px;box-shadow:0 20px 60px rgba(0,0,0,0.3);max-height:80vh;overflow-y:auto;">
+            <div style="padding:30px;background:linear-gradient(135deg, #667eea 0%, #764ba2 100%);color:white;border-radius:12px 12px 0 0;display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                    <h2 style="font-size:1.5em;margin-bottom:5px;">💰 Processing Cost</h2>
+                    <p style="opacity:0.9;font-size:0.95em;">Detailed breakdown of AWS service costs</p>
+                </div>
+                <button onclick="closeCostModal()" style="background:rgba(255,255,255,0.2);border:none;color:white;font-size:1.5em;cursor:pointer;width:40px;height:40px;border-radius:50%;transition:all 0.3s;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">×</button>
+            </div>
+            <div style="padding:30px;">
+                <div id="costModalContent" style="display:none;">
+                    <!-- Total Cost -->
+                    <div style="background:linear-gradient(135deg, #10b981 0%, #059669 100%);color:white;padding:20px;border-radius:10px;margin-bottom:25px;text-align:center;">
+                        <div style="font-size:0.9em;opacity:0.9;margin-bottom:8px;">TOTAL PROCESSING COST</div>
+                        <div style="font-size:2.5em;font-weight:700;">$<span id="modalTotalCost">0.00</span></div>
+                    </div>
+
+                    <!-- Cost Breakdown -->
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:25px;">
+                        <!-- Textract -->
+                        <div style="background:#f3f4f6;padding:20px;border-radius:10px;border-left:4px solid #3b82f6;">
+                            <div style="font-weight:600;color:#1f2937;margin-bottom:12px;display:flex;align-items:center;gap:8px;">
+                                <span>📄</span> Textract (OCR)
+                            </div>
+                            <div style="font-size:1.5em;font-weight:700;color:#3b82f6;margin-bottom:8px;">$<span id="modalTextractCost">0.00</span></div>
+                            <div style="font-size:0.85em;color:#6b7280;line-height:1.6;">
+                                <div>Pages: <span id="modalTextractPages">0</span></div>
+                                <div style="opacity:0.7;font-size:0.8em;">$0.0015 per page</div>
+                            </div>
+                        </div>
+
+                        <!-- Bedrock -->
+                        <div style="background:#f3f4f6;padding:20px;border-radius:10px;border-left:4px solid #8b5cf6;">
+                            <div style="font-weight:600;color:#1f2937;margin-bottom:12px;display:flex;align-items:center;gap:8px;">
+                                <span>🤖</span> Bedrock (LLM)
+                            </div>
+                            <div style="font-size:1.5em;font-weight:700;color:#8b5cf6;margin-bottom:8px;">$<span id="modalBedrockCost">0.00</span></div>
+                            <div style="font-size:0.85em;color:#6b7280;line-height:1.6;">
+                                <div>Calls: <span id="modalBedrockCalls">0</span></div>
+                                <div>Tokens: <span id="modalBedrockTokens">0</span></div>
+                            </div>
+                        </div>
+
+                        <!-- S3 -->
+                        <div style="background:#f3f4f6;padding:20px;border-radius:10px;border-left:4px solid #f59e0b;grid-column:1/-1;">
+                            <div style="font-weight:600;color:#1f2937;margin-bottom:12px;display:flex;align-items:center;gap:8px;">
+                                <span>💾</span> S3 (Storage)
+                            </div>
+                            <div style="font-size:1.5em;font-weight:700;color:#f59e0b;margin-bottom:8px;">$<span id="modalS3Cost">0.00</span></div>
+                            <div style="font-size:0.85em;color:#6b7280;line-height:1.6;">
+                                <div>Requests: <span id="modalS3Requests">0</span> (PUT: <span id="modalS3Put">0</span>, GET: <span id="modalS3Get">0</span>)</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Cost Breakdown Pie Chart -->
+                    <div style="background:#f9fafb;padding:20px;border-radius:10px;margin-bottom:20px;">
+                        <div style="font-weight:600;color:#1f2937;margin-bottom:15px;">Cost Distribution</div>
+                        <div style="display:flex;gap:15px;align-items:center;">
+                            <div style="flex:1;">
+                                <div style="display:flex;gap:10px;margin-bottom:10px;">
+                                    <div style="flex:1;height:30px;background:#3b82f6;border-radius:6px;display:flex;align-items:center;justify-content:center;color:white;font-size:0.8em;font-weight:600;"><span id="modalTextractPercent">0</span>%</div>
+                                    <div style="flex:1;height:30px;background:#8b5cf6;border-radius:6px;display:flex;align-items:center;justify-content:center;color:white;font-size:0.8em;font-weight:600;"><span id="modalBedrockPercent">0</span>%</div>
+                                    <div style="flex:1;height:30px;background:#f59e0b;border-radius:6px;display:flex;align-items:center;justify-content:center;color:white;font-size:0.8em;font-weight:600;"><span id="modalS3Percent">0</span>%</div>
+                                </div>
+                                <div style="display:flex;gap:10px;font-size:0.85em;color:#6b7280;">
+                                    <div style="flex:1;text-align:center;">📄 Textract</div>
+                                    <div style="flex:1;text-align:center;">🤖 Bedrock</div>
+                                    <div style="flex:1;text-align:center;">💾 S3</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Timestamp -->
+                    <div style="font-size:0.85em;color:#9ca3af;text-align:center;padding-top:15px;border-top:1px solid #e5e7eb;">
+                        Last updated: <span id="modalCostTimestamp">--</span>
+                    </div>
+                </div>
+
+                <div id="costLoadingMessage" style="text-align:center;padding:40px;color:#6b7280;">
+                    <div style="font-size:1.5em;margin-bottom:10px;">⏳</div>
+                    <div>Loading cost information...</div>
+                </div>
+            </div>
+
+            <div style="padding:20px 30px;background:#f9fafb;border-top:1px solid #e9ecef;display:flex;justify-content:flex-end;gap:10px;border-radius:0 0 12px 12px;">
+                <button onclick="closeCostModal()" style="padding:10px 20px;border:1px solid #ddd;background:white;color:#7f8c8d;border-radius:6px;cursor:pointer;font-weight:500;">Close</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>

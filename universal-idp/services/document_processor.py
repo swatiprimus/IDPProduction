@@ -225,14 +225,19 @@ class DocumentProcessor:
                 "progress": 45
             })
         
+        logger.info(f"[LOAN DOC] Starting account splitting for job {job_id}")
+        
         # Split into individual accounts
         chunks = account_splitter.split_accounts_strict(text)
+        logger.info(f"[LOAN DOC] Account splitting complete: {len(chunks)} accounts found")
         
         if not chunks:
             chunks = [{"accountNumber": "N/A", "text": text}]
         
         total_accounts = len(chunks)
         accounts = []
+        
+        logger.info(f"[LOAN DOC] Processing {total_accounts} accounts")
         
         if self.job_status_map and job_id in self.job_status_map:
             self.job_status_map[job_id].update({
@@ -242,9 +247,12 @@ class DocumentProcessor:
         
         for idx, chunk in enumerate(chunks, start=1):
             acc = chunk["accountNumber"] or f"Unknown_{idx}"
+            logger.info(f"[LOAN DOC] Processing account {idx}/{total_accounts}: {acc}")
             
-            # Update progress
+            # Update progress - CRITICAL: Must advance past 50%
             progress = 50 + int((15 * idx) / total_accounts)
+            logger.info(f"[LOAN DOC] Updating progress to {progress}% for account {idx}/{total_accounts}")
+            
             if self.job_status_map and job_id in self.job_status_map:
                 self.job_status_map[job_id].update({
                     "status": f"Processing account {idx}/{total_accounts}: {acc}",
@@ -252,6 +260,7 @@ class DocumentProcessor:
                 })
             
             try:
+                logger.info(f"[LOAN DOC] Creating account entry for {acc}")
                 # For loan documents, we'll do basic extraction now and detailed extraction during page viewing
                 # This ensures the complete pipeline runs but keeps performance reasonable
                 parsed = {
@@ -271,14 +280,17 @@ class DocumentProcessor:
                     "optimized": True,
                     "text_preview": chunk["text"][:200] + "..." if len(chunk["text"]) > 200 else chunk["text"]
                 })
+                logger.info(f"[LOAN DOC] ✅ Account {acc} added to results")
                 
             except Exception as e:
-                logger.error(f"Account processing failed for {acc}: {str(e)}")
+                logger.error(f"[LOAN DOC] ❌ Account processing failed for {acc}: {str(e)}")
                 accounts.append({
                     "accountNumber": acc,
                     "error": str(e),
                     "accuracy_score": 0
                 })
+        
+        logger.info(f"[LOAN DOC] ✅ Loan document processing complete: {len(accounts)} accounts processed")
         
         return {
             "documents": [{

@@ -767,9 +767,6 @@
                     <div class="control-section">
                         <div class="section-title">Data Actions</div>
                         <div class="data-controls">
-                            <button class="control-btn" id="clearCacheBtn" onclick="clearDocumentCache()" style="display:none;background:#f59e0b;color:white;">
-                                🔄 Refresh
-                            </button>
                             <button class="control-btn btn-download" id="downloadPageBtn" onclick="downloadPageJSON()" style="display:none;">
                                 📄 Page JSON
                             </button>
@@ -1002,7 +999,6 @@
                     document.getElementById('downloadAllBtn').style.display = 'flex';
                     document.getElementById('addFieldBtnMain').style.display = 'flex';
                     document.getElementById('deleteFieldBtn').style.display = 'flex';
-                    document.getElementById('clearCacheBtn').style.display = 'flex';
                 }
             } catch (error) {
                 console.error('Error loading pages:', error);
@@ -1011,6 +1007,11 @@
         }
 
         // Cost Display Functions
+        function formatCost(cost) {
+            // Always show 6 decimal places for consistency
+            return '$' + cost.toFixed(6);
+        }
+        
         function displayCostInfo(costData) {
             if (!costData) return;
             
@@ -1022,7 +1023,7 @@
             // Display in header
             document.getElementById('totalCost').textContent = totalCost.toFixed(6);
             
-            const breakdown = `Textract: $${textractCost.toFixed(4)} | Bedrock: $${bedrockCost.toFixed(4)} | S3: $${s3Cost.toFixed(4)}`;
+            const breakdown = `Textract: ${formatCost(textractCost)} | Bedrock: ${formatCost(bedrockCost)} | S3: ${formatCost(s3Cost)}`;
             document.getElementById('costBreakdown').textContent = breakdown;
             document.getElementById('costInfo').style.display = 'block';
             
@@ -1405,13 +1406,23 @@
                 if (hasAccounts && currentAccountIndex >= 0) {
                     response = await fetch(`/api/document/${documentId}/account/${currentAccountIndex}/page/${currentPageIndex}/data`);
                 } else {
-                    // Fix: Use 1-based page numbers for the API (currentPageIndex is 0-based)
-                    response = await fetch(`/api/document/${documentId}/page/${currentPageIndex + 1}/extract`);
+                    const apiUrl = `/api/document/${documentId}/page/${currentPageIndex + 1}/extract`;
+                    console.log('=== RENDER PAGE DATA DEBUG ===');
+                    console.log('currentPageIndex:', currentPageIndex);
+                    console.log('API URL:', apiUrl);
+                    
+                    response = await fetch(apiUrl);
                 }
                 result = await response.json();
                 
+                console.log('Fetch response status:', response.status);
+                console.log('Fetch response:', result);
+                console.log('Cache source:', result.cache_source || result.source || 'unknown');
+                console.log('Data keys:', Object.keys(result.extracted_fields || result.data || {}));
+                
                 if (result.success) {
                     let fields = result.extracted_fields || result.data || {};
+                    console.log('Fields received:', fields);
                     
                     // STEP 1: Process confidence objects recursively - keep both value and confidence for inline display
                     const processedFields = {};
@@ -1968,6 +1979,12 @@
             const fieldName = document.getElementById('newFieldName').value.trim();
             const fieldValue = document.getElementById('newFieldValue').value.trim();
             
+            console.log('=== ADD NEW FIELD DEBUG ===');
+            console.log('fieldName:', fieldName);
+            console.log('fieldValue:', fieldValue);
+            console.log('currentPageIndex:', currentPageIndex);
+            console.log('documentId:', documentId);
+            
             if (!fieldName) {
                 showNotification('Please enter a field name', 'error');
                 return;
@@ -2009,6 +2026,10 @@
                 // Update currentPageData
                 currentPageData = dataToSave;
                 
+                console.log('dataToSave keys:', Object.keys(dataToSave));
+                console.log('New field in dataToSave?', fieldName in dataToSave);
+                console.log('API URL:', `/api/document/${documentId}/page/${currentPageIndex + 1}/update`);
+                
                 // Save to backend and update S3 cache (Fix: Use 1-based page numbers)
                 const response = await fetch(`/api/document/${documentId}/page/${currentPageIndex + 1}/update`, {
                     method: 'POST',
@@ -2019,14 +2040,21 @@
                 });
                 
                 const result = await response.json();
+                console.log('Save response status:', response.status);
+                console.log('Save response:', result);
+                console.log('New field in response?', fieldName in (result.data || {}));
+                
                 if (!result.success) {
                     throw new Error(result.message);
                 }
                 
                 showNotification(`Field "${fieldName}" added successfully!`, 'success');
                 closeAddFieldDialog();
+                
+                console.log('Calling renderPageData()...');
                 renderPageData();
             } catch (error) {
+                console.error('Error in addNewField:', error);
                 showNotification('Failed to add field: ' + error.message, 'error');
             }
         }
@@ -2110,34 +2138,6 @@
             }
         }
 
-        async function clearDocumentCache() {
-            if (!confirm('Clear cache and re-extract all pages with updated prompts?\n\nThis will:\n- Delete all cached page data\n- Force fresh extraction on next page click\n- Extract stamp dates and other new fields')) {
-                return;
-            }
-            
-            try {
-                showNotification('Clearing cache...', 'success');
-                
-                const response = await fetch(`/api/document/${documentId}/clear-cache`, {
-                    method: 'POST'
-                });
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    showNotification(`✅ ${result.message}`, 'success');
-                    
-                    // Reload current page to get fresh data
-                    setTimeout(() => {
-                        showPage(currentPageIndex);
-                    }, 2000);
-                } else {
-                    showNotification(`❌ ${result.message}`, 'error');
-                }
-            } catch (error) {
-                showNotification(`❌ Failed to clear cache: ${error.message}`, 'error');
-            }
-        }
 
         // Delete mode functionality
         let deleteMode = false;
@@ -2226,17 +2226,23 @@
             }
             
             try {
+                // Convert Set to Array for deleted_fields
+                const deletedFieldsArray = Array.from(selectedFieldsForDelete);
+                console.log(`[DEBUG] Deleting fields: ${deletedFieldsArray.join(', ')}`);
+                
                 // Remove selected fields from currentPageData
                 selectedFieldsForDelete.forEach(fieldName => {
                     delete currentPageData[fieldName];
                 });
                 
-                // Save updated data to backend (Fix: Use 1-based page numbers)
+                // Save updated data to backend with deleted_fields array
                 const response = await fetch(`/api/document/${documentId}/page/${currentPageIndex + 1}/update`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        page_data: currentPageData
+                        page_data: currentPageData,
+                        deleted_fields: deletedFieldsArray,
+                        action_type: 'delete'
                     })
                 });
                 
