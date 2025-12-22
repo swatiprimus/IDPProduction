@@ -155,7 +155,7 @@ class CostOptimizedProcessor:
     
     def process_batches_parallel(self, account_number: str, page_texts: Dict[int, str], 
                                  pages: List[int], batch_size: int = 2, 
-                                 max_workers: int = 3) -> Optional[Dict]:
+                                 max_workers: int = 3, doc_id: str = None) -> Optional[Dict]:
         """
         Process multiple pages in parallel (PARALLEL LLM CALLS)
         EACH PAGE IS PROCESSED INDIVIDUALLY, NOT BATCHED TOGETHER
@@ -166,6 +166,7 @@ class CostOptimizedProcessor:
             pages: List of page numbers for this account
             batch_size: Not used - kept for API compatibility
             max_workers: Number of concurrent LLM calls (3-5 recommended)
+            doc_id: Document ID for cost tracking
         
         Returns:
             Merged account data with all page results combined
@@ -185,7 +186,8 @@ class CostOptimizedProcessor:
                     page_text = page_texts[page_num]
                     future = executor.submit(
                         self._extract_data_fields_from_text,
-                        page_text  # Send INDIVIDUAL page, not batch
+                        page_text,  # Send INDIVIDUAL page, not batch
+                        doc_id  # Pass doc_id for cost tracking
                     )
                     futures[future] = {
                         'page_idx': page_idx,
@@ -373,7 +375,7 @@ class CostOptimizedProcessor:
         
         print(f"   ✅ BATCH S3 CACHING: Completed {len(cache_items)} uploads (5x faster with parallel)")
     
-    def _extract_data_fields_from_text(self, text: str) -> Optional[Dict]:
+    def _extract_data_fields_from_text(self, text: str, doc_id: str = None) -> Optional[Dict]:
         """
         LLM call to extract data fields from combined account text
         Detects page-level document type to use appropriate prompt
@@ -399,6 +401,15 @@ class CostOptimizedProcessor:
             
             result = json.loads(response['body'].read())
             llm_response = result['content'][0]['text'].strip()
+            
+            # Track Bedrock cost if doc_id is provided
+            if doc_id:
+                try:
+                    from app_modular import track_bedrock_cost
+                    prompt_full = f"{prompt}\n\nDocument text:\n{text[:12000]}"
+                    track_bedrock_cost(doc_id, result, prompt_full, llm_response)
+                except Exception as e:
+                    print(f"      ⚠️ Failed to track Bedrock cost: {str(e)}")
             
             # Parse JSON response
             json_start = llm_response.find('{')

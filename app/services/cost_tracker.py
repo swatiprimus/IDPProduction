@@ -102,16 +102,14 @@ class CostTracker:
         return total_cost
     
     def track_s3_put(self, count: int = 1, size_bytes: int = 0):
-        """Track S3 PUT requests"""
+        """Track S3 PUT requests (request cost only, storage tracked separately)"""
         self.costs["s3"]["put_requests"] += count
         cost = count * PRICING["s3"]["put_object"]
         
-        # Add storage cost (rough estimate: 1 day of storage)
+        # Track storage size (storage cost is calculated separately, not per PUT)
         if size_bytes > 0:
             size_gb = size_bytes / (1024 ** 3)
-            storage_cost = (size_gb / 30) * PRICING["s3"]["storage"]  # Daily rate
             self.costs["s3"]["storage_gb"] += size_gb
-            cost += storage_cost
         
         self.costs["s3"]["cost"] += cost
         self.costs["total"] += cost
@@ -128,6 +126,17 @@ class CostTracker:
         
         print(f"[COST] S3 GET: {count} requests × ${PRICING['s3']['get_object']:.8f} = ${cost:.6f}")
         return cost
+    
+    def track_s3_storage(self, size_gb: float):
+        """Track S3 storage cost (monthly rate, but calculated as daily for processing)"""
+        # Calculate daily storage cost (monthly rate / 30 days)
+        daily_storage_cost = (size_gb / 30) * PRICING["s3"]["storage"]
+        self.costs["s3"]["storage_gb"] += size_gb
+        self.costs["s3"]["cost"] += daily_storage_cost
+        self.costs["total"] += daily_storage_cost
+        
+        print(f"[COST] S3 Storage: {size_gb:.6f} GB × ${PRICING['s3']['storage']:.6f}/month = ${daily_storage_cost:.6f}/day")
+        return daily_storage_cost
     
     def get_summary(self) -> Dict[str, Any]:
         """Get cost summary for this document"""

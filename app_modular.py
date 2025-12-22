@@ -481,12 +481,26 @@ class BackgroundDocumentProcessor:
                 "cache_version": "page_ocr_v1"
             }
             
+            cache_json = json.dumps(cache_data)
+            cache_size = len(cache_json.encode('utf-8'))
+            
             s3_client.put_object(
                 Bucket=S3_BUCKET,
                 Key=cache_key,
-                Body=json.dumps(cache_data),
+                Body=cache_json,
                 ContentType='application/json'
             )
+            
+            # Track S3 cost
+            try:
+                cost_tracker = get_cost_tracker(doc_id)
+                cost_tracker.track_s3_put(count=1, size_bytes=cache_size)
+                print(f"[COST] ✅ Tracked S3 PUT: page {page_num + 1}, size: {cache_size} bytes")
+            except Exception as e:
+                print(f"[COST] Failed to track S3 cost: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                
         except Exception as e:
             print(f"[BG_PROCESSOR] ⚠️ Failed to cache page {page_num + 1}: {str(e)}")
     
@@ -872,7 +886,8 @@ class BackgroundDocumentProcessor:
                     page_texts=account_page_texts,
                     pages=account_pages,
                     batch_size=2,      # 2-3 pages per LLM call
-                    max_workers=3      # 3-5 concurrent LLM calls
+                    max_workers=3,     # 3-5 concurrent LLM calls
+                    doc_id=doc_id      # Pass doc_id for cost tracking
                 )
                 
                 if merged_result:
@@ -1105,6 +1120,7 @@ class BackgroundDocumentProcessor:
         pages_processed = 0
         pages_cached = 0
         pages_queued = 0
+        futures = []  # Track all futures to wait for completion
         
         for page_num in range(total_pages):
             try:
@@ -1125,8 +1141,8 @@ class BackgroundDocumentProcessor:
                 # Submit page for processing with death certificate specific logic
                 print(f"[BG_PROCESSOR] 🤖 DEATH CERT LLM: Queuing page {page_num + 1}/{total_pages} for death certificate extraction...")
                 future = self.executor.submit(self._process_death_certificate_page, doc_id, page_num, page_ocr_results)
+                futures.append(future)  # Track the future
                 
-                # Don't wait for completion - let it run in background
                 pages_processed += 1
                 pages_queued += 1
                 self._update_extraction_progress(doc_id, pages_processed, total_pages)
@@ -1135,6 +1151,21 @@ class BackgroundDocumentProcessor:
                 print(f"[BG_PROCESSOR] ❌ DEATH CERT LLM: Failed to queue page {page_num + 1}: {str(e)}")
         
         print(f"[BG_PROCESSOR] 🤖 DEATH CERT LLM: Processing summary - {pages_cached} cached, {pages_queued} queued for extraction")
+        
+        # CRITICAL: Wait for all LLM extraction tasks to complete before returning
+        if futures:
+            print(f"[BG_PROCESSOR] ⏳ Waiting for {len(futures)} LLM extraction tasks to complete...")
+            completed = 0
+            for future in as_completed(futures):
+                completed += 1
+                try:
+                    result = future.result()
+                    print(f"[BG_PROCESSOR] ✅ LLM extraction task completed ({completed}/{len(futures)})")
+                except Exception as e:
+                    print(f"[BG_PROCESSOR] ❌ LLM extraction task failed: {str(e)}")
+            print(f"[BG_PROCESSOR] ✅ All {len(futures)} LLM extraction tasks completed!")
+        
+        print(f"[BG_PROCESSOR] 🤖 DEATH CERT LLM: All pages processed and cached")
     
     def _stage_llm_extraction(self, doc_id: str, pdf_path: str, accounts: List[Dict], 
                              page_mapping: Dict[int, str], total_pages: int):
@@ -1271,12 +1302,22 @@ class BackgroundDocumentProcessor:
                 "cache_version": "death_cert_v1"
             }
             
+            cache_json = json.dumps(cache_data)
+            cache_size = len(cache_json.encode('utf-8'))
+            
             s3_client.put_object(
                 Bucket=S3_BUCKET,
                 Key=cache_key,
-                Body=json.dumps(cache_data),
+                Body=cache_json,
                 ContentType='application/json'
             )
+            
+            # Track S3 cost
+            try:
+                cost_tracker = get_cost_tracker(doc_id)
+                cost_tracker.track_s3_put(count=1, size_bytes=cache_size)
+            except Exception as e:
+                print(f"[COST] Failed to track S3 cost: {str(e)}")
             
             print(f"[BG_PROCESSOR] 🤖 DEATH CERT: ✅ Processed and cached page {page_num + 1} with unique data")
             
@@ -1369,6 +1410,8 @@ class BackgroundDocumentProcessor:
     def _extract_with_llm(self, page_text: str, account_number: str, custom_prompt: str = None, doc_id: str = None) -> Dict:
         """Extract data from page text using LLM - COST OPTIMIZED VERSION"""
         try:
+            print(f"[LLM_EXTRACT] 🤖 Starting LLM extraction - doc_id={doc_id}, account={account_number}", flush=True)
+            
             # Use custom prompt if provided, otherwise use loan document prompt
             if custom_prompt:
                 prompt = custom_prompt
@@ -1389,6 +1432,7 @@ class BackgroundDocumentProcessor:
             }
             
             # Call Bedrock
+            print(f"[LLM_EXTRACT] 📞 Calling Bedrock API...", flush=True)
             response = bedrock.invoke_model(
                 modelId=MODEL_ID,
                 body=json.dumps(request_body)
@@ -1396,18 +1440,17 @@ class BackgroundDocumentProcessor:
             
             response_body = json.loads(response['body'].read())
             llm_response = response_body['content'][0]['text']
+            print(f"[LLM_EXTRACT] ✅ Got response from Bedrock ({len(llm_response)} chars)", flush=True)
             
             # Track Bedrock cost if doc_id is provided
+            print(f"[LLM_EXTRACT] 💰 Tracking cost - doc_id={doc_id}, custom_prompt={'Yes' if custom_prompt else 'No'}", flush=True)
             if doc_id:
-                try:
-                    input_tokens = response_body.get('usage', {}).get('input_tokens', 0)
-                    output_tokens = response_body.get('usage', {}).get('output_tokens', 0)
-                    
-                    if input_tokens > 0 or output_tokens > 0:
-                        cost_tracker = get_cost_tracker(doc_id)
-                        cost_tracker.track_bedrock_call(input_tokens, output_tokens)
-                except Exception as e:
-                    print(f"[COST] Failed to track Bedrock cost: {str(e)}")
+                prompt_full = f"{prompt}\n\nDocument text:\n{page_text[:8000]}"
+                print(f"[LLM_EXTRACT] 💰 Calling track_bedrock_cost with doc_id={doc_id}", flush=True)
+                track_bedrock_cost(doc_id, response_body, prompt_full, llm_response)
+                print(f"[LLM_EXTRACT] 💰 Cost tracking completed", flush=True)
+            else:
+                print(f"[LLM_EXTRACT] ⚠️ doc_id is None, skipping cost tracking", flush=True)
             
             # Parse JSON response
             json_start = llm_response.find('{')
@@ -1610,10 +1653,14 @@ class BackgroundDocumentProcessor:
             try:
                 cost_tracker = get_cost_tracker(doc_id)
                 cost_summary = cost_tracker.get_summary()
+                print(f"[COST] DEBUG: Cost summary for {doc_id}: {cost_summary}")
                 doc["processing_cost"] = cost_summary
                 print(f"[BG_PROCESSOR] 💰 COST: Saved cost data - Total: ${cost_summary['total_cost']:.6f}")
+                print(f"[BG_PROCESSOR] 💰 COST: Textract: ${cost_summary['textract']['cost']:.6f}, Bedrock: ${cost_summary['bedrock']['cost']:.6f}, S3: ${cost_summary['s3']['cost']:.6f}")
             except Exception as e:
                 print(f"[BG_PROCESSOR] ⚠️ Failed to save cost data: {str(e)}")
+                import traceback
+                traceback.print_exc()
             
             # Update document status
             doc.update({
@@ -1741,6 +1788,105 @@ textract = boto3.client("textract", region_name=AWS_REGION)
 s3_client = boto3.client("s3", region_name=AWS_REGION)
 MODEL_ID = "anthropic.claude-3-5-sonnet-20240620-v1:0"
 S3_BUCKET = "awsidpdocs"
+
+# S3 Helper functions with cost tracking
+def s3_put_object_with_cost(doc_id: str, bucket: str, key: str, body: str, content_type: str = 'application/json'):
+    """Put object to S3 and track cost"""
+    try:
+        # Calculate size
+        if isinstance(body, str):
+            body_bytes = body.encode('utf-8')
+        else:
+            body_bytes = body
+        
+        size_bytes = len(body_bytes)
+        
+        # Put object
+        s3_client.put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=body_bytes,
+            ContentType=content_type
+        )
+        
+        # Track cost
+        try:
+            cost_tracker = get_cost_tracker(doc_id)
+            cost_tracker.track_s3_put(count=1, size_bytes=size_bytes)
+        except Exception as e:
+            print(f"[COST] Failed to track S3 PUT cost: {str(e)}")
+            
+    except Exception as e:
+        print(f"[S3] Failed to put object {key}: {str(e)}")
+        raise
+
+def s3_get_object_with_cost(doc_id: str, bucket: str, key: str):
+    """Get object from S3 and track cost"""
+    try:
+        # Get object
+        response = s3_client.get_object(Bucket=bucket, Key=key)
+        
+        # Track cost
+        try:
+            cost_tracker = get_cost_tracker(doc_id)
+            cost_tracker.track_s3_get(count=1)
+        except Exception as e:
+            print(f"[COST] Failed to track S3 GET cost: {str(e)}")
+        
+        return response
+        
+    except Exception as e:
+        print(f"[S3] Failed to get object {key}: {str(e)}")
+        raise
+
+def track_bedrock_cost(doc_id: str, response_body: dict, prompt_text: str = "", response_text: str = ""):
+    """Track Bedrock LLM cost from response, with fallback estimation"""
+    try:
+        print(f"[COST] 🔍 track_bedrock_cost called for doc_id={doc_id}", flush=True)
+        
+        if not response_body:
+            print(f"[COST] ⚠️ response_body is None or empty", flush=True)
+            return False
+        
+        print(f"[COST] 🔍 response_body type: {type(response_body)}, keys: {list(response_body.keys()) if isinstance(response_body, dict) else 'N/A'}", flush=True)
+        
+        # Try to extract token usage from response
+        # Bedrock returns usage in the response body
+        usage = response_body.get('usage', {})
+        print(f"[COST] 🔍 usage field: {usage}", flush=True)
+        
+        input_tokens = usage.get('input_tokens', 0) if usage else 0
+        output_tokens = usage.get('output_tokens', 0) if usage else 0
+        
+        print(f"[COST] 🔍 Extracted tokens - input: {input_tokens}, output: {output_tokens}", flush=True)
+        
+        # Estimate if not provided
+        if input_tokens == 0 and prompt_text:
+            estimated_input = len(prompt_text) // 4
+            input_tokens = max(estimated_input, 100)
+            print(f"[COST] 📊 Estimated input tokens: {input_tokens} (from {len(prompt_text)} chars)", flush=True)
+        
+        if output_tokens == 0 and response_text:
+            estimated_output = len(response_text) // 4
+            output_tokens = max(estimated_output, 50)
+            print(f"[COST] 📊 Estimated output tokens: {output_tokens} (from {len(response_text)} chars)", flush=True)
+        
+        # Track the cost
+        if input_tokens > 0 or output_tokens > 0:
+            cost_tracker = get_cost_tracker(doc_id)
+            print(f"[COST] 💾 Got cost tracker for {doc_id}", flush=True)
+            cost_tracker.track_bedrock_call(input_tokens, output_tokens)
+            print(f"[COST] ✅ Tracked Bedrock: {input_tokens} input + {output_tokens} output tokens = ${(input_tokens/1000)*0.003 + (output_tokens/1000)*0.015:.6f}", flush=True)
+            return True
+        else:
+            print(f"[COST] ⚠️ No token usage found and no text to estimate from", flush=True)
+            return False
+            
+    except Exception as e:
+        print(f"[COST] ❌ Failed to track Bedrock cost: {str(e)}", flush=True)
+        import traceback
+        traceback.print_exc()
+        return False
 
 # Initialize OCR Cache Manager
 ocr_cache_manager = OCRCacheManager(s3_client, S3_BUCKET)
@@ -2797,8 +2943,10 @@ def flatten_nested_objects(data):
     return flattened
 
 
-def call_bedrock(prompt: str, text: str, max_tokens: int = 8192):
+def call_bedrock(prompt: str, text: str, max_tokens: int = 8192, doc_id: str = None):
     """Call AWS Bedrock with Claude - using maximum token limit"""
+    print(f"[BEDROCK] 📞 call_bedrock invoked - doc_id={doc_id}, text_len={len(text)}, prompt_len={len(prompt)}", flush=True)
+    
     payload = {
         "anthropic_version": "bedrock-2023-05-31",
         "max_tokens": max_tokens,
@@ -2807,11 +2955,25 @@ def call_bedrock(prompt: str, text: str, max_tokens: int = 8192):
             {"role": "user", "content": [{"type": "text", "text": f"{prompt}\n\n{text}"}]}
         ],
     }
-    resp = bedrock.invoke_model(modelId=MODEL_ID, body=json.dumps(payload))
-    return json.loads(resp["body"].read())["content"][0]["text"]
+    response = bedrock.invoke_model(modelId=MODEL_ID, body=json.dumps(payload))
+    response_body = json.loads(response["body"].read())
+    result_text = response_body["content"][0]["text"]
+    
+    print(f"[BEDROCK] ✅ Got response - result_len={len(result_text)}", flush=True)
+    
+    # Track Bedrock cost if doc_id is provided
+    if doc_id:
+        print(f"[BEDROCK] 💰 Tracking cost for doc_id={doc_id}", flush=True)
+        prompt_full = f"{prompt}\n\n{text}"
+        track_bedrock_cost(doc_id, response_body, prompt_full, result_text)
+        print(f"[BEDROCK] 💰 Cost tracking completed", flush=True)
+    else:
+        print(f"[BEDROCK] ⚠️ doc_id is None, skipping cost tracking", flush=True)
+    
+    return result_text
 
 
-def extract_basic_fields(text: str, num_fields: int = 100):
+def extract_basic_fields(text: str, num_fields: int = 100, doc_id: str = None):
     """Extract ALL fields from any document (up to 100 fields) - BE THOROUGH"""
     # USE THE SAME PROMPT AS get_comprehensive_extraction_prompt() FOR CONSISTENCY
     prompt = get_comprehensive_extraction_prompt()
@@ -2847,7 +3009,7 @@ def extract_basic_fields(text: str, num_fields: int = 100):
         except:
             print(f"[EXTRACT_BASIC] No cache found, extracting fresh (hash: {text_hash[:8]}) - WILL CACHE FOR CONSISTENCY")
         
-        response = call_bedrock(prompt, normalized_text, max_tokens=8192)  # Use maximum tokens for comprehensive extraction
+        response = call_bedrock(prompt, normalized_text, max_tokens=8192, doc_id=doc_id)  # Use maximum tokens for comprehensive extraction
         
         # Find JSON content
         json_start = response.find('{')
@@ -2887,7 +3049,7 @@ def extract_basic_fields(text: str, num_fields: int = 100):
         }
 
 
-def detect_and_extract_documents(text: str):
+def detect_and_extract_documents(text: str, doc_id: str = None):
     """
     Dynamically detect document types and extract relevant fields
     AI decides what fields to extract based on document type
@@ -3102,7 +3264,7 @@ Only extract fields where you can see a clear, definite value in the document.
         pass
     
     try:
-        response = call_bedrock(prompt, text, max_tokens=8192)
+        response = call_bedrock(prompt, text, max_tokens=8192, doc_id=doc_id)
         
         # Clean up response - remove markdown code blocks if present
         response = response.strip()
@@ -3357,7 +3519,7 @@ def pre_cache_all_pages(job_id: str, pdf_path: str, accounts: list):
                     page_extraction_prompt = get_comprehensive_extraction_prompt()
                 
                 # Extract data using AI
-                response = call_bedrock(page_extraction_prompt, page_text, max_tokens=8192)
+                response = call_bedrock(page_extraction_prompt, page_text, max_tokens=8192, doc_id=job_id)
                 
                 # Parse JSON
                 json_start = response.find('{')
@@ -4878,7 +5040,7 @@ def get_account_page_data(doc_id, account_index, page_num):
             print(f"[DEBUG] Using comprehensive prompt for page {page_num} (doc_type: {doc_type})")
         
         print(f"[DEBUG] Got page extraction prompt, calling Bedrock...")
-        response = call_bedrock(page_extraction_prompt, page_text, max_tokens=8192)
+        response = call_bedrock(page_extraction_prompt, page_text, max_tokens=8192, doc_id=doc_id)
         print(f"[DEBUG] Got response from Bedrock, length: {len(response)}")
         
         # Parse JSON response
@@ -5270,7 +5432,7 @@ def extract_page_data(doc_id, page_num):
             page_extraction_prompt = get_comprehensive_extraction_prompt()
             print(f"[DEBUG] Using comprehensive extraction prompt")
         
-        response = call_bedrock(page_extraction_prompt, page_text, max_tokens=8192)
+        response = call_bedrock(page_extraction_prompt, page_text, max_tokens=8192, doc_id=doc_id)
         print(f"[DEBUG] Got response from Bedrock, length: {len(response)}")
         
         # Parse JSON response
@@ -5640,16 +5802,8 @@ CONFIDENCE SCORE GUIDELINES:
         claude_response = response_body['content'][0]['text']
         
         # Track Bedrock cost
-        try:
-            input_tokens = response_body.get('usage', {}).get('input_tokens', 0)
-            output_tokens = response_body.get('usage', {}).get('output_tokens', 0)
-            
-            if input_tokens > 0 or output_tokens > 0:
-                cost_tracker = get_cost_tracker(doc_id)
-                cost_tracker.track_bedrock_call(input_tokens, output_tokens)
-                print(f"[COST] ✅ Tracked Bedrock cost for progressive extraction: {input_tokens} input + {output_tokens} output tokens")
-        except Exception as e:
-            print(f"[COST] Failed to track Bedrock cost: {str(e)}")
+        prompt_full = f"{prompt}\n\nPage text:\n{page_text}"
+        track_bedrock_cost(doc_id, response_body, prompt_full, claude_response)
         
         # Parse extracted data with better error handling
         try:
@@ -6059,16 +6213,8 @@ def extract_regular_page_progressive(doc_id, page_index):
         claude_response = response_body['content'][0]['text']
         
         # Track Bedrock cost
-        try:
-            input_tokens = response_body.get('usage', {}).get('input_tokens', 0)
-            output_tokens = response_body.get('usage', {}).get('output_tokens', 0)
-            
-            if input_tokens > 0 or output_tokens > 0:
-                cost_tracker = get_cost_tracker(doc_id)
-                cost_tracker.track_bedrock_call(input_tokens, output_tokens)
-                print(f"[COST] ✅ Tracked Bedrock cost for progressive extraction: {input_tokens} input + {output_tokens} output tokens")
-        except Exception as e:
-            print(f"[COST] Failed to track Bedrock cost: {str(e)}")
+        prompt_full = f"{prompt}\n\nPage text:\n{page_text}"
+        track_bedrock_cost(doc_id, response_body, prompt_full, claude_response)
         
         # Parse extracted data with better error handling
         try:
@@ -7053,7 +7199,7 @@ def _merge_death_certificate_pages_json(doc_id, doc, doc_data):
                     
                     # Extract with LLM (this ensures it's called only ONCE per page)
                     print(f"[COMPLETE_JSON]   🤖 Extracting page {page_num} with LLM...")
-                    extracted_data = _extract_death_cert_page_with_llm(page_text)
+                    extracted_data = _extract_death_cert_page_with_llm(page_text, doc_id=doc_id)
                     
                     # Cache the result immediately
                     cache_key = f"death_cert_page_data/{doc_id}/page_{page_num}.json"
@@ -7226,16 +7372,8 @@ def _extract_death_cert_page_with_llm(page_text, doc_id=None):
         
         # Track Bedrock cost if doc_id is provided
         if doc_id:
-            try:
-                input_tokens = response_body.get('usage', {}).get('input_tokens', 0)
-                output_tokens = response_body.get('usage', {}).get('output_tokens', 0)
-                
-                if input_tokens > 0 or output_tokens > 0:
-                    cost_tracker = get_cost_tracker(doc_id)
-                    cost_tracker.track_bedrock_call(input_tokens, output_tokens)
-                    print(f"[COST] ✅ Tracked Bedrock cost: {input_tokens} input + {output_tokens} output tokens")
-            except Exception as e:
-                print(f"[COST] Failed to track Bedrock cost: {str(e)}")
+            prompt_full = f"{prompt}\n\nPage text:\n{page_text}"
+            track_bedrock_cost(doc_id, response_body, prompt_full, result_text)
         
         # Parse JSON response
         import re
