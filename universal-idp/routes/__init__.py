@@ -1,1 +1,0 @@
-"""Routes package for Universal IDP application."""
