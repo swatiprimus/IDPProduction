@@ -775,7 +775,21 @@
 </head>
 <body>
     <div class="header">
-        <a href="/dashboard" class="back-btn">← {{ document.document_name or document.filename }}</a>
+        <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+            <a href="/dashboard" class="back-btn">← {{ document.document_name or document.filename }}</a>
+            <div id="costDisplay" style="display: flex; align-items: center; gap: 20px; padding: 0 20px;">
+                <div id="costInfo" style="background: rgba(255,255,255,0.15); padding: 10px 16px; border-radius: 8px; backdrop-filter: blur(10px); display: none;">
+                    <div style="font-size: 0.85em; opacity: 0.9; margin-bottom: 4px;">Processing Cost</div>
+                    <div style="font-size: 1.3em; font-weight: 700;">$<span id="totalCost">0.00</span></div>
+                    <div style="font-size: 0.75em; opacity: 0.8; margin-top: 4px;">
+                        <span id="costBreakdown">Loading...</span>
+                    </div>
+                </div>
+                <button onclick="toggleCostDetails()" style="padding: 8px 12px; background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3); border-radius: 6px; cursor: pointer; font-size: 0.9em; transition: all 0.3s;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+                    💰 Cost Details
+                </button>
+            </div>
+        </div>
     </div>
 
     {% if document.needs_review %}
@@ -915,9 +929,6 @@
                     <div class="control-section">
                         <div class="section-title">Data Actions</div>
                         <div class="data-controls">
-                            <button class="control-btn" id="clearCacheBtn" onclick="clearDocumentCache()" style="background:#f59e0b;color:white;">
-                                🔄 Refresh
-                            </button>
                             <button class="control-btn btn-download" id="downloadPageBtn" onclick="downloadPageJSON()" style="display:none;">
                                 📄 Page JSON
                             </button>
@@ -985,6 +996,7 @@
         let currentRotation = 0;
         let originalData = {};
         let editedFields = {};
+        let renamedFields = {};
         let sidebarCollapsed = false;
 
         // Toggle sidebar visibility
@@ -1006,6 +1018,29 @@
             }
         }
 
+        // Restore page and account index from URL parameters
+        function restorePageFromURL() {
+            const url = new URL(window.location);
+            const accountParam = url.searchParams.get('account');
+            const pageParam = url.searchParams.get('page');
+            
+            if (accountParam !== null) {
+                const accountIndex = parseInt(accountParam);
+                if (accountIndex >= 0 && accountIndex < accounts.length) {
+                    currentAccountIndex = accountIndex;
+                    console.log(`Restored account index from URL: ${accountIndex}`);
+                }
+            }
+            
+            if (pageParam !== null) {
+                const pageIndex = parseInt(pageParam);
+                if (pageIndex >= 0 && pageIndex < totalPages) {
+                    currentPageIndex = pageIndex;
+                    console.log(`Restored page index from URL: ${pageIndex}`);
+                }
+            }
+        }
+        
         // Load accounts on page load
         async function loadAccounts() {
             try {
@@ -1017,6 +1052,11 @@
                 if (data.success) {
                     console.log('=== DEBUGGING ACCOUNT DETECTION ===');
                     console.log('Full API Response:', JSON.stringify(data, null, 2));
+                    
+                    // Load and display cost information
+                    if (data.document.processing_cost) {
+                        displayCostInfo(data.document.processing_cost);
+                    }
                     
                     // IMMEDIATE DEBUG: Check account number in the raw data
                     const rawAccounts = data.document.documents[0].accounts;
@@ -1049,8 +1089,15 @@
                         
 
                         renderAccountsList();
-                        // Auto-select first account
-                        selectAccount(0);
+                        
+                        // Restore page and account from URL if available
+                        restorePageFromURL();
+                        
+                        // Auto-select account (restored from URL or default to 0)
+                        // Pass skipPageReset=true to preserve the restored page index
+                        const accountToSelect = currentAccountIndex >= 0 ? currentAccountIndex : 0;
+                        const hasRestoredPage = new URL(window.location).searchParams.get('page') !== null;
+                        selectAccount(accountToSelect, hasRestoredPage);
                     } else {
                         console.log('❌ No accounts found or accounts array is empty');
                         console.log('docData exists:', !!docData);
@@ -1343,14 +1390,18 @@
             showPage(pageIndex);
         }
 
-        async function selectAccount(index) {
+        async function selectAccount(index, skipPageReset = false) {
             // Exit edit mode if active
             if (editMode) {
                 exitEditMode();
             }
             
             currentAccountIndex = index;
-            currentPageIndex = 0;
+            
+            // Only reset page index if not restoring from URL
+            if (!skipPageReset) {
+                currentPageIndex = 0;
+            }
             
             // Update active state
             document.querySelectorAll('.account-item').forEach((item, i) => {
@@ -1368,7 +1419,6 @@
             document.getElementById('downloadAccountBtn').style.display = 'flex';
             document.getElementById('addFieldBtnMain').style.display = 'flex';
             document.getElementById('deleteFieldBtn').style.display = 'flex';
-            document.getElementById('clearCacheBtn').style.display = 'flex';
         }
 
         let accountPageNumbers = []; // Store actual page numbers for this account
@@ -1389,7 +1439,11 @@
                     totalPages = data.total_pages;
                     document.getElementById('totalPages').textContent = totalPages;
                     console.log(`Account ${data.account_number} has ${totalPages} pages:`, accountPageNumbers);
-                    showPage(0);
+                    
+                    // Preserve current page index if it's still valid, otherwise go to page 0
+                    const pageToShow = (currentPageIndex >= 0 && currentPageIndex < totalPages) ? currentPageIndex : 0;
+                    console.log(`Loading account pages: currentPageIndex=${currentPageIndex}, totalPages=${totalPages}, showing page ${pageToShow}`);
+                    showPage(pageToShow);
                 } else {
                     showNotification('Failed to load pages: ' + data.message, 'error');
                 }
@@ -1410,6 +1464,12 @@
             currentPageIndex = pageIndex;
             document.getElementById('currentPage').textContent = pageIndex + 1;
             
+            // Update URL to preserve page index for refresh
+            const url = new URL(window.location);
+            url.searchParams.set('account', currentAccountIndex);
+            url.searchParams.set('page', pageIndex);
+            window.history.replaceState({}, '', url);
+            
             // Update active thumbnail highlighting
             document.querySelectorAll('.page-thumbnail-item').forEach(item => {
                 item.classList.remove('active');
@@ -1424,7 +1484,14 @@
             document.getElementById('nextBtn').disabled = pageIndex === totalPages - 1;
             
             // Get the actual PDF page number for this account page
-            const actualPageNum = accountPageNumbers[pageIndex] || pageIndex;
+            // accountPageNumbers contains 1-based page numbers, pageIndex is 0-based
+            const actualPageNum = accountPageNumbers[pageIndex] || (pageIndex + 1);
+            
+            console.log('DEBUG showPage:', {
+                pageIndex,
+                accountPageNumbers,
+                actualPageNum
+            });
             
             // Load page image using actual page number
             const viewer = document.getElementById('viewerContent');
@@ -1439,6 +1506,119 @@
 
         // Use complete account data instead of page-specific data
 
+        // Direct render function - uses currentPageData without API fetch
+        function renderPageDataDirect(fields) {
+            const account = accounts[currentAccountIndex];
+            const container = document.getElementById('dataContent');
+            const accountNumber = account.accountNumber || accounts[currentAccountIndex]?.accountNumber || 'Unknown';
+            
+            document.getElementById('dataMeta').textContent = `Account ${accountNumber} - Page ${currentPageIndex + 1} Data`;
+            
+            if (!fields || Object.keys(fields).length === 0) {
+                container.innerHTML = '<div style="padding: 20px; color: #6b7280;">No data available for this page</div>';
+                return;
+            }
+            
+            console.log('renderPageDataDirect received fields:', fields);
+            console.log('First field sample:', Object.entries(fields)[0]);
+            
+            // Process confidence objects - SIMPLIFIED VERSION
+            const processedData = {};
+            const fieldConfidence = {};
+            
+            for (const [key, value] of Object.entries(fields)) {
+                // Skip account number fields
+                if (key === 'AccountNumber' || key === 'Account_Number') continue;
+                
+                let displayValue = '';
+                let confidence = 0;
+                
+                console.log(`Processing field: ${key}, type: ${typeof value}, value:`, value);
+                
+                // Check if this is a confidence object (has 'value' and 'confidence' properties)
+                if (value && typeof value === 'object' && !Array.isArray(value) && 'value' in value && 'confidence' in value) {
+                    // Extract value and confidence from confidence object
+                    const innerValue = value.value;
+                    if (typeof innerValue === 'object' && !Array.isArray(innerValue)) {
+                        // Inner value is also an object, convert to JSON
+                        displayValue = JSON.stringify(innerValue);
+                    } else if (Array.isArray(innerValue)) {
+                        // Inner value is an array, convert to comma-separated
+                        displayValue = innerValue.join(', ');
+                    } else {
+                        // Inner value is a simple value
+                        displayValue = String(innerValue || '');
+                    }
+                    confidence = value.confidence || 0;
+                    console.log(`✓ Extracted confidence object: ${key} = "${displayValue}" (confidence: ${confidence}%)`);
+                } else if (Array.isArray(value)) {
+                    // Handle arrays - convert to comma-separated string
+                    displayValue = value.map(v => {
+                        if (typeof v === 'object') {
+                            return JSON.stringify(v);
+                        }
+                        return String(v);
+                    }).join(', ');
+                    console.log(`✓ Converted array: ${key} = "${displayValue}"`);
+                } else if (value && typeof value === 'object') {
+                    // Handle nested objects - check if it has a 'value' property (might be missing confidence)
+                    if ('value' in value) {
+                        displayValue = String(value.value || '');
+                        confidence = value.confidence || 0;
+                        console.log(`✓ Extracted object with value property: ${key} = "${displayValue}"`);
+                    } else {
+                        // Convert to JSON string
+                        displayValue = JSON.stringify(value);
+                        console.log(`✓ Converted nested object: ${key} = "${displayValue}"`);
+                    }
+                } else {
+                    // Simple value (string, number, etc.)
+                    displayValue = String(value || '');
+                    console.log(`✓ Simple value: ${key} = "${displayValue}"`);
+                }
+                
+                processedData[key] = displayValue;
+                fieldConfidence[key] = confidence;
+            }
+            
+            console.log('Processed data:', processedData);
+            console.log('Field confidence:', fieldConfidence);
+            
+            let html = '';
+            for (const [key, displayValue] of Object.entries(processedData)) {
+                const confidence = fieldConfidence[key] || 0;
+                const confidenceColor = confidence >= 90 ? '#10b981' : confidence >= 70 ? '#f59e0b' : '#ef4444';
+                
+                // displayValue should already be a string from processedData
+                const finalValue = displayValue || 'N/A';
+                
+                html += `
+                    <div class="field-item">
+                        <div class="field-label">${key}</div>
+                        <div class="field-value" data-field="${key}">
+                            ${finalValue}
+                            <span style="margin-left: 8px; font-size: 0.8em; color: ${confidenceColor}; font-weight: 600;">
+                                ${confidence}%
+                            </span>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            container.innerHTML = html;
+            
+            // Update field count
+            document.getElementById('fieldCount').textContent = `${Object.keys(processedData).length} fields`;
+            
+            // Show field actions
+            document.getElementById('addFieldBtnMain').style.display = 'inline-block';
+            document.getElementById('editBtn').style.display = 'inline-block';
+            document.getElementById('deleteFieldBtn').style.display = 'inline-block';
+            document.getElementById('downloadPageBtn').style.display = 'inline-block';
+            document.getElementById('downloadAccountBtn').style.display = 'inline-block';
+            document.getElementById('fieldsSection').style.display = 'block';
+        }
+
         async function renderPageData() {
             const account = accounts[currentAccountIndex];
             const container = document.getElementById('dataContent');
@@ -1447,15 +1627,25 @@
             const accountNumber = account.accountNumber || accounts[currentAccountIndex]?.accountNumber || 'Unknown';
             
             // Get the actual PDF page number for this account page
-            const actualPageNum = accountPageNumbers[currentPageIndex] || currentPageIndex;
+            // accountPageNumbers contains 1-based page numbers, currentPageIndex is 0-based
+            const actualPageNum = accountPageNumbers[currentPageIndex] || (currentPageIndex + 1);
 
             document.getElementById('dataMeta').textContent = `Account ${accountNumber} - Page ${currentPageIndex + 1} Data`;
             container.innerHTML = '<div class="loading"><div class="spinner"></div><div>Loading page data...</div></div>';
             
             try {
                 // Fetch page-specific data from the API
+                console.log('DEBUG renderPageData API call:', {
+                    documentId,
+                    currentAccountIndex,
+                    actualPageNum,
+                    currentPageIndex,
+                    accountPageNumbers,
+                    totalPages
+                });
                 const response = await fetch(`/api/document/${documentId}/account/${currentAccountIndex}/page/${actualPageNum}/data`);
                 const result = await response.json();
+                console.log('DEBUG renderPageData API response:', result);
                 
                 let fields = {};
                 if (result.success && result.data) {
@@ -1489,9 +1679,12 @@
                                     fieldConfidence[fullKey] = value.confidence;
                                     console.log(`✓ Processed confidence object: ${fullKey} = ${value.value} (${value.confidence}% confidence)`);
                                 } else {
-                                    // Recursively process nested objects
-                                    processed[key] = processConfidenceRecursive(value, fullKey);
+                                    // This is a nested object - convert to JSON string
+                                    processed[key] = JSON.stringify(value);
                                 }
+                            } else if (Array.isArray(value)) {
+                                // Handle arrays - convert to comma-separated string
+                                processed[key] = value.join(', ');
                             } else {
                                 processed[key] = value;
                             }
@@ -1745,7 +1938,11 @@
                             continue;
                         }
                         
-                        regularFields[key] = value;
+                        // Only add simple values (strings, numbers, booleans, etc.) to regularFields
+                        // Skip objects that weren't handled above
+                        if (typeof value !== 'object' || value === null) {
+                            regularFields[key] = value;
+                        }
                     }
                     
                     // Helper function to escape HTML
@@ -2093,6 +2290,7 @@
             });
             
             editedFields = {};
+            renamedFields = {};
             originalData = {};
         }
 
@@ -2161,36 +2359,42 @@
                     }
                 }
                 
-                // Prepare the data to save - preserve existing field formats and confidence scores
+                // Prepare the data to save - ONLY send edited fields to backend
                 const dataToSave = {};
                 
-                // Copy all existing fields as-is (preserving their confidence scores)
-                for (const [key, value] of Object.entries(currentPageData)) {
-                    dataToSave[key] = value;
-                }
-                
-                // Update only the edited fields as simple values
+                // Only include edited fields (not all fields)
                 for (const [fieldName, fieldValue] of Object.entries(editedFields)) {
                     // Check if this field was renamed
                     const actualFieldName = renamedFields[fieldName] || fieldName;
                     
-                    // Store as simple value (not confidence object)
+                    // Send only the new value (backend will handle confidence update)
                     dataToSave[actualFieldName] = fieldValue;
+                    console.log(`Sending edited field: ${actualFieldName} = ${fieldValue}`);
                 }
                 
-                // Update currentPageData
-                currentPageData = dataToSave;
+                // DON'T update currentPageData locally - wait for response from backend
+                // The backend will return the complete updated data with confidence scores
                 
                 // Get the actual PDF page number for this account page
-                const actualPageNum = accountPageNumbers[currentPageIndex] || currentPageIndex;
+                // accountPageNumbers contains 1-based page numbers, currentPageIndex is 0-based
+                const actualPageNum = accountPageNumbers[currentPageIndex] || (currentPageIndex + 1);
+                
+                console.log('DEBUG savePage:', {
+                    currentPageIndex,
+                    accountPageNumbers,
+                    actualPageNum,
+                    currentAccountIndex,
+                    'accountPageNumbers[currentPageIndex]': accountPageNumbers[currentPageIndex],
+                    'totalPages': totalPages
+                });
                 
                 // Save to backend and update S3 cache
-                const response = await fetch(`/api/document/${documentId}/page/${actualPageNum}/update`, {
+                const response = await fetch(`/api/document/${documentId}/account/${currentAccountIndex}/page/${actualPageNum}/update`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         page_data: dataToSave,
-                        account_index: currentAccountIndex
+                        action_type: 'edit'
                     })
                 });
                 
@@ -2199,11 +2403,41 @@
                     throw new Error(result.message);
                 }
                 
+                // Update currentPageData with the response data (includes confidence scores)
+                if (result.data) {
+                    currentPageData = result.data;
+                    console.log('Updated currentPageData from response:', currentPageData);
+                    console.log('Sample field:', Object.entries(currentPageData)[0]);
+                    console.log('currentPageData type:', typeof currentPageData);
+                    console.log('currentPageData keys:', Object.keys(currentPageData));
+                } else {
+                    console.warn('No data in response:', result);
+                }
+                
                 showNotification('✅ Saved successfully! Changes will persist after refresh.', 'success');
                 exitEditMode();
                 
-                // Reload page data to show updated values
-                renderPageData();
+                // Reload page data to show updated values with confidence badges
+                // Use renderPageDataDirect to display updated data immediately
+                console.log('Calling renderPageDataDirect with:', currentPageData);
+                console.log('currentPageData is object?', typeof currentPageData === 'object');
+                console.log('currentPageData has keys?', Object.keys(currentPageData).length > 0);
+                
+                if (!currentPageData || typeof currentPageData !== 'object' || Object.keys(currentPageData).length === 0) {
+                    console.warn('currentPageData is empty or invalid, falling back to renderPageData');
+                    renderPageData();
+                } else {
+                    try {
+                        renderPageDataDirect(currentPageData);
+                        console.log('renderPageDataDirect completed successfully');
+                    } catch (renderError) {
+                        console.error('Error in renderPageDataDirect:', renderError);
+                        console.error('renderError stack:', renderError.stack);
+                        // Fallback to renderPageData if renderPageDataDirect fails
+                        console.log('Falling back to renderPageData');
+                        renderPageData();
+                    }
+                }
             } catch (error) {
                 showNotification('❌ Failed to save: ' + error.message, 'error');
             }
@@ -2283,30 +2517,27 @@
                     currentPageData = {};
                 }
                 
-                // Prepare the data to save - preserve existing field formats
+                // Prepare the data to save - ONLY send the new field to backend
                 const dataToSave = {};
                 
-                // Copy all existing fields as-is (preserving their confidence scores)
-                for (const [key, value] of Object.entries(currentPageData)) {
-                    dataToSave[key] = value;
-                }
-                
-                // Add the new field as a simple value (not a confidence object)
-                // This prevents it from being split into multiple fields
+                // Add ONLY the new field (not all fields)
                 dataToSave[fieldName] = fieldValue;
+                console.log(`Sending new field: ${fieldName} = ${fieldValue}`);
                 
-                // Update currentPageData
-                currentPageData = dataToSave;
+                // DON'T update currentPageData locally - wait for response from backend
+                // The backend will return the complete updated data with confidence scores
                 
                 // Save to backend and update S3 cache
                 const account = accounts[currentAccountIndex];
                 // Use the actual PDF page number, not the index
-                const actualPageNum = accountPageNumbers[currentPageIndex] || currentPageIndex;
+                // accountPageNumbers contains 1-based page numbers, currentPageIndex is 0-based
+                const actualPageNum = accountPageNumbers[currentPageIndex] || (currentPageIndex + 1);
                 const response = await fetch(`/api/document/${documentId}/account/${currentAccountIndex}/page/${actualPageNum}/update`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        page_data: dataToSave
+                        page_data: dataToSave,
+                        action_type: 'add'
                     })
                 });
                 
@@ -2315,21 +2546,25 @@
                     throw new Error(result.message);
                 }
                 
+                // Update currentPageData with the response data (includes confidence scores)
+                if (result.data) {
+                    currentPageData = result.data;
+                }
+                
                 console.log('Field added successfully, cache updated:', result);
                 showNotification(`Field "${fieldName}" added successfully!`, 'success');
                 closeAddFieldDialog();
                 
                 // Reload the current page to show the updated data
-                setTimeout(() => {
-                    showPage(currentPageIndex);
-                }, 300);
+                // Fetch fresh data from API to ensure all fields are displayed
+                renderPageData();
             } catch (error) {
                 console.error('Add field error:', error);
                 console.error('Error details:', {
                     documentId,
                     currentAccountIndex,
                     currentPageIndex,
-                    actualPageNum: accountPageNumbers[currentPageIndex] || currentPageIndex,
+                    actualPageNum: accountPageNumbers[currentPageIndex] || (currentPageIndex + 1),
                     fieldName,
                     fieldValue
                 });
@@ -2407,37 +2642,6 @@
             showNotification('Page-specific account JSON downloaded!', 'success');
         }
 
-        async function clearDocumentCache() {
-            const account = accounts[currentAccountIndex];
-            const accountNumber = account.accountNumber;
-            
-            if (!confirm(`Clear cache for Account ${accountNumber}?\n\nThis will:\n- Delete cached data for all pages of this account\n- Force fresh extraction on next page click\n- Extract updated fields with current prompts\n\nOther accounts will NOT be affected.`)) {
-                return;
-            }
-            
-            try {
-                showNotification(`Clearing cache for Account ${accountNumber}...`, 'success');
-                
-                const response = await fetch(`/api/document/${documentId}/account/${currentAccountIndex}/clear-cache`, {
-                    method: 'POST'
-                });
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    showNotification(`✅ Cache cleared for Account ${accountNumber}. ${result.pages_cleared} pages affected.`, 'success');
-                    
-                    // Reload current page to get fresh data
-                    setTimeout(() => {
-                        showPage(currentPageIndex);
-                    }, 2000);
-                } else {
-                    showNotification(`❌ ${result.message}`, 'error');
-                }
-            } catch (error) {
-                showNotification(`❌ Failed to clear cache: ${error.message}`, 'error');
-            }
-        }
 
         function formatJsonWithConfidence(data) {
             // Format JSON with syntax highlighting and colored confidence scores
@@ -2638,18 +2842,25 @@
             }
             
             try {
-                // Remove selected fields from currentPageData
-                selectedFieldsForDelete.forEach(fieldName => {
-                    delete currentPageData[fieldName];
-                });
+                // Send ONLY the deleted fields to backend
+                const dataToSave = {};
+                for (const fieldName of selectedFieldsForDelete) {
+                    dataToSave[fieldName] = null;  // Mark for deletion
+                }
+                
+                // DON'T update currentPageData locally - wait for response from backend
+                // The backend will return the complete updated data with confidence scores
                 
                 // Save updated data to backend
-                const actualPageNum = accountPageNumbers[currentPageIndex] || currentPageIndex;
+                // accountPageNumbers contains 1-based page numbers, currentPageIndex is 0-based
+                const actualPageNum = accountPageNumbers[currentPageIndex] || (currentPageIndex + 1);
                 const response = await fetch(`/api/document/${documentId}/account/${currentAccountIndex}/page/${actualPageNum}/update`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        page_data: currentPageData
+                        page_data: dataToSave,
+                        deleted_fields: Array.from(selectedFieldsForDelete),
+                        action_type: 'delete'
                     })
                 });
                 
@@ -2658,13 +2869,17 @@
                     throw new Error(result.message);
                 }
                 
+                // Update currentPageData with the response data (includes recalculated confidence)
+                if (result.data) {
+                    currentPageData = result.data;
+                }
+                
                 showNotification(`${count} field${count > 1 ? 's' : ''} deleted successfully!`, 'success');
                 cancelDeleteMode();
                 
-                // Reload the page to show updated data
-                setTimeout(() => {
-                    showPage(currentPageIndex);
-                }, 300);
+                // Reload the page to show updated data with recalculated confidence
+                // Fetch fresh data from API to ensure all fields are displayed
+                renderPageData();
                 
             } catch (error) {
                 showNotification('Failed to delete fields: ' + error.message, 'error');
@@ -2701,36 +2916,6 @@
                 notification.classList.remove('show');
             }, 3000);
         }
-
-        async function clearDocumentCache() {
-            if (!confirm('Clear cache and re-extract all data with updated prompts?\n\nThis will delete cached data and you\'ll need to click on pages again to re-extract.')) {
-                return;
-            }
-            
-            try {
-                const response = await fetch(`/api/document/{{ document.id }}/clear-cache`, {
-                    method: 'POST'
-                });
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    showNotification('✓ Cache cleared! Click on pages to re-extract with new prompts.', 'success');
-                    // Reload the current page data
-                    if (currentAccountIndex !== null && currentPageIndex !== null) {
-                        setTimeout(() => {
-                            loadPageData(currentAccountIndex, currentPageIndex, true);
-                        }, 1000);
-                    }
-                } else {
-                    showNotification('Failed to clear cache: ' + result.message, 'error');
-                }
-            } catch (error) {
-                console.error('Error clearing cache:', error);
-                showNotification('Error clearing cache', 'error');
-            }
-        }
-
         // Helper function to convert technical field names to user-friendly names
         function formatFieldName(fieldPath) {
             // Remove prefixes like "basic_fields.", "documents[type].", etc.
@@ -2967,8 +3152,178 @@
             }
         }
 
+        // Cost Display Functions
+        function formatCost(cost) {
+            // Always show 6 decimal places for consistency
+            return '$' + cost.toFixed(6);
+        }
+        
+        function displayCostInfo(costData) {
+            if (!costData) return;
+            
+            const totalCost = costData.total_cost || 0;
+            const textractCost = costData.textract?.cost || 0;
+            const bedrockCost = costData.bedrock?.cost || 0;
+            const s3Cost = costData.s3?.cost || 0;
+            
+            // Display in header
+            document.getElementById('totalCost').textContent = totalCost.toFixed(6);
+            
+            const breakdown = `Textract: ${formatCost(textractCost)} | Bedrock: ${formatCost(bedrockCost)} | S3: ${formatCost(s3Cost)}`;
+            document.getElementById('costBreakdown').textContent = breakdown;
+            document.getElementById('costInfo').style.display = 'block';
+            
+            // Store for modal
+            window.costData = costData;
+        }
+
+        function toggleCostDetails() {
+            if (!window.costData) {
+                showNotification('Cost information not available yet', 'info');
+                return;
+            }
+            
+            const modal = document.getElementById('costModal');
+            const modalContent = document.getElementById('costModalContent');
+            const loadingMessage = document.getElementById('costLoadingMessage');
+            
+            // Populate modal
+            const cost = window.costData;
+            const total = cost.total_cost || 0;
+            const textract = cost.textract || {};
+            const bedrock = cost.bedrock || {};
+            const s3 = cost.s3 || {};
+            
+            document.getElementById('modalTotalCost').textContent = total.toFixed(6);
+            document.getElementById('modalTextractCost').textContent = (textract.cost || 0).toFixed(6);
+            document.getElementById('modalTextractPages').textContent = (textract.total_pages || 0);
+            document.getElementById('modalBedrockCost').textContent = (bedrock.cost || 0).toFixed(6);
+            document.getElementById('modalBedrockCalls').textContent = (bedrock.calls || 0);
+            document.getElementById('modalBedrockTokens').textContent = (bedrock.total_tokens || 0).toLocaleString();
+            document.getElementById('modalS3Cost').textContent = (s3.cost || 0).toFixed(6);
+            document.getElementById('modalS3Requests').textContent = (s3.total_requests || 0);
+            document.getElementById('modalS3Put').textContent = (s3.put_requests || 0);
+            document.getElementById('modalS3Get').textContent = (s3.get_requests || 0);
+            
+            // Calculate percentages
+            const textractPercent = total > 0 ? ((textract.cost || 0) / total * 100).toFixed(1) : 0;
+            const bedrockPercent = total > 0 ? ((bedrock.cost || 0) / total * 100).toFixed(1) : 0;
+            const s3Percent = total > 0 ? ((s3.cost || 0) / total * 100).toFixed(1) : 0;
+            
+            document.getElementById('modalTextractPercent').textContent = textractPercent;
+            document.getElementById('modalBedrockPercent').textContent = bedrockPercent;
+            document.getElementById('modalS3Percent').textContent = s3Percent;
+            
+            // Format timestamp
+            if (cost.timestamp) {
+                const date = new Date(cost.timestamp);
+                document.getElementById('modalCostTimestamp').textContent = date.toLocaleString();
+            }
+            
+            loadingMessage.style.display = 'none';
+            modalContent.style.display = 'block';
+            modal.style.display = 'flex';
+        }
+
+        function closeCostModal() {
+            document.getElementById('costModal').style.display = 'none';
+        }
+
         // Load accounts on page load
         loadAccounts();
     </script>
+
+    <!-- Cost Details Modal -->
+    <div id="costModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:10000;align-items:center;justify-content:center;">
+        <div style="background:white;border-radius:12px;width:90%;max-width:600px;box-shadow:0 20px 60px rgba(0,0,0,0.3);max-height:80vh;overflow-y:auto;">
+            <div style="padding:30px;background:linear-gradient(135deg, #667eea 0%, #764ba2 100%);color:white;border-radius:12px 12px 0 0;display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                    <h2 style="font-size:1.5em;margin-bottom:5px;">💰 Processing Cost</h2>
+                    <p style="opacity:0.9;font-size:0.95em;">Detailed breakdown of AWS service costs</p>
+                </div>
+                <button onclick="closeCostModal()" style="background:rgba(255,255,255,0.2);border:none;color:white;font-size:1.5em;cursor:pointer;width:40px;height:40px;border-radius:50%;transition:all 0.3s;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">×</button>
+            </div>
+            <div style="padding:30px;">
+                <div id="costModalContent" style="display:none;">
+                    <!-- Total Cost -->
+                    <div style="background:linear-gradient(135deg, #10b981 0%, #059669 100%);color:white;padding:20px;border-radius:10px;margin-bottom:25px;text-align:center;">
+                        <div style="font-size:0.9em;opacity:0.9;margin-bottom:8px;">TOTAL PROCESSING COST</div>
+                        <div style="font-size:2.5em;font-weight:700;">$<span id="modalTotalCost">0.00</span></div>
+                    </div>
+
+                    <!-- Cost Breakdown -->
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:25px;">
+                        <!-- Textract -->
+                        <div style="background:#f3f4f6;padding:20px;border-radius:10px;border-left:4px solid #3b82f6;">
+                            <div style="font-weight:600;color:#1f2937;margin-bottom:12px;display:flex;align-items:center;gap:8px;">
+                                <span>📄</span> Textract (OCR)
+                            </div>
+                            <div style="font-size:1.5em;font-weight:700;color:#3b82f6;margin-bottom:8px;">$<span id="modalTextractCost">0.00</span></div>
+                            <div style="font-size:0.85em;color:#6b7280;line-height:1.6;">
+                                <div>Pages: <span id="modalTextractPages">0</span></div>
+                                <div style="opacity:0.7;font-size:0.8em;">$0.0015 per page</div>
+                            </div>
+                        </div>
+
+                        <!-- Bedrock -->
+                        <div style="background:#f3f4f6;padding:20px;border-radius:10px;border-left:4px solid #8b5cf6;">
+                            <div style="font-weight:600;color:#1f2937;margin-bottom:12px;display:flex;align-items:center;gap:8px;">
+                                <span>🤖</span> Bedrock (LLM)
+                            </div>
+                            <div style="font-size:1.5em;font-weight:700;color:#8b5cf6;margin-bottom:8px;">$<span id="modalBedrockCost">0.00</span></div>
+                            <div style="font-size:0.85em;color:#6b7280;line-height:1.6;">
+                                <div>Calls: <span id="modalBedrockCalls">0</span></div>
+                                <div>Tokens: <span id="modalBedrockTokens">0</span></div>
+                            </div>
+                        </div>
+
+                        <!-- S3 -->
+                        <div style="background:#f3f4f6;padding:20px;border-radius:10px;border-left:4px solid #f59e0b;grid-column:1/-1;">
+                            <div style="font-weight:600;color:#1f2937;margin-bottom:12px;display:flex;align-items:center;gap:8px;">
+                                <span>💾</span> S3 (Storage)
+                            </div>
+                            <div style="font-size:1.5em;font-weight:700;color:#f59e0b;margin-bottom:8px;">$<span id="modalS3Cost">0.00</span></div>
+                            <div style="font-size:0.85em;color:#6b7280;line-height:1.6;">
+                                <div>Requests: <span id="modalS3Requests">0</span> (PUT: <span id="modalS3Put">0</span>, GET: <span id="modalS3Get">0</span>)</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Cost Breakdown Pie Chart -->
+                    <div style="background:#f9fafb;padding:20px;border-radius:10px;margin-bottom:20px;">
+                        <div style="font-weight:600;color:#1f2937;margin-bottom:15px;">Cost Distribution</div>
+                        <div style="display:flex;gap:15px;align-items:center;">
+                            <div style="flex:1;">
+                                <div style="display:flex;gap:10px;margin-bottom:10px;">
+                                    <div style="flex:1;height:30px;background:#3b82f6;border-radius:6px;display:flex;align-items:center;justify-content:center;color:white;font-size:0.8em;font-weight:600;"><span id="modalTextractPercent">0</span>%</div>
+                                    <div style="flex:1;height:30px;background:#8b5cf6;border-radius:6px;display:flex;align-items:center;justify-content:center;color:white;font-size:0.8em;font-weight:600;"><span id="modalBedrockPercent">0</span>%</div>
+                                    <div style="flex:1;height:30px;background:#f59e0b;border-radius:6px;display:flex;align-items:center;justify-content:center;color:white;font-size:0.8em;font-weight:600;"><span id="modalS3Percent">0</span>%</div>
+                                </div>
+                                <div style="display:flex;gap:10px;font-size:0.85em;color:#6b7280;">
+                                    <div style="flex:1;text-align:center;">📄 Textract</div>
+                                    <div style="flex:1;text-align:center;">🤖 Bedrock</div>
+                                    <div style="flex:1;text-align:center;">💾 S3</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Timestamp -->
+                    <div style="font-size:0.85em;color:#9ca3af;text-align:center;padding-top:15px;border-top:1px solid #e5e7eb;">
+                        Last updated: <span id="modalCostTimestamp">--</span>
+                    </div>
+                </div>
+
+                <div id="costLoadingMessage" style="text-align:center;padding:40px;color:#6b7280;">
+                    <div style="font-size:1.5em;margin-bottom:10px;">⏳</div>
+                    <div>Loading cost information...</div>
+                </div>
+            </div>
+
+            <div style="padding:20px 30px;background:#f9fafb;border-top:1px solid #e9ecef;display:flex;justify-content:flex-end;gap:10px;border-radius:0 0 12px 12px;">
+                <button onclick="closeCostModal()" style="padding:10px 20px;border:1px solid #ddd;background:white;color:#7f8c8d;border-radius:6px;cursor:pointer;font-weight:500;">Close</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>

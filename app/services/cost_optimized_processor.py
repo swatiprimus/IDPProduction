@@ -21,12 +21,13 @@ class CostOptimizedProcessor:
     4. Reduces LLM costs significantly
     """
     
-    def __init__(self, bedrock_client, s3_client, bucket_name: str, doc_type: str = "loan_document"):
+    def __init__(self, bedrock_client, s3_client, bucket_name: str, doc_type: str = "loan_document", doc_id: str = None):
         self.bedrock_client = bedrock_client
         self.s3_client = s3_client
         self.bucket_name = bucket_name
         self.model_id = "anthropic.claude-3-5-sonnet-20240620-v1:0"
         self.doc_type = doc_type  # Store document type for prompt selection
+        self.doc_id = doc_id  # Store doc_id for cost tracking
     
     def process_account_with_llm(self, account_number: str, page_texts: Dict[int, str], pages: List[int]) -> Optional[Dict]:
         """
@@ -155,7 +156,7 @@ class CostOptimizedProcessor:
     
     def process_batches_parallel(self, account_number: str, page_texts: Dict[int, str], 
                                  pages: List[int], batch_size: int = 2, 
-                                 max_workers: int = 3, doc_id: str = None) -> Optional[Dict]:
+                                 max_workers: int = 3) -> Optional[Dict]:
         """
         Process multiple pages in parallel (PARALLEL LLM CALLS)
         EACH PAGE IS PROCESSED INDIVIDUALLY, NOT BATCHED TOGETHER
@@ -166,7 +167,6 @@ class CostOptimizedProcessor:
             pages: List of page numbers for this account
             batch_size: Not used - kept for API compatibility
             max_workers: Number of concurrent LLM calls (3-5 recommended)
-            doc_id: Document ID for cost tracking
         
         Returns:
             Merged account data with all page results combined
@@ -186,8 +186,7 @@ class CostOptimizedProcessor:
                     page_text = page_texts[page_num]
                     future = executor.submit(
                         self._extract_data_fields_from_text,
-                        page_text,  # Send INDIVIDUAL page, not batch
-                        doc_id  # Pass doc_id for cost tracking
+                        page_text  # Send INDIVIDUAL page, not batch
                     )
                     futures[future] = {
                         'page_idx': page_idx,
@@ -338,12 +337,16 @@ class CostOptimizedProcessor:
         print(f"   📦 BATCH S3 CACHING: Preparing {len(results)} results for parallel upload...")
         
         cache_items = []
+        total_size = 0
         for result in results:
             account_num = result.get("accountNumber", "unknown")
             cache_key = f"account_results/{doc_id}/{account_num}.json"
+            result_json = json.dumps(result)
+            total_size += len(result_json.encode('utf-8'))
             cache_items.append({
                 'key': cache_key,
-                'data': result
+                'data': result,
+                'body': result_json
             })
         
         # Upload all items in parallel
@@ -356,7 +359,7 @@ class CostOptimizedProcessor:
                     s3_client.put_object,
                     Bucket=bucket_name,
                     Key=item['key'],
-                    Body=json.dumps(item['data']),
+                    Body=item['body'],
                     ContentType='application/json'
                 )
                 futures[future] = item
@@ -373,9 +376,18 @@ class CostOptimizedProcessor:
                 except Exception as e:
                     print(f"   ❌ S3 Cache failed: {item['key']} - {str(e)}")
         
+        # Track S3 costs for all uploads
+        try:
+            from app.services.cost_tracker import get_cost_tracker
+            cost_tracker = get_cost_tracker(doc_id)
+            cost_tracker.track_s3_put(count=len(cache_items), size_bytes=total_size)
+            print(f"   💰 S3 COST: Tracked {len(cache_items)} PUT requests ({total_size} bytes)")
+        except Exception as e:
+            print(f"   ⚠️ Failed to track S3 cost: {str(e)}")
+        
         print(f"   ✅ BATCH S3 CACHING: Completed {len(cache_items)} uploads (5x faster with parallel)")
     
-    def _extract_data_fields_from_text(self, text: str, doc_id: str = None) -> Optional[Dict]:
+    def _extract_data_fields_from_text(self, text: str) -> Optional[Dict]:
         """
         LLM call to extract data fields from combined account text
         Detects page-level document type to use appropriate prompt
@@ -403,13 +415,33 @@ class CostOptimizedProcessor:
             llm_response = result['content'][0]['text'].strip()
             
             # Track Bedrock cost if doc_id is provided
-            if doc_id:
+            if self.doc_id:
                 try:
-                    from app_modular import track_bedrock_cost
-                    prompt_full = f"{prompt}\n\nDocument text:\n{text[:12000]}"
-                    track_bedrock_cost(doc_id, result, prompt_full, llm_response)
+                    from app.services.cost_tracker import get_cost_tracker
+                    
+                    # Try to extract token counts from response
+                    input_tokens = result.get('usage', {}).get('input_tokens', 0)
+                    output_tokens = result.get('usage', {}).get('output_tokens', 0)
+                    
+                    # If no usage info in response, estimate based on text length
+                    # Claude typically uses ~4 characters per token on average
+                    if input_tokens == 0:
+                        # Estimate input tokens from prompt + text
+                        estimated_input_text = f"{prompt}\n\nDocument text:\n{text[:12000]}"
+                        input_tokens = len(estimated_input_text) // 4
+                    
+                    if output_tokens == 0:
+                        # Estimate output tokens from response
+                        output_tokens = len(llm_response) // 4
+                    
+                    if input_tokens > 0 or output_tokens > 0:
+                        cost_tracker = get_cost_tracker(self.doc_id)
+                        cost_tracker.track_bedrock_call(input_tokens, output_tokens)
+                        print(f"      [COST] ✅ Tracked Bedrock: {input_tokens} input + {output_tokens} output tokens (estimated)")
+                    else:
+                        print(f"      [COST] ⚠️ Could not estimate tokens. Response keys: {list(result.keys())}")
                 except Exception as e:
-                    print(f"      ⚠️ Failed to track Bedrock cost: {str(e)}")
+                    print(f"      [COST] ❌ Failed to track cost: {str(e)}")
             
             # Parse JSON response
             json_start = llm_response.find('{')

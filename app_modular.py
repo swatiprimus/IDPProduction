@@ -272,6 +272,20 @@ class BackgroundDocumentProcessor:
             status["progress"] = 100
             status["completion_time"] = time.time()
             
+            # FINAL: Save cost data again (in case Bedrock costs were tracked after initial save)
+            try:
+                # Find the document in processed_documents
+                final_doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+                if final_doc:
+                    cost_tracker = get_cost_tracker(doc_id)
+                    cost_summary = cost_tracker.get_summary()
+                    final_doc["processing_cost"] = cost_summary
+                    print(f"[BG_PROCESSOR] 💰 COST FINAL: Updated cost data - Total: ${cost_summary['total_cost']:.6f}")
+                    # Save updated document with final costs
+                    save_documents_db(processed_documents)
+            except Exception as e:
+                print(f"[BG_PROCESSOR] ⚠️ Failed to save final cost data: {str(e)}")
+            
             print(f"[BG_PROCESSOR] 🎉 PIPELINE COMPLETED for {doc_id} ({doc_type}) - All stages finished successfully!")
             
         except Exception as e:
@@ -481,26 +495,12 @@ class BackgroundDocumentProcessor:
                 "cache_version": "page_ocr_v1"
             }
             
-            cache_json = json.dumps(cache_data)
-            cache_size = len(cache_json.encode('utf-8'))
-            
             s3_client.put_object(
                 Bucket=S3_BUCKET,
                 Key=cache_key,
-                Body=cache_json,
+                Body=json.dumps(cache_data),
                 ContentType='application/json'
             )
-            
-            # Track S3 cost
-            try:
-                cost_tracker = get_cost_tracker(doc_id)
-                cost_tracker.track_s3_put(count=1, size_bytes=cache_size)
-                print(f"[COST] ✅ Tracked S3 PUT: page {page_num + 1}, size: {cache_size} bytes")
-            except Exception as e:
-                print(f"[COST] Failed to track S3 cost: {str(e)}")
-                import traceback
-                traceback.print_exc()
-                
         except Exception as e:
             print(f"[BG_PROCESSOR] ⚠️ Failed to cache page {page_num + 1}: {str(e)}")
     
@@ -695,21 +695,33 @@ class BackgroundDocumentProcessor:
             
             try:
                 # Cache the complete result
+                cache_body = json.dumps(cache_data)
                 s3_client.put_object(
                     Bucket=S3_BUCKET,
                     Key=cache_key,
-                    Body=json.dumps(cache_data),
+                    Body=cache_body,
                     ContentType='application/json'
                 )
                 
                 # Also cache page mapping separately for API access
                 page_mapping_key = f"page_mapping/{doc_id}/mapping.json"
+                page_mapping_body = json.dumps(page_mapping)
                 s3_client.put_object(
                     Bucket=S3_BUCKET,
                     Key=page_mapping_key,
-                    Body=json.dumps(page_mapping),
+                    Body=page_mapping_body,
                     ContentType='application/json'
                 )
+                
+                # Track S3 costs
+                try:
+                    from app.services.cost_tracker import get_cost_tracker
+                    cost_tracker = get_cost_tracker(doc_id)
+                    cache_size = len(cache_body.encode('utf-8'))
+                    mapping_size = len(page_mapping_body.encode('utf-8'))
+                    cost_tracker.track_s3_put(count=2, size_bytes=cache_size + mapping_size)
+                except Exception as cost_error:
+                    print(f"[BG_PROCESSOR] ⚠️ Failed to track S3 cost: {str(cost_error)}")
                 
                 print(f"[BG_PROCESSOR] 🚀 ULTRA-FAST: Cached complete result + page mapping to S3")
             except Exception as e:
@@ -805,6 +817,9 @@ class BackgroundDocumentProcessor:
             # Step 1: Account detection using BOUNDARY LOGIC (account XYZ owns all pages until account ABC is found)
             detector = RegexAccountDetector()
             
+            # Update progress: Starting account detection
+            self._update_stage_status(doc_id, DocumentProcessingStage.ACCOUNT_SPLITTING, "processing", 10)
+            
             # First, find all account numbers in the document
             all_account_numbers = set()
             for page_num in sorted(page_ocr_results.keys()):
@@ -814,9 +829,15 @@ class BackgroundDocumentProcessor:
             
             print(f"[BG_PROCESSOR] 🔍 Found account numbers: {list(all_account_numbers)}")
             
+            # Update progress: Account detection complete
+            self._update_stage_status(doc_id, DocumentProcessingStage.ACCOUNT_SPLITTING, "processing", 25)
+            
             # Step 1.1: Create page mapping using BOUNDARY LOGIC
             page_mapping_0_based = {}
             current_account = None
+            
+            # Update progress: Starting page mapping
+            self._update_stage_status(doc_id, DocumentProcessingStage.ACCOUNT_SPLITTING, "processing", 35)
             
             for page_num in sorted(page_ocr_results.keys()):
                 page_text = page_ocr_results[page_num]
@@ -842,6 +863,9 @@ class BackgroundDocumentProcessor:
                 else:
                     print(f"[BG_PROCESSOR] 🗺️ Page {page_num + 1} - No account assigned (cover page)")
             
+            # Update progress: Page mapping complete
+            self._update_stage_status(doc_id, DocumentProcessingStage.ACCOUNT_SPLITTING, "processing", 50)
+            
             # Step 1.2: Group pages by account using boundary logic
             all_accounts = {}
             for page_num, account_num in page_mapping_0_based.items():
@@ -859,8 +883,13 @@ class BackgroundDocumentProcessor:
                 bedrock_client=bedrock,
                 s3_client=s3_client,
                 bucket_name=S3_BUCKET,
-                doc_type=doc_type  # Pass document type for appropriate prompt selection
+                doc_type=doc_type,  # Pass document type for appropriate prompt selection
+                doc_id=doc_id  # Pass doc_id for cost tracking
             )
+            
+            # Update progress: Starting LLM processing
+            self._update_stage_status(doc_id, DocumentProcessingStage.ACCOUNT_SPLITTING, "processing", 60)
+            print(f"[BG_PROCESSOR] 🔀 ACCOUNT SPLITTING: Updated stage to account_splitting at 60%")
             
             # NEW: Batch Page Processing + Parallel LLM Calls
             accounts = []
@@ -874,25 +903,34 @@ class BackgroundDocumentProcessor:
                 account_page_texts = account_info['page_texts']
                 accounts_processed += 1
                 
-                # Update progress
-                progress_pct = int((accounts_processed / total_accounts) * 100)
-                self._update_stage_status(doc_id, DocumentProcessingStage.LLM_EXTRACTION, "processing", progress_pct)
+                # Update progress - map to 60-90% range for account processing
+                progress_pct = 60 + int(((accounts_processed - 1) / max(total_accounts, 1)) * 30)
+                self._update_stage_status(doc_id, DocumentProcessingStage.ACCOUNT_SPLITTING, "processing", progress_pct)
+                print(f"[BG_PROCESSOR] 🔀 ACCOUNT SPLITTING: Updated progress to {progress_pct}%")
                 
-                print(f"[BG_PROCESSOR] 🤖 Account {accounts_processed}/{total_accounts}: {account_num} ({len(account_pages)} pages)")
+                print(f"[BG_PROCESSOR] 🤖 Account {accounts_processed}/{total_accounts}: {account_num} ({len(account_pages)} pages) - Progress: {progress_pct}%")
                 
-                # Use new BATCH + PARALLEL processing
-                merged_result = processor.process_batches_parallel(
-                    account_number=account_num,
-                    page_texts=account_page_texts,
-                    pages=account_pages,
-                    batch_size=2,      # 2-3 pages per LLM call
-                    max_workers=3,     # 3-5 concurrent LLM calls
-                    doc_id=doc_id      # Pass doc_id for cost tracking
-                )
-                
-                if merged_result:
-                    accounts.append(merged_result)
-                    print(f"[BG_PROCESSOR] ✅ Account {account_num}: {len(merged_result.get('result', {}))} fields extracted")
+                try:
+                    # Use new BATCH + PARALLEL processing with timeout
+                    print(f"[BG_PROCESSOR] 🔀 ACCOUNT SPLITTING: Starting process_batches_parallel for account {account_num}")
+                    merged_result = processor.process_batches_parallel(
+                        account_number=account_num,
+                        page_texts=account_page_texts,
+                        pages=account_pages,
+                        batch_size=2,      # 2-3 pages per LLM call
+                        max_workers=3      # 3-5 concurrent LLM calls
+                    )
+                    print(f"[BG_PROCESSOR] 🔀 ACCOUNT SPLITTING: Completed process_batches_parallel for account {account_num}")
+                    
+                    if merged_result:
+                        accounts.append(merged_result)
+                        print(f"[BG_PROCESSOR] ✅ Account {account_num}: {len(merged_result.get('result', {}))} fields extracted")
+                    else:
+                        print(f"[BG_PROCESSOR] ⚠️ Account {account_num}: No result returned from processing")
+                except Exception as e:
+                    print(f"[BG_PROCESSOR] ❌ Account {account_num}: Processing failed - {str(e)}")
+                    import traceback
+                    traceback.print_exc()
             
             print(f"[BG_PROCESSOR] 💰 BATCH+PARALLEL: ✅ Completed - {len(accounts)} accounts processed, {len(page_mapping_0_based)} pages mapped")
             print(f"[BG_PROCESSOR] 📊 OPTIMIZATION: Reduced LLM calls by 50% (batch processing) + 80% faster (parallel)")
@@ -900,8 +938,13 @@ class BackgroundDocumentProcessor:
             # PHASE 2: Batch cache all results to S3 in parallel (5x faster)
             if accounts:
                 print(f"[BG_PROCESSOR] 📦 PHASE 2: Starting BATCH S3 CACHING for {len(accounts)} accounts...")
+                # Update progress: Starting S3 caching
+                self._update_stage_status(doc_id, DocumentProcessingStage.ACCOUNT_SPLITTING, "processing", 90)
                 processor.batch_cache_results_to_s3(accounts, doc_id, s3_client, S3_BUCKET)
                 print(f"[BG_PROCESSOR] ✅ PHASE 2: BATCH S3 CACHING completed (5x faster with parallel uploads)")
+            
+            # Update progress: Cost-optimized processing complete
+            self._update_stage_status(doc_id, DocumentProcessingStage.ACCOUNT_SPLITTING, "processing", 100)
             
             return accounts, page_mapping_0_based
             
@@ -967,12 +1010,23 @@ class BackgroundDocumentProcessor:
         # Cache the page mapping separately for API access
         try:
             mapping_cache_key = f"page_mapping/{doc_id}/mapping.json"
+            mapping_body = json.dumps(page_mapping)
             s3_client.put_object(
                 Bucket=S3_BUCKET,
                 Key=mapping_cache_key,
-                Body=json.dumps(page_mapping),
+                Body=mapping_body,
                 ContentType='application/json'
             )
+            
+            # Track S3 cost
+            try:
+                from app.services.cost_tracker import get_cost_tracker
+                cost_tracker = get_cost_tracker(doc_id)
+                data_size = len(mapping_body.encode('utf-8'))
+                cost_tracker.track_s3_put(count=1, size_bytes=data_size)
+            except Exception as cost_error:
+                print(f"[BG_PROCESSOR] ⚠️ Failed to track S3 cost: {str(cost_error)}")
+            
             print(f"[BG_PROCESSOR] 🗺️ PAGE MAPPING: Cached page mapping to S3 for API access")
         except Exception as e:
             print(f"[BG_PROCESSOR] ⚠️ PAGE MAPPING: Failed to cache page mapping: {str(e)}")
@@ -1120,7 +1174,7 @@ class BackgroundDocumentProcessor:
         pages_processed = 0
         pages_cached = 0
         pages_queued = 0
-        futures = []  # Track all futures to wait for completion
+        futures = []  # Track futures to wait for completion
         
         for page_num in range(total_pages):
             try:
@@ -1152,20 +1206,16 @@ class BackgroundDocumentProcessor:
         
         print(f"[BG_PROCESSOR] 🤖 DEATH CERT LLM: Processing summary - {pages_cached} cached, {pages_queued} queued for extraction")
         
-        # CRITICAL: Wait for all LLM extraction tasks to complete before returning
+        # Wait for all futures to complete before returning
         if futures:
-            print(f"[BG_PROCESSOR] ⏳ Waiting for {len(futures)} LLM extraction tasks to complete...")
-            completed = 0
+            print(f"[BG_PROCESSOR] ⏳ Waiting for {len(futures)} death certificate pages to complete processing...")
+            from concurrent.futures import as_completed
             for future in as_completed(futures):
-                completed += 1
                 try:
-                    result = future.result()
-                    print(f"[BG_PROCESSOR] ✅ LLM extraction task completed ({completed}/{len(futures)})")
+                    future.result()  # Wait for completion
                 except Exception as e:
-                    print(f"[BG_PROCESSOR] ❌ LLM extraction task failed: {str(e)}")
-            print(f"[BG_PROCESSOR] ✅ All {len(futures)} LLM extraction tasks completed!")
-        
-        print(f"[BG_PROCESSOR] 🤖 DEATH CERT LLM: All pages processed and cached")
+                    print(f"[BG_PROCESSOR] ⚠️ Death certificate page processing error: {str(e)}")
+            print(f"[BG_PROCESSOR] ✅ All death certificate pages completed")
     
     def _stage_llm_extraction(self, doc_id: str, pdf_path: str, accounts: List[Dict], 
                              page_mapping: Dict[int, str], total_pages: int):
@@ -1278,6 +1328,7 @@ class BackgroundDocumentProcessor:
             # Check cache again (race condition protection)
             try:
                 cached_result = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+                print(f"[BG_PROCESSOR] 🤖 DEATH CERT: Page {page_num + 1} already cached, skipping...")
                 return  # Already processed
             except:
                 pass
@@ -1289,8 +1340,12 @@ class BackgroundDocumentProcessor:
                 print(f"[BG_PROCESSOR] 🤖 DEATH CERT: Page {page_num + 1} has no OCR text, skipping...")
                 return
             
+            print(f"[BG_PROCESSOR] 🤖 DEATH CERT: Starting LLM extraction for page {page_num + 1}...")
+            
             # Extract data using LLM with death certificate specific prompt
             extracted_data = self._extract_with_llm(page_text, "N/A", get_comprehensive_extraction_prompt(), doc_id=doc_id)
+            
+            print(f"[BG_PROCESSOR] 🤖 DEATH CERT: LLM extraction completed for page {page_num + 1}, got {len(extracted_data)} fields")
             
             # Cache the result with unique key structure
             cache_data = {
@@ -1302,27 +1357,29 @@ class BackgroundDocumentProcessor:
                 "cache_version": "death_cert_v1"
             }
             
-            cache_json = json.dumps(cache_data)
-            cache_size = len(cache_json.encode('utf-8'))
-            
+            cache_body = json.dumps(cache_data)
             s3_client.put_object(
                 Bucket=S3_BUCKET,
                 Key=cache_key,
-                Body=cache_json,
+                Body=cache_body,
                 ContentType='application/json'
             )
             
             # Track S3 cost
             try:
+                from app.services.cost_tracker import get_cost_tracker
                 cost_tracker = get_cost_tracker(doc_id)
-                cost_tracker.track_s3_put(count=1, size_bytes=cache_size)
-            except Exception as e:
-                print(f"[COST] Failed to track S3 cost: {str(e)}")
+                data_size = len(cache_body.encode('utf-8'))
+                cost_tracker.track_s3_put(count=1, size_bytes=data_size)
+            except Exception as cost_error:
+                print(f"[BG_PROCESSOR] 🤖 DEATH CERT: ⚠️ Failed to track S3 cost: {str(cost_error)}")
             
             print(f"[BG_PROCESSOR] 🤖 DEATH CERT: ✅ Processed and cached page {page_num + 1} with unique data")
             
         except Exception as e:
             print(f"[BG_PROCESSOR] 🤖 DEATH CERT: ❌ Failed to process page {page_num + 1}: {str(e)}")
+            import traceback
+            traceback.print_exc()
     
     def _process_single_page(self, doc_id: str, pdf_path: str, page_num: int, page_mapping: Dict[int, str]):
         """Process a single page with LLM extraction - LEGACY"""
@@ -1410,8 +1467,6 @@ class BackgroundDocumentProcessor:
     def _extract_with_llm(self, page_text: str, account_number: str, custom_prompt: str = None, doc_id: str = None) -> Dict:
         """Extract data from page text using LLM - COST OPTIMIZED VERSION"""
         try:
-            print(f"[LLM_EXTRACT] 🤖 Starting LLM extraction - doc_id={doc_id}, account={account_number}", flush=True)
-            
             # Use custom prompt if provided, otherwise use loan document prompt
             if custom_prompt:
                 prompt = custom_prompt
@@ -1432,7 +1487,6 @@ class BackgroundDocumentProcessor:
             }
             
             # Call Bedrock
-            print(f"[LLM_EXTRACT] 📞 Calling Bedrock API...", flush=True)
             response = bedrock.invoke_model(
                 modelId=MODEL_ID,
                 body=json.dumps(request_body)
@@ -1440,17 +1494,48 @@ class BackgroundDocumentProcessor:
             
             response_body = json.loads(response['body'].read())
             llm_response = response_body['content'][0]['text']
-            print(f"[LLM_EXTRACT] ✅ Got response from Bedrock ({len(llm_response)} chars)", flush=True)
             
             # Track Bedrock cost if doc_id is provided
-            print(f"[LLM_EXTRACT] 💰 Tracking cost - doc_id={doc_id}, custom_prompt={'Yes' if custom_prompt else 'No'}", flush=True)
             if doc_id:
-                prompt_full = f"{prompt}\n\nDocument text:\n{page_text[:8000]}"
-                print(f"[LLM_EXTRACT] 💰 Calling track_bedrock_cost with doc_id={doc_id}", flush=True)
-                track_bedrock_cost(doc_id, response_body, prompt_full, llm_response)
-                print(f"[LLM_EXTRACT] 💰 Cost tracking completed", flush=True)
-            else:
-                print(f"[LLM_EXTRACT] ⚠️ doc_id is None, skipping cost tracking", flush=True)
+                try:
+                    # Try different ways to get token counts (Bedrock API variations)
+                    input_tokens = 0
+                    output_tokens = 0
+                    
+                    # Method 1: Check 'usage' field (standard format)
+                    if 'usage' in response_body:
+                        input_tokens = response_body['usage'].get('input_tokens', 0)
+                        output_tokens = response_body['usage'].get('output_tokens', 0)
+                    
+                    # Method 2: Check top-level fields (alternative format)
+                    if input_tokens == 0:
+                        input_tokens = response_body.get('input_tokens', 0)
+                    if output_tokens == 0:
+                        output_tokens = response_body.get('output_tokens', 0)
+                    
+                    # If no usage info in response, estimate based on text length
+                    # Claude typically uses ~4 characters per token on average
+                    if input_tokens == 0:
+                        # Estimate input tokens from prompt + text
+                        if custom_prompt:
+                            prompt_text = custom_prompt
+                        else:
+                            prompt_text = get_loan_document_prompt()
+                        estimated_input_text = f"{prompt_text}\n\nDocument text:\n{page_text[:8000]}"
+                        input_tokens = len(estimated_input_text) // 4
+                    
+                    if output_tokens == 0:
+                        # Estimate output tokens from response
+                        output_tokens = len(llm_response) // 4
+                    
+                    if input_tokens > 0 or output_tokens > 0:
+                        cost_tracker = get_cost_tracker(doc_id)
+                        cost_tracker.track_bedrock_call(input_tokens, output_tokens)
+                        print(f"[COST] ✅ Tracked Bedrock cost in _extract_with_llm: {input_tokens} input + {output_tokens} output tokens (estimated)")
+                    else:
+                        print(f"[COST] ⚠️ Could not estimate tokens")
+                except Exception as e:
+                    print(f"[COST] ❌ Failed to track Bedrock cost: {str(e)}")
             
             # Parse JSON response
             json_start = llm_response.find('{')
@@ -1486,9 +1571,10 @@ class BackgroundDocumentProcessor:
                 "timestamp": time.time()
             }
         
-        # Also update document_status progress
+        # Also update document_status progress and stage
         if doc_id in self.document_status:
             self.document_status[doc_id]["progress"] = progress
+            self.document_status[doc_id]["stage"] = stage
     
     def _update_extraction_progress(self, doc_id: str, pages_processed: int, total_pages: int):
         """Update LLM extraction progress"""
@@ -1653,14 +1739,10 @@ class BackgroundDocumentProcessor:
             try:
                 cost_tracker = get_cost_tracker(doc_id)
                 cost_summary = cost_tracker.get_summary()
-                print(f"[COST] DEBUG: Cost summary for {doc_id}: {cost_summary}")
                 doc["processing_cost"] = cost_summary
                 print(f"[BG_PROCESSOR] 💰 COST: Saved cost data - Total: ${cost_summary['total_cost']:.6f}")
-                print(f"[BG_PROCESSOR] 💰 COST: Textract: ${cost_summary['textract']['cost']:.6f}, Bedrock: ${cost_summary['bedrock']['cost']:.6f}, S3: ${cost_summary['s3']['cost']:.6f}")
             except Exception as e:
                 print(f"[BG_PROCESSOR] ⚠️ Failed to save cost data: {str(e)}")
-                import traceback
-                traceback.print_exc()
             
             # Update document status
             doc.update({
@@ -1788,105 +1870,6 @@ textract = boto3.client("textract", region_name=AWS_REGION)
 s3_client = boto3.client("s3", region_name=AWS_REGION)
 MODEL_ID = "anthropic.claude-3-5-sonnet-20240620-v1:0"
 S3_BUCKET = "awsidpdocs"
-
-# S3 Helper functions with cost tracking
-def s3_put_object_with_cost(doc_id: str, bucket: str, key: str, body: str, content_type: str = 'application/json'):
-    """Put object to S3 and track cost"""
-    try:
-        # Calculate size
-        if isinstance(body, str):
-            body_bytes = body.encode('utf-8')
-        else:
-            body_bytes = body
-        
-        size_bytes = len(body_bytes)
-        
-        # Put object
-        s3_client.put_object(
-            Bucket=bucket,
-            Key=key,
-            Body=body_bytes,
-            ContentType=content_type
-        )
-        
-        # Track cost
-        try:
-            cost_tracker = get_cost_tracker(doc_id)
-            cost_tracker.track_s3_put(count=1, size_bytes=size_bytes)
-        except Exception as e:
-            print(f"[COST] Failed to track S3 PUT cost: {str(e)}")
-            
-    except Exception as e:
-        print(f"[S3] Failed to put object {key}: {str(e)}")
-        raise
-
-def s3_get_object_with_cost(doc_id: str, bucket: str, key: str):
-    """Get object from S3 and track cost"""
-    try:
-        # Get object
-        response = s3_client.get_object(Bucket=bucket, Key=key)
-        
-        # Track cost
-        try:
-            cost_tracker = get_cost_tracker(doc_id)
-            cost_tracker.track_s3_get(count=1)
-        except Exception as e:
-            print(f"[COST] Failed to track S3 GET cost: {str(e)}")
-        
-        return response
-        
-    except Exception as e:
-        print(f"[S3] Failed to get object {key}: {str(e)}")
-        raise
-
-def track_bedrock_cost(doc_id: str, response_body: dict, prompt_text: str = "", response_text: str = ""):
-    """Track Bedrock LLM cost from response, with fallback estimation"""
-    try:
-        print(f"[COST] 🔍 track_bedrock_cost called for doc_id={doc_id}", flush=True)
-        
-        if not response_body:
-            print(f"[COST] ⚠️ response_body is None or empty", flush=True)
-            return False
-        
-        print(f"[COST] 🔍 response_body type: {type(response_body)}, keys: {list(response_body.keys()) if isinstance(response_body, dict) else 'N/A'}", flush=True)
-        
-        # Try to extract token usage from response
-        # Bedrock returns usage in the response body
-        usage = response_body.get('usage', {})
-        print(f"[COST] 🔍 usage field: {usage}", flush=True)
-        
-        input_tokens = usage.get('input_tokens', 0) if usage else 0
-        output_tokens = usage.get('output_tokens', 0) if usage else 0
-        
-        print(f"[COST] 🔍 Extracted tokens - input: {input_tokens}, output: {output_tokens}", flush=True)
-        
-        # Estimate if not provided
-        if input_tokens == 0 and prompt_text:
-            estimated_input = len(prompt_text) // 4
-            input_tokens = max(estimated_input, 100)
-            print(f"[COST] 📊 Estimated input tokens: {input_tokens} (from {len(prompt_text)} chars)", flush=True)
-        
-        if output_tokens == 0 and response_text:
-            estimated_output = len(response_text) // 4
-            output_tokens = max(estimated_output, 50)
-            print(f"[COST] 📊 Estimated output tokens: {output_tokens} (from {len(response_text)} chars)", flush=True)
-        
-        # Track the cost
-        if input_tokens > 0 or output_tokens > 0:
-            cost_tracker = get_cost_tracker(doc_id)
-            print(f"[COST] 💾 Got cost tracker for {doc_id}", flush=True)
-            cost_tracker.track_bedrock_call(input_tokens, output_tokens)
-            print(f"[COST] ✅ Tracked Bedrock: {input_tokens} input + {output_tokens} output tokens = ${(input_tokens/1000)*0.003 + (output_tokens/1000)*0.015:.6f}", flush=True)
-            return True
-        else:
-            print(f"[COST] ⚠️ No token usage found and no text to estimate from", flush=True)
-            return False
-            
-    except Exception as e:
-        print(f"[COST] ❌ Failed to track Bedrock cost: {str(e)}", flush=True)
-        import traceback
-        traceback.print_exc()
-        return False
 
 # Initialize OCR Cache Manager
 ocr_cache_manager = OCRCacheManager(s3_client, S3_BUCKET)
@@ -2295,13 +2278,23 @@ def scan_and_map_pages(doc_id, pdf_path, accounts):
     # Save updated OCR cache
     try:
         cache_key = f"ocr_cache/{doc_id}/text_cache.json"
+        cache_body = json.dumps(ocr_text_cache)
         s3_client.put_object(
             Bucket=S3_BUCKET,
             Key=cache_key,
-            Body=json.dumps(ocr_text_cache),
+            Body=cache_body,
             ContentType='application/json'
         )
         print(f"[SCAN_OPTIMIZED] 💾 Updated OCR cache with {len(ocr_text_cache)} pages")
+        
+        # Track S3 cost
+        try:
+            from app.services.cost_tracker import get_cost_tracker
+            cost_tracker = get_cost_tracker(doc_id)
+            data_size = len(cache_body.encode('utf-8'))
+            cost_tracker.track_s3_put(count=1, size_bytes=data_size)
+        except Exception as cost_error:
+            print(f"[SCAN_OPTIMIZED] ⚠️ Failed to track S3 cost: {str(cost_error)}")
     except Exception as e:
         print(f"[SCAN_OPTIMIZED] ⚠️ Failed to cache OCR: {str(e)}")
     
@@ -2848,11 +2841,14 @@ def normalize_confidence_format(data):
 
 
 def is_confidence_object(obj):
-    """Check if an object is a confidence object {value: X, confidence: Y}"""
+    """Check if an object is a confidence object {value: X, confidence: Y, source: Z, edited_at: W}"""
+    # Must have 'value' and 'confidence' keys
+    # May also have 'source' and 'edited_at' keys (2-4 keys total)
     return (isinstance(obj, dict) and 
             "value" in obj and 
             "confidence" in obj and 
-            len(obj) == 2)
+            len(obj) >= 2 and len(obj) <= 4 and
+            all(k in ["value", "confidence", "source", "edited_at"] for k in obj.keys()))
 
 def flatten_nested_objects(data):
     """
@@ -2945,8 +2941,6 @@ def flatten_nested_objects(data):
 
 def call_bedrock(prompt: str, text: str, max_tokens: int = 8192, doc_id: str = None):
     """Call AWS Bedrock with Claude - using maximum token limit"""
-    print(f"[BEDROCK] 📞 call_bedrock invoked - doc_id={doc_id}, text_len={len(text)}, prompt_len={len(prompt)}", flush=True)
-    
     payload = {
         "anthropic_version": "bedrock-2023-05-31",
         "max_tokens": max_tokens,
@@ -2955,25 +2949,69 @@ def call_bedrock(prompt: str, text: str, max_tokens: int = 8192, doc_id: str = N
             {"role": "user", "content": [{"type": "text", "text": f"{prompt}\n\n{text}"}]}
         ],
     }
-    response = bedrock.invoke_model(modelId=MODEL_ID, body=json.dumps(payload))
-    response_body = json.loads(response["body"].read())
-    result_text = response_body["content"][0]["text"]
     
-    print(f"[BEDROCK] ✅ Got response - result_len={len(result_text)}", flush=True)
+    # Add response metadata to get token usage
+    resp = bedrock.invoke_model(modelId=MODEL_ID, body=json.dumps(payload))
+    response_body = json.loads(resp["body"].read())
+    
+    # Extract token usage from response metadata if available
+    if hasattr(resp, 'get') and 'ResponseMetadata' in resp:
+        metadata = resp.get('ResponseMetadata', {})
+        if 'HTTPHeaders' in metadata:
+            headers = metadata['HTTPHeaders']
+            # Bedrock returns token info in headers
+            if 'x-amzn-bedrock-input-token-count' in headers:
+                try:
+                    response_body['usage'] = {
+                        'input_tokens': int(headers.get('x-amzn-bedrock-input-token-count', 0)),
+                        'output_tokens': int(headers.get('x-amzn-bedrock-output-token-count', 0))
+                    }
+                except:
+                    pass
     
     # Track Bedrock cost if doc_id is provided
     if doc_id:
-        print(f"[BEDROCK] 💰 Tracking cost for doc_id={doc_id}", flush=True)
-        prompt_full = f"{prompt}\n\n{text}"
-        track_bedrock_cost(doc_id, response_body, prompt_full, result_text)
-        print(f"[BEDROCK] 💰 Cost tracking completed", flush=True)
-    else:
-        print(f"[BEDROCK] ⚠️ doc_id is None, skipping cost tracking", flush=True)
+        try:
+            # Try different ways to get token counts (Bedrock API variations)
+            input_tokens = 0
+            output_tokens = 0
+            
+            # Method 1: Check 'usage' field (standard format)
+            if 'usage' in response_body:
+                input_tokens = response_body['usage'].get('input_tokens', 0)
+                output_tokens = response_body['usage'].get('output_tokens', 0)
+            
+            # Method 2: Check top-level fields (alternative format)
+            if input_tokens == 0:
+                input_tokens = response_body.get('input_tokens', 0)
+            if output_tokens == 0:
+                output_tokens = response_body.get('output_tokens', 0)
+            
+            # If no usage info in response, estimate based on text length
+            # Claude typically uses ~4 characters per token on average
+            if input_tokens == 0:
+                # Estimate input tokens from prompt + text
+                estimated_input_text = f"{prompt}\n\n{text}"
+                input_tokens = len(estimated_input_text) // 4
+            
+            if output_tokens == 0:
+                # Estimate output tokens from response
+                response_text = response_body["content"][0]["text"]
+                output_tokens = len(response_text) // 4
+            
+            if input_tokens > 0 or output_tokens > 0:
+                cost_tracker = get_cost_tracker(doc_id)
+                cost_tracker.track_bedrock_call(input_tokens, output_tokens)
+                print(f"[COST] ✅ Tracked Bedrock cost in call_bedrock: {input_tokens} input + {output_tokens} output tokens (estimated)")
+            else:
+                print(f"[COST] ⚠️ Could not estimate tokens")
+        except Exception as e:
+            print(f"[COST] ❌ Failed to track Bedrock cost: {str(e)}")
     
-    return result_text
+    return response_body["content"][0]["text"]
 
 
-def extract_basic_fields(text: str, num_fields: int = 100, doc_id: str = None):
+def extract_basic_fields(text: str, num_fields: int = 100):
     """Extract ALL fields from any document (up to 100 fields) - BE THOROUGH"""
     # USE THE SAME PROMPT AS get_comprehensive_extraction_prompt() FOR CONSISTENCY
     prompt = get_comprehensive_extraction_prompt()
@@ -3009,7 +3047,7 @@ def extract_basic_fields(text: str, num_fields: int = 100, doc_id: str = None):
         except:
             print(f"[EXTRACT_BASIC] No cache found, extracting fresh (hash: {text_hash[:8]}) - WILL CACHE FOR CONSISTENCY")
         
-        response = call_bedrock(prompt, normalized_text, max_tokens=8192, doc_id=doc_id)  # Use maximum tokens for comprehensive extraction
+        response = call_bedrock(prompt, normalized_text, max_tokens=8192)  # Use maximum tokens for comprehensive extraction
         
         # Find JSON content
         json_start = response.find('{')
@@ -3049,7 +3087,7 @@ def extract_basic_fields(text: str, num_fields: int = 100, doc_id: str = None):
         }
 
 
-def detect_and_extract_documents(text: str, doc_id: str = None):
+def detect_and_extract_documents(text: str):
     """
     Dynamically detect document types and extract relevant fields
     AI decides what fields to extract based on document type
@@ -3264,7 +3302,7 @@ Only extract fields where you can see a clear, definite value in the document.
         pass
     
     try:
-        response = call_bedrock(prompt, text, max_tokens=8192, doc_id=doc_id)
+        response = call_bedrock(prompt, text, max_tokens=8192)
         
         # Clean up response - remove markdown code blocks if present
         response = response.strip()
@@ -3519,7 +3557,7 @@ def pre_cache_all_pages(job_id: str, pdf_path: str, accounts: list):
                     page_extraction_prompt = get_comprehensive_extraction_prompt()
                 
                 # Extract data using AI
-                response = call_bedrock(page_extraction_prompt, page_text, max_tokens=8192, doc_id=job_id)
+                response = call_bedrock(page_extraction_prompt, page_text, max_tokens=8192)
                 
                 # Parse JSON
                 json_start = response.find('{')
@@ -4777,7 +4815,37 @@ def get_account_page_data(doc_id, account_index, page_num):
     
     print(f"[API] 📄 Page data request: doc_id={doc_id}, account={account_index}, page={page_num} (0-based: {page_num_0based})")
     
-    # 🚀 PRIORITY 0: Check account's page_data first (from background processing)
+    # 🚀 PRIORITY 0: Check S3 cache FIRST for user edits (this is where savePage stores data)
+    # CRITICAL FIX: Use 0-based page number for cache key consistency
+    cache_key = f"page_data/{doc_id}/account_{account_index}/page_{page_num_0based}.json"
+    try:
+        print(f"[DEBUG] Checking S3 cache for user edits: {cache_key}")
+        cache_response = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+        cached_data = json.loads(cache_response['Body'].read().decode('utf-8'))
+        
+        cached_fields = cached_data.get("data", {})
+        print(f"[CACHE] ✅ Serving page {page_num} from S3 user edits cache (account {account_index})")
+        print(f"[CACHE] 📊 Cache contains {len(cached_fields)} fields with confidence scores")
+        
+        response = jsonify({
+            "success": True,
+            "page_number": page_num + 1,
+            "account_number": cached_data.get("account_number"),
+            "data": cached_fields,
+            "overall_confidence": cached_data.get("overall_confidence"),
+            "cached": True,
+            "cache_source": "s3_user_edits"
+        })
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
+    except s3_client.exceptions.NoSuchKey:
+        print(f"[DEBUG] No S3 user edits cache found, checking other sources")
+    except Exception as s3_error:
+        print(f"[DEBUG] S3 cache check failed: {str(s3_error)}, checking other sources")
+    
+    # 🚀 PRIORITY 1: Check account's page_data (from background processing)
     doc = next((d for d in processed_documents if d["id"] == doc_id), None)
     if doc:
         doc_data = doc.get("documents", [{}])[0]
@@ -4806,7 +4874,7 @@ def get_account_page_data(doc_id, account_index, page_num):
             else:
                 print(f"[DEBUG] Page {page_num} not found in account page_data. Available pages: {list(page_data.keys())}")
     
-    # 🚀 PRIORITY 1: Check background processor cache first (convert 1-based to 0-based)
+    # 🚀 PRIORITY 2: Check background processor cache (convert 1-based to 0-based)
     if background_processor.is_page_cached(doc_id, page_num_0based):
         cached_data = background_processor.get_cached_page_data(doc_id, page_num_0based)
         if cached_data and cached_data.get("extracted_data"):
@@ -4863,46 +4931,6 @@ def get_account_page_data(doc_id, account_index, page_num):
     print(f"[DEBUG] Document found, pdf_path={doc.get('pdf_path')}")
     
     try:
-        # Check S3 cache first
-        cache_key = f"page_data/{doc_id}/account_{account_index}/page_{page_num}.json"
-        
-        try:
-            print(f"[DEBUG] Checking S3 cache: {cache_key}")
-            cache_response = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
-            cached_data = json.loads(cache_response['Body'].read().decode('utf-8'))
-            
-            # Check prompt version - invalidate old cache
-            cached_version = cached_data.get("prompt_version", "v1")
-            current_version = "v6_loan_document_prompt_fix"  # Updated to force re-extraction with correct prompt
-            
-            if cached_version != current_version:
-                print(f"[DEBUG] Cache version mismatch ({cached_version} vs {current_version}) - will re-extract")
-                raise Exception("Cache version outdated")
-            
-            print(f"[DEBUG] Found cached data in S3 (version {cached_version})")
-            
-            # CRITICAL: Apply flattening to cached data too!
-            cached_fields = cached_data.get("data", {})
-            cached_fields = flatten_nested_objects(cached_fields)
-            print(f"[DEBUG] Applied flattening to cached data")
-            
-            response = jsonify({
-                "success": True,
-                "page_number": page_num + 1,
-                "account_number": cached_data.get("account_number"),
-                "data": cached_fields,
-                "cached": True,
-                "prompt_version": cached_version
-            })
-            # Prevent browser caching - always fetch fresh data
-            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-            response.headers['Pragma'] = 'no-cache'
-            response.headers['Expires'] = '0'
-            return response
-        except s3_client.exceptions.NoSuchKey:
-            print(f"[DEBUG] No cache found, will extract data")
-        except Exception as cache_error:
-            print(f"[DEBUG] Cache check failed: {str(cache_error)}, will extract data")
         
         # Get PDF path
         pdf_path = doc.get("pdf_path")
@@ -5217,7 +5245,36 @@ def extract_page_data(doc_id, page_num):
     
     print(f"[DEBUG] extract_page_data called: doc_id={doc_id}, page_num={page_num}")
     
-    # 🚀 PRIORITY 1: Check death certificate cache first (for death certificates)
+    # 🚀 PRIORITY 0: Check S3 user edits cache FIRST (for user-added/edited fields)
+    # This must be checked BEFORE background processor cache to ensure user edits are shown
+    cache_key = f"page_data/{doc_id}/page_{page_num - 1}.json"
+    
+    if not request.args.get('force', 'false').lower() == 'true':
+        try:
+            print(f"[DEBUG] Checking S3 user edits cache: {cache_key}")
+            cache_response = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+            cached_data = json.loads(cache_response['Body'].read().decode('utf-8'))
+            print(f"[DEBUG] ✅ Found user edits cache in S3")
+            
+            # CRITICAL: Apply flattening to cached data too!
+            cached_fields = cached_data.get("data", {})
+            cached_fields = flatten_nested_objects(cached_fields)
+            print(f"[DEBUG] Applied flattening to cached data")
+            
+            return jsonify({
+                "success": True,
+                "page_number": page_num + 1,
+                "data": cached_fields,
+                "cached": True,
+                "cache_source": "s3_user_edits",
+                "edited": cached_data.get("edited", False)
+            })
+        except s3_client.exceptions.NoSuchKey:
+            print(f"[DEBUG] No user edits cache found, checking other sources")
+        except Exception as cache_error:
+            print(f"[DEBUG] User edits cache check failed: {str(cache_error)}, checking other sources")
+    
+    # 🚀 PRIORITY 1: Check death certificate cache (for death certificates)
     doc = next((d for d in processed_documents if d["id"] == doc_id), None)
     if doc:
         doc_type = doc.get("document_type_info", {}).get("type", "unknown")
@@ -5802,8 +5859,16 @@ CONFIDENCE SCORE GUIDELINES:
         claude_response = response_body['content'][0]['text']
         
         # Track Bedrock cost
-        prompt_full = f"{prompt}\n\nPage text:\n{page_text}"
-        track_bedrock_cost(doc_id, response_body, prompt_full, claude_response)
+        try:
+            input_tokens = response_body.get('usage', {}).get('input_tokens', 0)
+            output_tokens = response_body.get('usage', {}).get('output_tokens', 0)
+            
+            if input_tokens > 0 or output_tokens > 0:
+                cost_tracker = get_cost_tracker(doc_id)
+                cost_tracker.track_bedrock_call(input_tokens, output_tokens)
+                print(f"[COST] ✅ Tracked Bedrock cost for progressive extraction: {input_tokens} input + {output_tokens} output tokens")
+        except Exception as e:
+            print(f"[COST] Failed to track Bedrock cost: {str(e)}")
         
         # Parse extracted data with better error handling
         try:
@@ -6213,8 +6278,16 @@ def extract_regular_page_progressive(doc_id, page_index):
         claude_response = response_body['content'][0]['text']
         
         # Track Bedrock cost
-        prompt_full = f"{prompt}\n\nPage text:\n{page_text}"
-        track_bedrock_cost(doc_id, response_body, prompt_full, claude_response)
+        try:
+            input_tokens = response_body.get('usage', {}).get('input_tokens', 0)
+            output_tokens = response_body.get('usage', {}).get('output_tokens', 0)
+            
+            if input_tokens > 0 or output_tokens > 0:
+                cost_tracker = get_cost_tracker(doc_id)
+                cost_tracker.track_bedrock_call(input_tokens, output_tokens)
+                print(f"[COST] ✅ Tracked Bedrock cost for progressive extraction: {input_tokens} input + {output_tokens} output tokens")
+        except Exception as e:
+            print(f"[COST] Failed to track Bedrock cost: {str(e)}")
         
         # Parse extracted data with better error handling
         try:
@@ -6459,62 +6532,258 @@ def extract_regular_page_progressive(doc_id, page_index):
         return jsonify({"success": False, "message": str(e)}), 500
 
 
+def _calculate_overall_confidence(fields_data: Dict) -> float:
+    """Calculate weighted average confidence across all fields"""
+    if not fields_data:
+        return 0.0
+    
+    total_confidence = 0.0
+    field_count = 0
+    
+    for field_name, field_value in fields_data.items():
+        field_count += 1
+        
+        # Extract confidence from field value
+        if isinstance(field_value, dict) and "confidence" in field_value:
+            confidence = field_value.get("confidence", 0)
+        else:
+            # If no confidence info, assume 0 (AI-extracted without confidence)
+            confidence = 0
+        
+        total_confidence += confidence
+    
+    return round(total_confidence / field_count, 2) if field_count > 0 else 0.0
+
+
+@app.route("/api/document/<doc_id>/account/<int:account_index>/page/<int:page_num>/update", methods=["POST"])
+def update_page_data_account(doc_id, account_index, page_num):
+    """Update page data for account-based documents"""
+    return update_page_data(doc_id, page_num, account_index)
+
 @app.route("/api/document/<doc_id>/page/<int:page_num>/update", methods=["POST"])
-def update_page_data(doc_id, page_num):
-    """Update page data and save to S3 cache"""
+def update_page_data_regular(doc_id, page_num):
+    """Update page data for regular documents"""
+    return update_page_data(doc_id, page_num, None)
+
+def update_page_data(doc_id, page_num, account_index=None):
+    """Update page data and save to S3 cache with confidence tracking"""
     import json
+    
+    print(f"[DEBUG] update_page_data called: doc_id={doc_id}, page_num={page_num}, account_index={account_index}")
     
     try:
         data = request.get_json()
         page_data = data.get("page_data")
-        account_index = data.get("account_index")  # Get account index if provided
+        action_type = data.get("action_type", "edit")  # 'edit', 'add', 'delete'
+        deleted_fields = data.get("deleted_fields", [])  # List of field names to delete
         
-        if not page_data:
+        print(f"[DEBUG] Request data: page_data keys={list(page_data.keys()) if page_data else 'None'}, action_type={action_type}")
+        
+        # If account_index not in URL, try to get it from request body
+        if account_index is None:
+            account_index = data.get("account_index")
+        
+        # Allow empty page_data for delete operations (page_data = {})
+        if page_data is None:
             return jsonify({"success": False, "message": "No page data provided"}), 400
         
         doc = next((d for d in processed_documents if d["id"] == doc_id), None)
         if not doc:
             return jsonify({"success": False, "message": "Document not found"}), 404
         
+        # CRITICAL FIX: Convert 1-based page_num to 0-based for consistent cache keys
+        page_num_0based = page_num - 1
+        
         # Determine cache key based on whether this is an account-based document
         if account_index is not None:
-            # Account-based document (loan documents)
-            cache_key = f"page_data/{doc_id}/account_{account_index}/page_{page_num}.json"
-            print(f"[INFO] Updating account-based cache: {cache_key}")
+            # Account-based document (loan documents) - use 0-based page number
+            cache_key = f"page_data/{doc_id}/account_{account_index}/page_{page_num_0based}.json"
+            print(f"[INFO] 💾 Updating account-based cache: {cache_key} (page_num: {page_num} → 0-based: {page_num_0based})")
         else:
-            # Regular document (convert 1-based to 0-based)
-            cache_key = f"page_data/{doc_id}/page_{page_num - 1}.json"
-            print(f"[INFO] Updating regular cache: {cache_key}")
+            # Regular document (already 0-based)
+            cache_key = f"page_data/{doc_id}/page_{page_num_0based}.json"
+            print(f"[INFO] 💾 Updating regular cache: {cache_key} (page_num: {page_num} → 0-based: {page_num_0based})")
         
-        # Get existing cache to preserve metadata
+        # Get existing cache to preserve metadata and original field structure
+        existing_fields = {}
+        existing_cache = {}
+        account_number = None
         try:
             cache_response = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
             existing_cache = json.loads(cache_response['Body'].read().decode('utf-8'))
+            existing_fields = existing_cache.get("data", {})
             account_number = existing_cache.get("account_number")
-        except:
-            account_number = None
+            print(f"[INFO] Loaded existing fields from S3 cache: {list(existing_fields.keys())}")
+        except Exception as cache_error:
+            # Cache miss - try to load from document's page_data
+            print(f"[INFO] No S3 cache found ({str(cache_error)}), loading from document page_data")
+            if account_index is not None:
+                doc_data = doc.get("documents", [{}])[0]
+                accounts = doc_data.get("accounts", [])
+                print(f"[DEBUG] Document has {len(accounts)} accounts")
+                if account_index < len(accounts):
+                    account = accounts[account_index]
+                    page_data_dict = account.get("page_data", {})  # Rename to avoid confusion with request page_data
+                    page_key = str(page_num)  # page_num is 1-based from URL
+                    print(f"[DEBUG] Account {account_index} has pages: {list(page_data_dict.keys())}")
+                    if page_key in page_data_dict:
+                        # Extract ONLY the fields for this specific page
+                        existing_fields = page_data_dict[page_key]
+                        account_number = account.get("accountNumber", "Unknown")
+                        print(f"[INFO] Loaded existing fields from document page_data for page {page_key}: {list(existing_fields.keys())}")
+                    else:
+                        print(f"[DEBUG] Page {page_key} not found in account page_data")
+                else:
+                    print(f"[DEBUG] Account index {account_index} out of range (only {len(accounts)} accounts)")
         
+        # Start with existing fields (preserve all fields)
+        processed_data = {}
+        for field_name, field_value in existing_fields.items():
+            processed_data[field_name] = field_value
+        print(f"[INFO] Starting with {len(processed_data)} existing fields")
+        
+        # Process ONLY the updated fields from page_data
+        for field_name, field_value in page_data.items():
+            # Skip deleted fields
+            if field_name in deleted_fields:
+                print(f"[INFO] Deleting field: {field_name}")
+                if field_name in processed_data:
+                    del processed_data[field_name]
+                continue
+            
+            # Determine if this field was edited/added by human
+            existing_field = existing_fields.get(field_name)
+            is_new_field = field_name not in existing_fields
+            
+            # Extract the actual value (handle both string and object formats)
+            if isinstance(field_value, dict):
+                actual_value = field_value.get("value", field_value)
+            else:
+                actual_value = field_value
+            
+            # Check if value changed from original
+            existing_value = None
+            if existing_field:
+                if isinstance(existing_field, dict):
+                    existing_value = existing_field.get("value", existing_field)
+                else:
+                    existing_value = existing_field
+            
+            value_changed = existing_value != actual_value
+            
+            # Build field object with confidence
+            if is_new_field:
+                # NEW FIELD: Set confidence to 100 and mark as human_added
+                processed_data[field_name] = {
+                    "value": actual_value,
+                    "confidence": 100,
+                    "source": "human_added",
+                    "edited_at": datetime.now().isoformat()
+                }
+                print(f"[INFO] Added new field: {field_name} (confidence: 100, source: human_added)")
+            
+            elif value_changed:
+                # EDITED FIELD: Set confidence to 100 and mark as human_corrected
+                processed_data[field_name] = {
+                    "value": actual_value,
+                    "confidence": 100,
+                    "source": "human_corrected",
+                    "edited_at": datetime.now().isoformat()
+                }
+                print(f"[INFO] Edited field: {field_name} (confidence: 100, source: human_corrected)")
+            
+            else:
+                # UNCHANGED FIELD: Preserve original confidence and source
+                if isinstance(existing_field, dict):
+                    processed_data[field_name] = existing_field
+                else:
+                    # Old format without confidence, assume AI-extracted
+                    processed_data[field_name] = {
+                        "value": actual_value,
+                        "confidence": 0,
+                        "source": "ai_extracted"
+                    }
+                print(f"[INFO] Preserved field: {field_name}")
+        
+        # CRITICAL FIX: Process deleted_fields separately (they may not be in page_data)
+        for field_name in deleted_fields:
+            print(f"[INFO] Deleting field: {field_name}")
+            if field_name in processed_data:
+                del processed_data[field_name]
+                print(f"[INFO] Field deleted: {field_name}")
+            else:
+                print(f"[INFO] Field not found in processed_data: {field_name}")
+        
+        # Build cache data (do NOT recalculate overall confidence)
         cache_data = {
-            "data": page_data,
+            "data": processed_data,
             "extracted_at": datetime.now().isoformat(),
             "edited": True,
-            "edited_at": datetime.now().isoformat()
+            "edited_at": datetime.now().isoformat(),
+            "action_type": action_type
         }
+        
+        # Preserve existing overall_confidence if it exists
+        if existing_cache and "overall_confidence" in existing_cache:
+            cache_data["overall_confidence"] = existing_cache["overall_confidence"]
         
         if account_number:
             cache_data["account_number"] = account_number
         
         try:
+            # Save to S3
+            cache_body = json.dumps(cache_data)
             s3_client.put_object(
                 Bucket=S3_BUCKET,
                 Key=cache_key,
-                Body=json.dumps(cache_data),
+                Body=cache_body,
                 ContentType='application/json'
             )
-            print(f"[INFO] Updated cache: {cache_key}")
-            return jsonify({"success": True, "message": "Page data updated successfully"})
+            print(f"[INFO] ✅ Saved to S3: {cache_key}")
+            
+            # Track S3 cost for user edit
+            try:
+                from app.services.cost_tracker import get_cost_tracker
+                cost_tracker = get_cost_tracker(doc_id)
+                data_size = len(cache_body.encode('utf-8'))
+                cost_tracker.track_s3_put(count=1, size_bytes=data_size)
+                print(f"[INFO] 💰 Tracked S3 cost for user edit: 1 PUT request ({data_size} bytes)")
+            except Exception as cost_error:
+                print(f"[INFO] ⚠️ Failed to track S3 cost: {str(cost_error)}")
+            
+            # VERIFICATION: Read back immediately to confirm save
+            try:
+                verify_response = s3_client.get_object(Bucket=S3_BUCKET, Key=cache_key)
+                verify_data = json.loads(verify_response['Body'].read().decode('utf-8'))
+                verify_fields = verify_data.get('data', {})
+                print(f"[INFO] ✅ VERIFIED: Cache contains {len(verify_fields)} fields")
+                print(f"[INFO] ✅ VERIFIED: Cache key is correct: {cache_key}")
+            except Exception as verify_error:
+                print(f"[ERROR] ⚠️ Verification failed - cache may not have been saved: {str(verify_error)}")
+                return jsonify({
+                    "success": False, 
+                    "message": f"Cache save verification failed: {str(verify_error)}"
+                }), 500
+            
+            print(f"[INFO] Total fields in response: {len(processed_data)}")
+            print(f"[INFO] All fields: {list(processed_data.keys())}")
+            
+            # Log each field's confidence
+            for field_name, field_data in processed_data.items():
+                if isinstance(field_data, dict):
+                    confidence = field_data.get("confidence", "N/A")
+                    source = field_data.get("source", "N/A")
+                    print(f"[INFO]   - {field_name}: confidence={confidence}, source={source}")
+            
+            return jsonify({
+                "success": True,
+                "message": "Page data updated successfully",
+                "data": processed_data,
+                "cache_key": cache_key,
+                "verified": True
+            })
         except Exception as s3_error:
-            print(f"[ERROR] Failed to update cache: {str(s3_error)}")
+            print(f"[ERROR] ❌ Failed to update cache: {str(s3_error)}")
             return jsonify({"success": False, "message": f"Failed to update cache: {str(s3_error)}"}), 500
     
     except Exception as e:
@@ -6679,7 +6948,7 @@ def get_status(job_id):
         elif stage == "account_splitting":
             # Account splitting continues from 55% to 75%
             overall_progress = 55 + int((stage_progress / 100) * 20)
-            message = f"🔀 Splitting accounts & caching OCR results... ({overall_progress}%)"
+            message = f"🔀 Splitting Account... ({overall_progress}%)"
             detailed_message = "Detecting account boundaries, splitting pages, and caching OCR results"
         elif stage == "page_analysis":
             # Page analysis is part of account splitting (55-75%)
@@ -7199,7 +7468,7 @@ def _merge_death_certificate_pages_json(doc_id, doc, doc_data):
                     
                     # Extract with LLM (this ensures it's called only ONCE per page)
                     print(f"[COMPLETE_JSON]   🤖 Extracting page {page_num} with LLM...")
-                    extracted_data = _extract_death_cert_page_with_llm(page_text, doc_id=doc_id)
+                    extracted_data = _extract_death_cert_page_with_llm(page_text)
                     
                     # Cache the result immediately
                     cache_key = f"death_cert_page_data/{doc_id}/page_{page_num}.json"
@@ -7372,8 +7641,16 @@ def _extract_death_cert_page_with_llm(page_text, doc_id=None):
         
         # Track Bedrock cost if doc_id is provided
         if doc_id:
-            prompt_full = f"{prompt}\n\nPage text:\n{page_text}"
-            track_bedrock_cost(doc_id, response_body, prompt_full, result_text)
+            try:
+                input_tokens = response_body.get('usage', {}).get('input_tokens', 0)
+                output_tokens = response_body.get('usage', {}).get('output_tokens', 0)
+                
+                if input_tokens > 0 or output_tokens > 0:
+                    cost_tracker = get_cost_tracker(doc_id)
+                    cost_tracker.track_bedrock_call(input_tokens, output_tokens)
+                    print(f"[COST] ✅ Tracked Bedrock cost: {input_tokens} input + {output_tokens} output tokens")
+            except Exception as e:
+                print(f"[COST] Failed to track Bedrock cost: {str(e)}")
         
         # Parse JSON response
         import re

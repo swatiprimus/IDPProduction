@@ -1,0 +1,152 @@
+================================================================================
+PAGE ISOLATION - QUICK REFERENCE
+================================================================================
+
+PRINCIPLE: Each page is completely independent
+
+================================================================================
+HOW IT WORKS
+================================================================================
+
+Page 1: Has its own fields
+  - "abc" = "value1"
+  - "name" = "John"
+
+Page 2: Has its own fields (independent)
+  - "address" = "123 Main St"
+  - "phone" = "555-1234"
+
+Page 3: Has its own fields (independent)
+  - "date" = "2025-12-18"
+  - "amount" = "1000"
+
+Fields on Page 1 do NOT appear on Page 2 or Page 3
+
+================================================================================
+ADDING FIELDS
+================================================================================
+
+Add "abc" on Page 1:
+  1. Navigate to Page 1
+  2. Click "➕ Add"
+  3. Enter: Field Name = "abc", Value = "value1"
+  4. Click "Add Field"
+  Result: "abc" appears on Page 1 ONLY
+
+Add "abc" on Page 2:
+  1. Navigate to Page 2
+  2. Click "➕ Add"
+  3. Enter: Field Name = "abc", Value = "value2"
+  4. Click "Add Field"
+  Result: "abc" appears on Page 2 ONLY
+          Page 1 "abc" = "value1" (unchanged)
+          Page 2 "abc" = "value2" (different value)
+
+================================================================================
+DUPLICATE DETECTION
+================================================================================
+
+Try to add "abc" again on Page 1:
+  1. On Page 1
+  2. Click "➕ Add"
+  3. Enter: Field Name = "abc", Value = "new_value"
+  4. Click "Add Field"
+  Result: Confirmation dialog appears
+          "Field 'abc' already exists. Do you want to overwrite it?"
+          Click OK to overwrite or Cancel to keep original
+
+Try to add "abc" on Page 2 (after adding on Page 1):
+  1. Navigate to Page 2
+  2. Click "➕ Add"
+  3. Enter: Field Name = "abc", Value = "different"
+  4. Click "Add Field"
+  Result: NO error, field is added
+          Page 2 now has "abc" = "different"
+          Duplicate check is PER PAGE, not across pages
+
+================================================================================
+EDITING FIELDS
+================================================================================
+
+Edit "abc" on Page 1:
+  1. On Page 1
+  2. Click "📝 Edit"
+  3. Click on "abc" field value
+  4. Change value
+  5. Click "✓ Save"
+  Result: "abc" on Page 1 is updated
+          "abc" on Page 2 is NOT affected
+
+================================================================================
+DELETING FIELDS
+================================================================================
+
+Delete "abc" on Page 1:
+  1. On Page 1
+  2. Click "🗑️ Delete"
+  3. Check "abc" field
+  4. Click "✓ Confirm"
+  Result: "abc" removed from Page 1
+          "abc" on Page 2 still exists
+
+================================================================================
+REFRESHING PAGE
+================================================================================
+
+Add "abc" on Page 1, then refresh:
+  1. Page 1: Add "abc" = "value1"
+  2. Click "✓ Save"
+  3. Refresh page (F5)
+  Result: "abc" still appears on Page 1
+          Page 2 does NOT have "abc"
+
+================================================================================
+DATA STORAGE
+================================================================================
+
+Each page has separate cache in S3:
+  page_data/{doc_id}/account_0/page_1.json
+  page_data/{doc_id}/account_0/page_2.json
+  page_data/{doc_id}/account_0/page_3.json
+
+Each cache contains only that page's fields
+
+================================================================================
+KEY POINTS
+================================================================================
+
+✓ Pages are completely independent
+✓ Fields on one page don't appear on other pages
+✓ Duplicate check is per-page only
+✓ Same field name can exist on different pages with different values
+✓ Edit/Add/Delete work independently per page
+✓ Refresh preserves page-specific data
+✓ No copy to pages functionality
+✓ Each page maintains separate cache
+
+================================================================================
+TESTING CHECKLIST
+================================================================================
+
+□ Add field on Page 1
+□ Verify field does NOT appear on Page 2
+□ Add same field on Page 2 with different value
+□ Verify both pages have independent values
+□ Try to add duplicate on same page
+□ Verify confirmation dialog appears
+□ Edit field on Page 1
+□ Verify Page 2 is NOT affected
+□ Delete field on Page 1
+□ Verify Page 2 still has field
+□ Refresh page
+□ Verify page-specific data persists
+
+================================================================================
+READY FOR USE
+================================================================================
+
+Pages are properly isolated.
+Each page maintains independent data.
+Duplicate detection works per-page only.
+
+================================================================================
