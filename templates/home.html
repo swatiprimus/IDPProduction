@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>S3 Document Processing System</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0;
+        }
+        .container {
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            max-width: 600px;
+            text-align: center;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        p {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .btn {
+            padding: 20px;
+            border-radius: 8px;
+            border: none;
+            font-size: 1.1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+        .btn-upload {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .btn-upload:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+        .btn-results {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+        }
+        .btn-results:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(245, 87, 108, 0.4);
+        }
+        .icon {
+            font-size: 2em;
+        }
+        @media (max-width: 600px) {
+            .buttons {
+                grid-template-columns: 1fr;
+            }
+            .container {
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 S3 Document Processing System</h1>
+        <p>Choose what you want to do:</p>
+        <div class="buttons">
+            <a href="/upload" class="btn btn-upload">
+                <span class="icon">📤</span>
+                <span>Upload Files</span>
+            </a>
+            <a href="/results" class="btn btn-results">
+                <span class="icon">📋</span>
+                <span>View Results</span>
+            </a>
+        </div>
+    </div>
+</body>
+</html>

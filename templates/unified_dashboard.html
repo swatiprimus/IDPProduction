@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>S3 Document Processing - Unified Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+        }
+
+        .card h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .upload-zone {
+            border: 2px dashed #667eea;
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: #f8f9ff;
+        }
+
+        .upload-zone:hover {
+            border-color: #764ba2;
+            background: #f0f2ff;
+        }
+
+        .upload-zone.dragover {
+            border-color: #764ba2;
+            background: #e8ebff;
+            transform: scale(1.02);
+        }
+
+        .upload-zone input {
+            display: none;
+        }
+
+        .upload-icon {
+            font-size: 3em;
+            margin-bottom: 10px;
+        }
+
+        .upload-zone p {
+            color: #666;
+            margin: 10px 0;
+        }
+
+        .upload-zone .hint {
+            font-size: 0.9em;
+            color: #999;
+        }
+
+        .file-input-label {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-top: 10px;
+            transition: background 0.3s ease;
+        }
+
+        .file-input-label:hover {
+            background: #764ba2;
+        }
+
+        .upload-status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 6px;
+            display: none;
+        }
+
+        .upload-status.show {
+            display: block;
+        }
+
+        .upload-status.success {
+            background: #dcfce7;
+            color: #166534;
+            border-left: 4px solid #10b981;
+        }
+
+        .upload-status.error {
+            background: #fee2e2;
+            color: #991b1b;
+            border-left: 4px solid #ef4444;
+        }
+
+        .upload-status.loading {
+            background: #dbeafe;
+            color: #1e40af;
+            border-left: 4px solid #3b82f6;
+        }
+
+        .results-container {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        .result-item {
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 6px;
+            transition: all 0.3s ease;
+        }
+
+        .result-item:hover {
+            background: #f0f2ff;
+            transform: translateX(5px);
+        }
+
+        .result-item.completed {
+            border-left-color: #10b981;
+        }
+
+        .result-item.processing {
+            border-left-color: #f59e0b;
+        }
+
+        .result-item.failed {
+            border-left-color: #ef4444;
+        }
+
+        .result-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .result-name {
+            font-weight: 600;
+            color: #333;
+            flex: 1;
+        }
+
+        .result-status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+
+        .status-pending {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+
+        .status-processing {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .status-completed {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .status-failed {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .result-info {
+            font-size: 0.9em;
+            color: #666;
+            margin: 5px 0;
+        }
+
+        .result-type {
+            display: inline-block;
+            background: #e0e7ff;
+            color: #4f46e5;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            margin-top: 5px;
+        }
+
+        .view-result-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85em;
+            margin-top: 8px;
+            transition: background 0.3s ease;
+        }
+
+        .view-result-btn:hover {
+            background: #764ba2;
+        }
+
+        .view-result-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-box {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 2em;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            max-width: 800px;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 15px;
+        }
+
+        .modal-header h2 {
+            color: #333;
+            margin: 0;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 1.5em;
+            cursor: pointer;
+            color: #999;
+        }
+
+        .close-btn:hover {
+            color: #333;
+        }
+
+        .result-section {
+            margin-bottom: 20px;
+        }
+
+        .result-section h3 {
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+
+        .result-content {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .refresh-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.95em;
+            transition: background 0.3s ease;
+        }
+
+        .refresh-btn:hover {
+            background: #764ba2;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #999;
+        }
+
+        .empty-state-icon {
+            font-size: 3em;
+            margin-bottom: 10px;
+        }
+
+        .file-list {
+            margin-top: 15px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        .file-item {
+            padding: 5px;
+            margin: 3px 0;
+            background: white;
+            border-radius: 4px;
+            font-size: 0.9em;
+            color: #666;
+        }
+
+        @media (max-width: 1024px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .stats {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 1.8em;
+            }
+
+            .stats {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 S3 Document Processing Dashboard</h1>
+            <p>Upload multiple PDFs and monitor processing in real-time</p>
+        </div>
+
+        <div class="stats">
+            <div class="stat-box">
+                <div class="stat-number" id="totalDocs">0</div>
+                <div class="stat-label">Total Documents</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-number" id="processedDocs">0</div>
+                <div class="stat-label">Processed</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-number" id="processingDocs">0</div>
+                <div class="stat-label">Processing</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-number" id="failedDocs">0</div>
+                <div class="stat-label">Failed</div>
+            </div>
+        </div>
+
+        <div class="main-grid">
+            <div class="card">
+                <h2>📤 Upload Documents</h2>
+                <div class="upload-zone" id="uploadZone">
+                    <div class="upload-icon">📁</div>
+                    <p>Drag and drop your PDFs here</p>
+                    <p class="hint">or click to select multiple files</p>
+                    <label class="file-input-label">
+                        Choose Files
+                        <input type="file" id="fileInput" accept=".pdf" multiple />
+                    </label>
+                </div>
+                <div id="uploadStatus" class="upload-status"></div>
+                <div id="fileList" class="file-list" style="display: none;"></div>
+            </div>
+
+            <div class="card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2 style="margin: 0;">📋 Processing Results</h2>
+                    <button class="refresh-btn" onclick="loadDocuments()">🔄 Refresh</button>
+                </div>
+                <div class="results-container" id="resultsList">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📭</div>
+                        <p>No documents yet. Upload one to get started!</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Result Modal -->
+    <div class="modal" id="resultModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="resultTitle">Processing Result</h2>
+                <button class="close-btn" onclick="closeResultModal()">&times;</button>
+            </div>
+            <div id="resultBody"></div>
+        </div>
+    </div>
+
+    <script>
+        const uploadZone = document.getElementById('uploadZone');
+        const fileInput = document.getElementById('fileInput');
+        const uploadStatus = document.getElementById('uploadStatus');
+        const resultsList = document.getElementById('resultsList');
+        const fileList = document.getElementById('fileList');
+
+        // Upload zone drag and drop
+        uploadZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadZone.classList.add('dragover');
+        });
+
+        uploadZone.addEventListener('dragleave', () => {
+            uploadZone.classList.remove('dragover');
+        });
+
+        uploadZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadZone.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                fileInput.files = files;
+                uploadFiles();
+            }
+        });
+
+        uploadZone.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', uploadFiles);
+
+        async function uploadFiles() {
+            const files = fileInput.files;
+            if (!files || files.length === 0) return;
+
+            // Show selected files
+            showFileList(files);
+
+            // Validate files
+            const validFiles = [];
+            for (let file of files) {
+                if (!file.name.toLowerCase().endsWith('.pdf')) {
+                    showUploadStatus(`❌ ${file.name} - Only PDF files allowed`, 'error');
+                    continue;
+                }
+                validFiles.push(file);
+            }
+
+            if (validFiles.length === 0) return;
+
+            showUploadStatus(`⏳ Uploading ${validFiles.length} file(s)...`, 'loading');
+
+            const formData = new FormData();
+            for (let file of validFiles) {
+                formData.append('files', file);
+            }
+
+            try {
+                const response = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.uploaded.length > 0) {
+                    showUploadStatus(`✅ Uploaded ${data.uploaded.length} file(s)`, 'success');
+                    fileInput.value = '';
+                    fileList.style.display = 'none';
+                    setTimeout(() => {
+                        uploadStatus.classList.remove('show');
+                        loadDocuments();
+                    }, 2000);
+                } else if (data.errors && data.errors.length > 0) {
+                    const errorMsg = data.errors.map(e => `${e.file}: ${e.error}`).join(', ');
+                    showUploadStatus(`❌ ${errorMsg}`, 'error');
+                } else {
+                    showUploadStatus(`❌ ${data.error || 'Upload failed'}`, 'error');
+                }
+            } catch (error) {
+                showUploadStatus(`❌ Upload failed: ${error.message}`, 'error');
+            }
+        }
+
+        function showFileList(files) {
+            let html = '<strong>Selected files:</strong>';
+            for (let file of files) {
+                html += `<div class="file-item">📄 ${file.name} (${(file.size / 1024).toFixed(2)} KB)</div>`;
+            }
+            fileList.innerHTML = html;
+            fileList.style.display = 'block';
+        }
+
+        function showUploadStatus(message, type) {
+            uploadStatus.className = `upload-status show ${type}`;
+            uploadStatus.textContent = message;
+        }
+
+        async function loadDocuments() {
+            try {
+                const response = await fetch('/api/documents');
+                const data = await response.json();
+
+                if (!data.success) {
+                    resultsList.innerHTML = '<div class="empty-state"><p>Error loading documents</p></div>';
+                    return;
+                }
+
+                const documents = data.documents || [];
+
+                // Update stats
+                const completed = documents.filter(d => d.status === 'completed').length;
+                const processing = documents.filter(d => d.status === 'pending' || d.status === 'in_progress').length;
+                const failed = documents.filter(d => d.status === 'failed').length;
+
+                document.getElementById('totalDocs').textContent = documents.length;
+                document.getElementById('processedDocs').textContent = completed;
+                document.getElementById('processingDocs').textContent = processing;
+                document.getElementById('failedDocs').textContent = failed;
+
+                if (documents.length === 0) {
+                    resultsList.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📭</div><p>No documents yet</p></div>';
+                    return;
+                }
+
+                resultsList.innerHTML = documents.map(doc => `
+                    <div class="result-item ${doc.status}">
+                        <div class="result-header">
+                            <div class="result-name">📄 ${doc.file_name}</div>
+                            <span class="result-status status-${doc.status}">${doc.status.toUpperCase()}</span>
+                        </div>
+                        <div class="result-info">
+                            Size: ${(doc.size / 1024).toFixed(2)} KB
+                        </div>
+                        <div class="result-info">
+                            Uploaded: ${new Date(doc.upload_time).toLocaleString()}
+                        </div>
+                        ${doc.document_type ? `<div class="result-type">Type: ${doc.document_type}</div>` : ''}
+                        ${doc.status === 'completed' ? `
+                            <a href="http://localhost:5000/" class="view-result-btn" target="_blank" style="text-decoration: none; display: inline-block;">
+                                👁️ View Result
+                            </a>
+                        ` : ''}
+                    </div>
+                `).join('');
+            } catch (error) {
+                resultsList.innerHTML = `<div class="empty-state"><p>Error: ${error.message}</p></div>`;
+            }
+        }
+
+        async function viewResult(fileKey, fileName) {
+            console.log('👁️ View Result clicked for:', fileName);
+            console.log('Redirecting to app_modular.py (port 5000)');
+            
+            // Redirect to app_modular.py skills_catalog.html
+            window.location.href = 'http://localhost:5000/';
+        }
+
+        function closeResultModal() {
+            document.getElementById('resultModal').classList.remove('active');
+        }
+
+        // Auto-refresh documents every 5 seconds
+        setInterval(loadDocuments, 5000);
+
+        // Initial load
+        loadDocuments();
+    </script>
+</body>
+</html>

@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload Documents</title>
+    <link rel="stylesheet" href="/static/upload.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📤 Upload Documents</h1>
+            <p>Upload PDFs to S3</p>
+        </div>
+
+        <div class="upload-zone" id="uploadZone">
+            <div class="upload-icon">📁</div>
+            <p>Drag and drop PDFs here or click to select</p>
+            <input type="file" id="fileInput" accept=".pdf" multiple style="display: none;">
+        </div>
+
+        <div id="statusMessage" class="status-message"></div>
+
+        <div class="documents-section">
+            <h2>📋 Documents <span id="docCount" style="color: #667eea; font-size: 0.9em;">(0)</span></h2>
+            <button onclick="loadDocuments()" class="refresh-btn">🔄 Refresh</button>
+            <div id="documentsList"></div>
+        </div>
+    </div>
+
+    <script src="/static/upload.js"></script>
+</body>
+</html>

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>S3 Document Processing - Results Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='results_dashboard.css') }}">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 S3 Document Processing Dashboard</h1>
+            <p>Monitor your uploaded documents and processing results</p>
+        </div>
+
+        <div class="stats">
+            <div class="stat-box">
+                <div class="stat-number" id="totalDocs">0</div>
+                <div class="stat-label">Total Documents</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-number" id="processedDocs">0</div>
+                <div class="stat-label">Processed</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-number" id="processingDocs">0</div>
+                <div class="stat-label">Processing</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-number" id="failedDocs">0</div>
+                <div class="stat-label">Failed</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2 style="margin: 0;">📋 Processing Results</h2>
+                <button class="refresh-btn" onclick="loadDocuments()">🔄 Refresh</button>
+            </div>
+            <div class="results-container" id="resultsList">
+                <div class="empty-state">
+                    <div class="empty-state-icon">📭</div>
+                    <p>No documents yet</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='results_dashboard.js') }}"></script>
+</body>
+</html>
