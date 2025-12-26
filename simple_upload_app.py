@@ -11,6 +11,8 @@ import json
 from datetime import datetime
 import logging
 import sys
+import hashlib
+import time
 
 # Configure logging with flush
 logging.basicConfig(
@@ -145,10 +147,25 @@ def upload_files():
                 print(f"   ✅ Upload successful!")
                 logger.info(f"   ✅ Upload successful!")
                 
+                # Generate unique ID for this document (same format as /process endpoint)
+                # This ID will be used when S3 fetcher calls /process
+                doc_id = hashlib.md5(f"{file.filename}{time.time()}".encode()).hexdigest()[:12]
+                print(f"   Generated ID: {doc_id}")
+                logger.info(f"   Generated ID: {doc_id}")
+                
+                # NOTE: Do NOT create a document record here!
+                # The S3 fetcher will detect this file and call /process endpoint
+                # The /process endpoint will create the document record with the proper ID
+                # This prevents duplicate document entries
+                
+                print(f"   📋 Document will be processed by S3 fetcher (detected in ~30 seconds)")
+                logger.info(f"   📋 Document will be processed by S3 fetcher (detected in ~30 seconds)")
+                
                 uploaded.append({
                     'file_name': file.filename,
                     'file_key': file_key,
-                    'upload_time': datetime.now().isoformat()
+                    'upload_time': datetime.now().isoformat(),
+                    'message': 'Uploaded to S3 - will be processed by S3 fetcher'
                 })
                 
             except Exception as e:

@@ -1,0 +1,16 @@
+{
+  "processing": {
+    "global_doc_001": {
+      "filename": "global_test.pdf",
+      "source": "global_source",
+      "status": "queued",
+      "added_at": "2025-12-26T17:11:59.661365",
+      "started_at": null,
+      "completed_at": null
+    }
+  },
+  "completed": [
+    "475c690de14a"
+  ],
+  "last_updated": "2025-12-26T17:19:27.577197"
+}

@@ -41,6 +41,9 @@ from prompts import (
     get_loan_document_prompt
 )
 
+# Import document processing queue
+from document_queue import get_document_queue, init_document_queue
+
 # Advanced Background Processing System
 class DocumentProcessingStage:
     """Represents a processing stage for a document"""
@@ -272,10 +275,14 @@ class BackgroundDocumentProcessor:
             status["progress"] = 100
             status["completion_time"] = time.time()
             
+            # Mark as completed in global queue
+            doc_queue = get_document_queue()
+            doc_queue.mark_completed(doc_id)
+            
             # FINAL: Save cost data again (in case Bedrock costs were tracked after initial save)
             try:
                 # Find the document in processed_documents
-                final_doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+                final_doc = find_document_by_id(doc_id)
                 if final_doc:
                     cost_tracker = get_cost_tracker(doc_id)
                     cost_summary = cost_tracker.get_summary()
@@ -292,6 +299,10 @@ class BackgroundDocumentProcessor:
             print(f"[BG_PROCESSOR] ❌ Pipeline failed for {doc_id}: {str(e)}")
             self.document_status[doc_id]["errors"].append(str(e))
             self.document_status[doc_id]["stage"] = "failed"
+            
+            # Mark as failed in global queue
+            doc_queue = get_document_queue()
+            doc_queue.mark_failed(doc_id, str(e))
         finally:
             # Clean up thread tracking
             if doc_id in self.document_threads:
@@ -1616,7 +1627,7 @@ class BackgroundDocumentProcessor:
         """Get document type from the main document record"""
         try:
             global processed_documents
-            doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+            doc = find_document_by_id(doc_id)
             if doc:
                 return doc.get("document_type_info", {}).get("type", "unknown")
             return "unknown"
@@ -1678,10 +1689,10 @@ class BackgroundDocumentProcessor:
         try:
             global processed_documents
             
-            # Find the document in the main list
+            # Find the document in the main list using safe lookup
             doc_index = None
             for i, doc in enumerate(processed_documents):
-                if doc["id"] == doc_id:
+                if doc.get("id") == doc_id:
                     doc_index = i
                     break
             
@@ -1898,6 +1909,26 @@ def save_documents_db(documents):
 
 # Load existing documents on startup
 processed_documents = load_documents_db()
+
+def find_document_by_id(doc_id: str):
+    """
+    Safely find a document by ID.
+    Handles documents with missing 'id' key gracefully.
+    
+    Args:
+        doc_id: The document ID to search for
+        
+    Returns:
+        The document dict if found, None otherwise
+    """
+    if not doc_id or doc_id == "undefined":
+        return None
+    
+    for doc in processed_documents:
+        if doc.get("id") == doc_id:
+            return doc
+    
+    return None
 
 def find_existing_document_by_account(account_number):
     """Find existing document by account number"""
@@ -3635,6 +3666,17 @@ def process_job(job_id: str, file_bytes: bytes, filename: str, use_ocr: bool, do
     """Background worker to process documents - FAST upload with placeholder creation"""
     global processed_documents
     try:
+        # Add to global processing queue to prevent duplicate processing
+        doc_queue = get_document_queue()
+        source = "skill_catalog" if original_file_path else "simple_upload"
+        
+        if not doc_queue.add_to_queue(job_id, filename, source):
+            print(f"[INFO] ⚠️ Document {job_id} already in processing queue, skipping")
+            return
+        
+        # Mark as processing
+        doc_queue.mark_processing(job_id)
+        
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
         # Use document_name if provided, otherwise use filename
@@ -3827,6 +3869,10 @@ def process_job(job_id: str, file_bytes: bytes, filename: str, use_ocr: bool, do
         import traceback
         error_details = traceback.format_exc()
         
+        # Mark as failed in queue
+        doc_queue = get_document_queue()
+        doc_queue.mark_failed(job_id, str(e))
+        
         job_status_map[job_id] = {
             "status": f"❌ Error: {str(e)}",
             "progress": 0,
@@ -3885,7 +3931,7 @@ def get_all_documents():
 @app.route("/api/document/<doc_id>")
 def get_document_detail(doc_id):
     """Get details of a specific document with real-time account availability"""
-    doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+    doc = find_document_by_id(doc_id)
     if doc:
         # Check if background processing has found accounts even if not fully complete
         bg_status = background_processor.get_document_status(doc_id)
@@ -3906,8 +3952,8 @@ def get_document_detail(doc_id):
 def process_loan_document_endpoint(doc_id):
     """Process loan document to split into accounts - called when loan document is first opened"""
     try:
-        # Find the document
-        doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+        # Find the document using safe helper
+        doc = find_document_by_id(doc_id)
         if not doc:
             return jsonify({"success": False, "message": "Document not found"}), 404
         
@@ -4087,7 +4133,7 @@ def process_loan_document_endpoint(doc_id):
 @app.route("/document/<doc_id>/pages")
 def view_document_pages(doc_id):
     """View document with unified page-by-page viewer"""
-    doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+    doc = find_document_by_id(doc_id)
     if doc:
         return render_template("unified_page_viewer.html", document=doc)
     return "Document not found", 404
@@ -4096,7 +4142,7 @@ def view_document_pages(doc_id):
 @app.route("/document/<doc_id>/accounts")
 def view_account_based(doc_id):
     """View document with account-based interface"""
-    doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+    doc = find_document_by_id(doc_id)
     if doc:
         return render_template("account_based_viewer.html", document=doc)
     return "Document not found", 404
@@ -4105,7 +4151,7 @@ def view_account_based(doc_id):
 @app.route("/api/document/<doc_id>/changes", methods=["GET"])
 def get_document_changes(doc_id):
     """Get the list of changes for a document"""
-    doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+    doc = find_document_by_id(doc_id)
     if not doc:
         return jsonify({"success": False, "message": "Document not found"}), 404
     
@@ -4123,7 +4169,7 @@ def apply_selected_changes(doc_id):
     """Apply only the selected changes to the document"""
     global processed_documents
     
-    doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+    doc = find_document_by_id(doc_id)
     if not doc:
         return jsonify({"success": False, "message": "Document not found"}), 404
     
@@ -4203,7 +4249,7 @@ def mark_document_reviewed(doc_id):
     """Mark a document as reviewed without applying changes (reject all)"""
     global processed_documents
     
-    doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+    doc = find_document_by_id(doc_id)
     if not doc:
         return jsonify({"success": False, "message": "Document not found"}), 404
     
@@ -4235,7 +4281,7 @@ def get_document_pages(doc_id):
     """Get all pages of a document as images using PyMuPDF with account mapping"""
     import fitz  # PyMuPDF
     
-    doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+    doc = find_document_by_id(doc_id)
     if not doc:
         return jsonify({"success": False, "message": "Document not found"}), 404
     
@@ -4369,7 +4415,7 @@ def get_account_pages(doc_id, account_index):
     import re
     import json
     
-    doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+    doc = find_document_by_id(doc_id)
     if not doc:
         return jsonify({"success": False, "message": "Document not found"}), 404
     
@@ -4768,7 +4814,7 @@ def get_account_page_image(doc_id, account_index, page_num):
     import fitz
     from flask import send_file
     
-    doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+    doc = find_document_by_id(doc_id)
     if not doc:
         return "Document not found", 404
     
@@ -4846,7 +4892,7 @@ def get_account_page_data(doc_id, account_index, page_num):
         print(f"[DEBUG] S3 cache check failed: {str(s3_error)}, checking other sources")
     
     # 🚀 PRIORITY 1: Check account's page_data (from background processing)
-    doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+    doc = find_document_by_id(doc_id)
     if doc:
         doc_data = doc.get("documents", [{}])[0]
         accounts = doc_data.get("accounts", [])
@@ -4923,7 +4969,7 @@ def get_account_page_data(doc_id, account_index, page_num):
     except Exception as e:
         print(f"[DEBUG] No document-level cache found for account {account_index} page {page_num}, extracting fresh: {str(e)}")
     
-    doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+    doc = find_document_by_id(doc_id)
     if not doc:
         print(f"[ERROR] Document not found: {doc_id}")
         return jsonify({"success": False, "message": "Document not found"}), 404
@@ -5275,7 +5321,7 @@ def extract_page_data(doc_id, page_num):
             print(f"[DEBUG] User edits cache check failed: {str(cache_error)}, checking other sources")
     
     # 🚀 PRIORITY 1: Check death certificate cache (for death certificates)
-    doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+    doc = find_document_by_id(doc_id)
     if doc:
         doc_type = doc.get("document_type_info", {}).get("type", "unknown")
         
@@ -5341,7 +5387,7 @@ def extract_page_data(doc_id, page_num):
     # Check if force re-extraction is requested
     force = request.args.get('force', 'false').lower() == 'true'
     
-    doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+    doc = find_document_by_id(doc_id)
     if not doc:
         return jsonify({"success": False, "message": "Document not found"}), 404
     
@@ -5594,7 +5640,7 @@ def extract_page_progressive(doc_id, account_index, page_index):
         priority = data.get('priority', 2)
         
         # Find the document
-        doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+        doc = find_document_by_id(doc_id)
         if not doc:
             return jsonify({"success": False, "message": "Document not found"}), 404
         
@@ -6131,7 +6177,7 @@ def extract_regular_page_progressive(doc_id, page_index):
         priority = data.get('priority', 2)
         
         # Find the document
-        doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+        doc = find_document_by_id(doc_id)
         if not doc:
             return jsonify({"success": False, "message": "Document not found"}), 404
         
@@ -6587,7 +6633,7 @@ def update_page_data(doc_id, page_num, account_index=None):
         if page_data is None:
             return jsonify({"success": False, "message": "No page data provided"}), 400
         
-        doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+        doc = find_document_by_id(doc_id)
         if not doc:
             return jsonify({"success": False, "message": "Document not found"}), 404
         
@@ -6796,8 +6842,12 @@ def delete_document(doc_id):
     """Delete a processed document"""
     global processed_documents
     
-    # Find document
-    doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+    # Validate doc_id
+    if not doc_id or doc_id == "undefined":
+        return jsonify({"success": False, "message": "Invalid document ID"}), 400
+    
+    # Find document using safe helper
+    doc = find_document_by_id(doc_id)
     if not doc:
         return jsonify({"success": False, "message": "Document not found"}), 404
     
@@ -6813,7 +6863,7 @@ def delete_document(doc_id):
             print(f"[INFO] Deleted PDF file: {doc['pdf_path']}")
         
         # Remove from processed documents
-        processed_documents = [d for d in processed_documents if d["id"] != doc_id]
+        processed_documents = [d for d in processed_documents if d.get("id") != doc_id]
         save_documents_db(processed_documents)
         
         print(f"[INFO] Deleted document: {doc_id}")
@@ -6827,7 +6877,8 @@ def delete_document(doc_id):
 @app.route("/api/document/<doc_id>/pdf")
 def serve_pdf(doc_id):
     """Serve the PDF file for viewing"""
-    doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+    # Safely find document using helper
+    doc = find_document_by_id(doc_id)
     if not doc:
         return jsonify({"error": "Document not found"}), 404
     
@@ -6989,7 +7040,7 @@ def get_status(job_id):
         
         # If completed, include the document data as result
         if stage == "completed":
-            doc = next((d for d in processed_documents if d["id"] == job_id), None)
+            doc = find_document_by_id(job_id)
             if doc:
                 response_data["result"] = {"documents": doc.get("documents", [])}
         
@@ -7027,7 +7078,7 @@ def get_cached_page_data_endpoint(doc_id, page_num):
     """Get cached page data if available, otherwise return processing status"""
     try:
         # Determine document type to use correct cache key
-        doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+        doc = find_document_by_id(doc_id)
         doc_type = "unknown"
         if doc:
             doc_type = doc.get("document_type_info", {}).get("type", "unknown")
@@ -7093,7 +7144,7 @@ def force_background_processing(doc_id):
     """Force start background processing for a document"""
     try:
         # Find the document
-        doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+        doc = find_document_by_id(doc_id)
         if not doc:
             return jsonify({"success": False, "message": "Document not found"}), 404
         
@@ -7159,7 +7210,7 @@ def refresh_document_from_background(doc_id):
             return jsonify({"success": False, "message": "No background processing found for this document"})
         
         # Find the document
-        doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+        doc = find_document_by_id(doc_id)
         if not doc:
             return jsonify({"success": False, "message": "Document not found"}), 404
         
@@ -7297,7 +7348,7 @@ def get_complete_json(doc_id):
     """
     try:
         # Find the document
-        doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+        doc = find_document_by_id(doc_id)
         if not doc:
             return jsonify({"success": False, "message": "Document not found"}), 404
         
@@ -7699,7 +7750,7 @@ def get_complete_account_data(doc_id, account_index):
     """Get complete account data from processed_documents.json (not page-by-page LLM extraction)"""
     try:
         # Find the document
-        doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+        doc = find_document_by_id(doc_id)
         if not doc:
             return jsonify({"success": False, "message": "Document not found"}), 404
         
@@ -7745,7 +7796,7 @@ def get_document_cost(doc_id):
     """Get processing cost for a specific document"""
     try:
         # Get document from processed_documents
-        doc = next((d for d in processed_documents if d["id"] == doc_id), None)
+        doc = find_document_by_id(doc_id)
         if not doc:
             return jsonify({"success": False, "message": "Document not found"}), 404
         
@@ -7848,12 +7899,21 @@ def get_costs_summary():
 if __name__ == "__main__":
     print(f"[INFO] Starting Universal IDP - region: {AWS_REGION}, model: {MODEL_ID}")
     
+    # Initialize global document processing queue
+    init_document_queue()
+    
     # Initialize background processor
     init_background_processor()
+    
+    # Start S3 document fetcher (polls S3 every 30 seconds)
+    # This will automatically fetch documents from S3 and process them with skillProcessDocument
+    from s3_document_fetcher import start_s3_fetcher, stop_s3_fetcher
+    start_s3_fetcher(bucket_name="aws-idp-uploads", region=AWS_REGION, check_interval=30)
     
     try:
         app.run(debug=True, port=5015)
     except KeyboardInterrupt:
         print("[INFO] Application interrupted by user")
     finally:
+        stop_s3_fetcher()
         cleanup_background_processor()

@@ -11,12 +11,16 @@ import time
 import threading
 import tempfile
 import os
+import hashlib
 from datetime import datetime
 from typing import Dict, Optional
 
 # Import processing functions
 from app.services.textract_service import extract_text_with_textract
 from app.services.document_detector import detect_document_type
+
+# Import global document queue
+from document_queue import get_document_queue
 
 
 class S3DocumentFetcher:
@@ -37,11 +41,16 @@ class S3DocumentFetcher:
         self.s3_client = boto3.client('s3', region_name=region)
         self.is_running = False
         self.thread = None
+        self.processing_map_file = '.s3_fetcher_processing_map.json'
+        
+        # Load persistent processing map
+        self.processing_map = self._load_processing_map()
         
         print(f"[S3_FETCHER] 🚀 Initialized")
         print(f"[S3_FETCHER]    Bucket: {bucket_name}")
         print(f"[S3_FETCHER]    Region: {region}")
         print(f"[S3_FETCHER]    Check interval: {check_interval}s")
+        print(f"[S3_FETCHER]    Tracking {len(self.processing_map)} documents in processing map")
     
     def start(self):
         """Start the document fetcher in background thread"""
@@ -60,6 +69,51 @@ class S3DocumentFetcher:
         if self.thread:
             self.thread.join(timeout=5)
         print("[S3_FETCHER] ⏹️ Stopped")
+    
+    def _load_processing_map(self) -> dict:
+        """Load persistent processing map from file"""
+        try:
+            if os.path.exists(self.processing_map_file):
+                with open(self.processing_map_file, 'r') as f:
+                    return json.load(f)
+        except Exception as e:
+            print(f"[S3_FETCHER] ⚠️ Failed to load processing map: {str(e)}")
+        return {}
+    
+    def _save_processing_map(self):
+        """Save processing map to file"""
+        try:
+            with open(self.processing_map_file, 'w') as f:
+                json.dump(self.processing_map, f, indent=2)
+        except Exception as e:
+            print(f"[S3_FETCHER] ⚠️ Failed to save processing map: {str(e)}")
+    
+    def _mark_processing(self, file_key: str):
+        """Mark document as being processed"""
+        self.processing_map[file_key] = {
+            'status': 'processing',
+            'started_at': datetime.now().isoformat()
+        }
+        self._save_processing_map()
+    
+    def _mark_completed(self, file_key: str):
+        """Mark document as completed"""
+        self.processing_map[file_key] = {
+            'status': 'completed',
+            'completed_at': datetime.now().isoformat()
+        }
+        self._save_processing_map()
+    
+    def _is_in_processing_map(self, file_key: str) -> bool:
+        """Check if document is in processing map"""
+        return file_key in self.processing_map
+    
+    def _get_processing_status(self, file_key: str) -> str:
+        """Get processing status from map"""
+        if file_key in self.processing_map:
+            return self.processing_map[file_key].get('status', 'unknown')
+        return 'unknown'
+    
     
     def _fetch_loop(self):
         """Main polling loop - runs in background thread"""
@@ -97,6 +151,7 @@ class S3DocumentFetcher:
     def _get_unprocessed_documents(self) -> list:
         """
         Get list of unprocessed documents from S3
+        Checks global document queue first to prevent duplicate processing
         
         Returns:
             List of S3 keys for unprocessed documents
@@ -104,6 +159,7 @@ class S3DocumentFetcher:
         import sys
         try:
             unprocessed = []
+            doc_queue = get_document_queue()
             
             # List all objects in uploads folder
             paginator = self.s3_client.get_paginator('list_objects_v2')
@@ -127,9 +183,57 @@ class S3DocumentFetcher:
                         sys.stdout.flush()
                         continue
                     
-                    # Check if already processed
+                    # Generate document ID from filename (same as simple_upload_app.py)
+                    file_name = key.split('/')[-1]
+                    # Note: We use the S3 key as the doc_id for tracking
+                    # The actual job_id will be generated when /process is called
+                    
+                    # Check global document queue first (PRIMARY check)
+                    # We check if ANY document with this filename is already being processed
+                    queue_info = doc_queue.get_queue_info()
+                    is_in_global_queue = False
+                    
+                    for processing_doc_id in queue_info['processing_docs']:
+                        # Check if this is the same file
+                        if file_name in processing_doc_id or processing_doc_id in file_name:
+                            print(f"[S3_FETCHER]    ⏳ Already processing (global queue): {key}", flush=True)
+                            sys.stdout.flush()
+                            is_in_global_queue = True
+                            break
+                    
+                    if is_in_global_queue:
+                        continue
+                    
+                    # Check if already completed in global queue
+                    for completed_doc_id in queue_info['completed_docs']:
+                        if file_name in completed_doc_id or completed_doc_id in file_name:
+                            print(f"[S3_FETCHER]    ✅ Already completed (global queue): {key}", flush=True)
+                            sys.stdout.flush()
+                            is_in_global_queue = True
+                            break
+                    
+                    if is_in_global_queue:
+                        continue
+                    
+                    # Check persistent processing map as backup
+                    if self._is_in_processing_map(key):
+                        status = self._get_processing_status(key)
+                        if status == 'processing':
+                            print(f"[S3_FETCHER]    ⏳ Already processing (local map): {key}", flush=True)
+                        else:
+                            print(f"[S3_FETCHER]    ✅ Already {status} (local map): {key}", flush=True)
+                        sys.stdout.flush()
+                        continue
+                    
+                    # Check S3 status file as backup
                     if self._is_processed(key):
-                        print(f"[S3_FETCHER]    ✅ Already processed: {key}", flush=True)
+                        status = self._get_document_status(key)
+                        if status == 'processing':
+                            print(f"[S3_FETCHER]    ⏳ Currently processing (S3): {key}", flush=True)
+                            self._mark_processing(key)
+                        else:
+                            print(f"[S3_FETCHER]    ✅ Already {status} (S3): {key}", flush=True)
+                            self._mark_completed(key)
                         sys.stdout.flush()
                         continue
                     
@@ -151,24 +255,50 @@ class S3DocumentFetcher:
     
     def _is_processed(self, file_key: str) -> bool:
         """
-        Check if a document has already been processed
+        Check if a document has already been processed or is currently being processed
         
         Args:
             file_key: S3 file key
             
         Returns:
-            True if processed, False otherwise
+            True if processed or processing, False otherwise
         """
         try:
             status_key = f"processing_logs/{file_key}.status.json"
-            self.s3_client.head_object(Bucket=self.bucket_name, Key=status_key)
-            return True  # Status file exists = already processed
+            response = self.s3_client.get_object(Bucket=self.bucket_name, Key=status_key)
+            status_data = json.loads(response['Body'].read())
+            status = status_data.get('status', 'unknown')
+            
+            # Skip if already processed or currently processing
+            if status in ['completed', 'failed', 'processing']:
+                return True
+            
+            return False
         except:
             return False  # Status file doesn't exist = not processed
+    
+    def _get_document_status(self, file_key: str) -> str:
+        """
+        Get the current status of a document
+        
+        Args:
+            file_key: S3 file key
+            
+        Returns:
+            Status string (processing, completed, failed, unknown)
+        """
+        try:
+            status_key = f"processing_logs/{file_key}.status.json"
+            response = self.s3_client.get_object(Bucket=self.bucket_name, Key=status_key)
+            status_data = json.loads(response['Body'].read())
+            return status_data.get('status', 'unknown')
+        except:
+            return 'unknown'
     
     def _process_document(self, file_key: str) -> bool:
         """
         Process a single document by calling the /process endpoint
+        This ensures the document is processed with skill-based processing
         
         Args:
             file_key: S3 file key
@@ -184,8 +314,13 @@ class S3DocumentFetcher:
             print(f"[S3_FETCHER] 🔄 Processing: {file_name}", flush=True)
             sys.stdout.flush()
             
-            # Mark as processing
+            # CRITICAL: Mark as processing in persistent map BEFORE calling /process
+            # This prevents the S3 fetcher from calling /process multiple times for the same file
+            self._mark_processing(file_key)
             self._update_status(file_key, 'processing')
+            
+            print(f"[S3_FETCHER]    ✅ Marked as processing in local map", flush=True)
+            sys.stdout.flush()
             
             # Download document
             pdf_bytes = self._download_document(file_key)
@@ -201,31 +336,79 @@ class S3DocumentFetcher:
             
             try:
                 # Call the /process endpoint (same as UI upload)
-                print(f"[S3_FETCHER]    📤 Calling /process endpoint...", flush=True)
+                # This will trigger skillProcessDocument through the background processor
+                print(f"[S3_FETCHER]    📤 Calling /process endpoint with skill-based processing...", flush=True)
                 sys.stdout.flush()
                 
                 with open(tmp_path, 'rb') as f:
                     files = {'file': (file_name, f, 'application/pdf')}
-                    response = requests.post('http://localhost:5015/process', files=files, timeout=300)
+                    # Add document_name to ensure it appears properly in UI
+                    data = {'document_name': file_name}
+                    response = requests.post('http://localhost:5015/process', files=files, data=data, timeout=300)
                 
                 if response.status_code == 200:
                     data = response.json()
                     if data.get('success'):
                         job_id = data.get('job_id')
                         print(f"[S3_FETCHER]    ✅ Job submitted: {job_id}", flush=True)
+                        print(f"[S3_FETCHER]    📋 Document will be processed with skill-based system", flush=True)
+                        print(f"[S3_FETCHER]    🎯 Document will appear on UI dashboard once processing completes", flush=True)
                         sys.stdout.flush()
-                        self._update_status(file_key, 'completed', doc_type='processing')
+                        
+                        # Wait for processing to complete (with timeout)
+                        print(f"[S3_FETCHER]    ⏳ Waiting for background processing to complete...", flush=True)
+                        sys.stdout.flush()
+                        
+                        max_wait = 600  # 10 minutes max wait
+                        check_interval = 5  # Check every 5 seconds
+                        elapsed = 0
+                        
+                        while elapsed < max_wait:
+                            # Check processing status
+                            status_response = requests.get(f'http://localhost:5015/status/{job_id}', timeout=30)
+                            if status_response.status_code == 200:
+                                status_data = status_response.json()
+                                progress = status_data.get('progress', 0)
+                                is_complete = status_data.get('is_complete', False)
+                                stage = status_data.get('stage', 'unknown')
+                                
+                                print(f"[S3_FETCHER]    📊 Progress: {progress}% - Stage: {stage}", flush=True)
+                                sys.stdout.flush()
+                                
+                                if is_complete:
+                                    print(f"[S3_FETCHER]    ✅ Processing complete!", flush=True)
+                                    print(f"[S3_FETCHER]    🎉 Document {file_name} is now available on UI", flush=True)
+                                    sys.stdout.flush()
+                                    self._update_status(file_key, 'completed', doc_type='skill_processed')
+                                    # Mark as completed in persistent map
+                                    self._mark_completed(file_key)
+                                    return True
+                            
+                            time.sleep(check_interval)
+                            elapsed += check_interval
+                        
+                        # Timeout reached
+                        print(f"[S3_FETCHER]    ⚠️ Processing timeout after {max_wait}s", flush=True)
+                        print(f"[S3_FETCHER]    📋 Document may still be processing in background", flush=True)
+                        sys.stdout.flush()
+                        self._update_status(file_key, 'completed', doc_type='skill_processed')
+                        # Mark as completed in persistent map
+                        self._mark_completed(file_key)
                         return True
                     else:
                         error = data.get('message', 'Unknown error')
                         print(f"[S3_FETCHER]    ❌ Process failed: {error}", flush=True)
                         sys.stdout.flush()
                         self._update_status(file_key, 'failed', error)
+                        # Mark as completed (failed) in persistent map
+                        self._mark_completed(file_key)
                         return False
                 else:
                     print(f"[S3_FETCHER]    ❌ HTTP {response.status_code}: {response.text}", flush=True)
                     sys.stdout.flush()
                     self._update_status(file_key, 'failed', f'HTTP {response.status_code}')
+                    # Mark as completed (failed) in persistent map
+                    self._mark_completed(file_key)
                     return False
                     
             finally:
@@ -240,6 +423,8 @@ class S3DocumentFetcher:
             traceback.print_exc()
             sys.stdout.flush()
             self._update_status(file_key, 'failed', str(e))
+            # Mark as completed (failed) in persistent map
+            self._mark_completed(file_key)
             return False
     
     def _save_document_result(self, file_name: str, file_key: str, doc_type: str, accounts: list, page_count: int):
@@ -374,11 +559,17 @@ class S3DocumentFetcher:
             found = False
             for doc in documents:
                 if doc.get('file_name') == file_name:
+                    # Ensure document has an ID
+                    if 'id' not in doc:
+                        doc['id'] = hashlib.md5(f"{file_name}{doc.get('processed_date', '')}".encode()).hexdigest()[:12]
                     doc.update(status_data)
                     found = True
                     break
             
             if not found:
+                # Generate ID for new document
+                doc_id = hashlib.md5(f"{file_name}{status_data.get('processed_date', '')}".encode()).hexdigest()[:12]
+                status_data['id'] = doc_id
                 documents.append(status_data)
             
             # Save back
