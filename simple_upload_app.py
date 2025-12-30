@@ -277,6 +277,45 @@ def delete_document():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/delete-all', methods=['POST'])
+def delete_all_documents():
+    """Delete all documents from S3"""
+    try:
+        logger.info("🗑️ Deleting ALL documents from S3...")
+        
+        deleted_count = 0
+        
+        # List all objects in uploads folder
+        paginator = s3_client.get_paginator('list_objects_v2')
+        pages = paginator.paginate(Bucket=BUCKET, Prefix='uploads/')
+        
+        for page in pages:
+            if 'Contents' not in page:
+                continue
+            
+            for obj in page['Contents']:
+                key = obj['Key']
+                
+                # Delete the file
+                s3_client.delete_object(Bucket=BUCKET, Key=key)
+                
+                # Delete the status file
+                try:
+                    s3_client.delete_object(Bucket=BUCKET, Key=f"processing_logs/{key}.status.json")
+                except:
+                    pass
+                
+                deleted_count += 1
+                logger.info(f"   ✅ Deleted: {key}")
+        
+        logger.info(f"✅ All documents deleted: {deleted_count} files removed")
+        return jsonify({'success': True, 'message': f'Deleted {deleted_count} documents', 'deleted_count': deleted_count}), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Error deleting all documents: {str(e)}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     logger.info("Starting Simple Upload App on port 5001")
     print("Starting Simple Upload App on port 5001")

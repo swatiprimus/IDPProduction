@@ -42,6 +42,7 @@ class S3DocumentFetcher:
         self.is_running = False
         self.thread = None
         self.processing_map_file = '.s3_fetcher_processing_map.json'
+        self.processing_lock = threading.Lock()  # Lock to prevent duplicate processing
         
         # Load persistent processing map
         self.processing_map = self._load_processing_map()
@@ -89,20 +90,22 @@ class S3DocumentFetcher:
             print(f"[S3_FETCHER] ⚠️ Failed to save processing map: {str(e)}")
     
     def _mark_processing(self, file_key: str):
-        """Mark document as being processed"""
-        self.processing_map[file_key] = {
-            'status': 'processing',
-            'started_at': datetime.now().isoformat()
-        }
-        self._save_processing_map()
+        """Mark document as being processed (thread-safe)"""
+        with self.processing_lock:
+            self.processing_map[file_key] = {
+                'status': 'processing',
+                'started_at': datetime.now().isoformat()
+            }
+            self._save_processing_map()
     
     def _mark_completed(self, file_key: str):
-        """Mark document as completed"""
-        self.processing_map[file_key] = {
-            'status': 'completed',
-            'completed_at': datetime.now().isoformat()
-        }
-        self._save_processing_map()
+        """Mark document as completed (thread-safe)"""
+        with self.processing_lock:
+            self.processing_map[file_key] = {
+                'status': 'completed',
+                'completed_at': datetime.now().isoformat()
+            }
+            self._save_processing_map()
     
     def _is_in_processing_map(self, file_key: str) -> bool:
         """Check if document is in processing map"""
@@ -215,15 +218,21 @@ class S3DocumentFetcher:
                     if is_in_global_queue:
                         continue
                     
-                    # Check persistent processing map as backup
+                    # Check persistent processing map as backup (STRICT CHECK)
                     if self._is_in_processing_map(key):
                         status = self._get_processing_status(key)
                         if status == 'processing':
                             print(f"[S3_FETCHER]    ⏳ Already processing (local map): {key}", flush=True)
+                            sys.stdout.flush()
+                            continue
+                        elif status == 'completed':
+                            print(f"[S3_FETCHER]    ✅ Already completed (local map): {key}", flush=True)
+                            sys.stdout.flush()
+                            continue
                         else:
-                            print(f"[S3_FETCHER]    ✅ Already {status} (local map): {key}", flush=True)
-                        sys.stdout.flush()
-                        continue
+                            print(f"[S3_FETCHER]    ⚠️ Unknown status in map: {status} for {key}", flush=True)
+                            sys.stdout.flush()
+                            continue
                     
                     # Check S3 status file as backup
                     if self._is_processed(key):
@@ -314,9 +323,29 @@ class S3DocumentFetcher:
             print(f"[S3_FETCHER] 🔄 Processing: {file_name}", flush=True)
             sys.stdout.flush()
             
+            # CRITICAL: Check if already processing BEFORE marking as processing
+            # This prevents duplicate processing if multiple threads detect the same file
+            if self._is_in_processing_map(file_key):
+                status = self._get_processing_status(file_key)
+                if status == 'processing':
+                    print(f"[S3_FETCHER]    ⚠️ Already processing (skipping duplicate): {file_key}", flush=True)
+                    sys.stdout.flush()
+                    return False
+            
             # CRITICAL: Mark as processing in persistent map BEFORE calling /process
             # This prevents the S3 fetcher from calling /process multiple times for the same file
-            self._mark_processing(file_key)
+            # Use lock to ensure atomicity
+            with self.processing_lock:
+                # Double-check after acquiring lock
+                if self._is_in_processing_map(file_key):
+                    status = self._get_processing_status(file_key)
+                    if status == 'processing':
+                        print(f"[S3_FETCHER]    ⚠️ Already processing (double-check failed): {file_key}", flush=True)
+                        sys.stdout.flush()
+                        return False
+                
+                self._mark_processing(file_key)
+            
             self._update_status(file_key, 'processing')
             
             print(f"[S3_FETCHER]    ✅ Marked as processing in local map", flush=True)
@@ -531,8 +560,9 @@ class S3DocumentFetcher:
                 ContentType='application/json'
             )
             
-            # Also save to local processed_documents.json
-            self._save_to_local_json(status_data)
+            # Don't save to local processed_documents.json - let the /process endpoint handle that
+            # This prevents S3 fetcher from adding documents back to the database
+            # self._save_to_local_json(status_data)
             
             print(f"[S3_FETCHER]    💾 Status saved: {status}", flush=True)
             sys.stdout.flush()

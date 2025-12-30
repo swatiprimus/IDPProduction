@@ -180,6 +180,7 @@
                         <th class="sortable" onclick="sortTable('name')">Document Name</th>
                         <th class="sortable" onclick="sortTable('date')" style="width:150px;">Created Date</th>
                         <th class="sortable" onclick="sortTable('type')">Document Type</th>
+                        <th class="sortable" onclick="sortTable('confidence')" style="width:120px;">📊 Confidence</th>
                         <th class="sortable" onclick="sortTable('cost')" style="width:120px;">💰 Cost</th>
                         <th style="width:120px;">Actions</th>
                     </tr>
@@ -304,6 +305,70 @@
                 }else if(column==='type'){
                     aVal=(a.document_type||'').toLowerCase();
                     bVal=(b.document_type||'').toLowerCase();
+                }else if(column==='confidence'){
+                    aVal=0;
+                    bVal=0;
+                    
+                    // Calculate overall confidence for document a (average of all field confidences)
+                    let aFieldConfidences = [];
+                    if(a.documents && a.documents.length > 0){
+                        const aDoc = a.documents[0];
+                        if(aDoc.accounts && aDoc.accounts.length > 0){
+                            aDoc.accounts.forEach(account => {
+                                if(account.result && typeof account.result === 'object'){
+                                    Object.keys(account.result).forEach(fieldName => {
+                                        const field = account.result[fieldName];
+                                        if(field && field.confidence !== null && field.confidence !== undefined){
+                                            aFieldConfidences.push(field.confidence);
+                                        }
+                                    });
+                                }
+                            });
+                        }
+                        if(aFieldConfidences.length === 0 && aDoc.accounts && aDoc.accounts.length > 0){
+                            aDoc.accounts.forEach(account => {
+                                if(account.accuracy_score !== null && account.accuracy_score !== undefined){
+                                    aFieldConfidences.push(account.accuracy_score);
+                                }
+                            });
+                        }
+                        if(aFieldConfidences.length === 0 && aDoc.accuracy_score !== null && aDoc.accuracy_score !== undefined){
+                            aFieldConfidences.push(aDoc.accuracy_score);
+                        }
+                    }
+                    aVal = aFieldConfidences.length > 0 ? aFieldConfidences.reduce((x, y) => x + y, 0) / aFieldConfidences.length : 0;
+                    
+                    // Calculate overall confidence for document b (average of all field confidences)
+                    let bFieldConfidences = [];
+                    if(b.documents && b.documents.length > 0){
+                        const bDoc = b.documents[0];
+                        if(bDoc.accounts && bDoc.accounts.length > 0){
+                            bDoc.accounts.forEach(account => {
+                                if(account.result && typeof account.result === 'object'){
+                                    Object.keys(account.result).forEach(fieldName => {
+                                        const field = account.result[fieldName];
+                                        if(field && field.confidence !== null && field.confidence !== undefined){
+                                            bFieldConfidences.push(field.confidence);
+                                        }
+                                    });
+                                }
+                            });
+                        }
+                        if(bFieldConfidences.length === 0 && bDoc.accounts && bDoc.accounts.length > 0){
+                            bDoc.accounts.forEach(account => {
+                                if(account.accuracy_score !== null && account.accuracy_score !== undefined){
+                                    bFieldConfidences.push(account.accuracy_score);
+                                }
+                            });
+                        }
+                        if(bFieldConfidences.length === 0 && bDoc.accuracy_score !== null && bDoc.accuracy_score !== undefined){
+                            bFieldConfidences.push(bDoc.accuracy_score);
+                        }
+                    }
+                    bVal = bFieldConfidences.length > 0 ? bFieldConfidences.reduce((x, y) => x + y, 0) / bFieldConfidences.length : 0;
+                }else if(column==='cost'){
+                    aVal=a.processing_cost?.total_cost||0;
+                    bVal=b.processing_cost?.total_cost||0;
                 }
                 
                 if(aVal<bVal) return sortDirection==='asc'?-1:1;
@@ -362,13 +427,49 @@
                 const docType=docTypeInfo.name||'Unknown';
                 const processedDate=new Date(skill.processed_date).toLocaleDateString();
                 
-                // Get accuracy (already calculated in backend with 1 decimal precision)
-                let accuracy=0;
-                if(skill.documents&&skill.documents.length>0){
-                    const doc=skill.documents[0];
-                    // Use the accuracy_score from backend
-                    accuracy=doc.accuracy_score||0;
+                // Calculate overall file confidence score (average of ALL field confidences across all accounts/pages)
+                let allFieldConfidences = [];
+                
+                if(skill.documents && skill.documents.length > 0){
+                    const doc = skill.documents[0];
+                    
+                    // For loan documents with accounts, collect ALL field confidence scores
+                    if(doc.accounts && doc.accounts.length > 0){
+                        doc.accounts.forEach(account => {
+                            if(account.result && typeof account.result === 'object'){
+                                Object.keys(account.result).forEach(fieldName => {
+                                    const field = account.result[fieldName];
+                                    if(field && field.confidence !== null && field.confidence !== undefined){
+                                        allFieldConfidences.push(field.confidence);
+                                    }
+                                });
+                            }
+                        });
+                    }
+                    
+                    // If no field confidences found, use account accuracy scores
+                    if(allFieldConfidences.length === 0 && doc.accounts && doc.accounts.length > 0){
+                        doc.accounts.forEach(account => {
+                            if(account.accuracy_score !== null && account.accuracy_score !== undefined){
+                                allFieldConfidences.push(account.accuracy_score);
+                            }
+                        });
+                    }
+                    
+                    // If still no scores, use document accuracy score
+                    if(allFieldConfidences.length === 0 && doc.accuracy_score !== null && doc.accuracy_score !== undefined){
+                        allFieldConfidences.push(doc.accuracy_score);
+                    }
                 }
+                
+                // Calculate average of all field confidences
+                let overallConfidence = 0;
+                if(allFieldConfidences.length > 0){
+                    overallConfidence = allFieldConfidences.reduce((a, b) => a + b, 0) / allFieldConfidences.length;
+                }
+                
+                // Round to 1 decimal place
+                overallConfidence = Math.round(overallConfidence * 10) / 10;
                 
                 const row=document.createElement('tr');
                 row.style.cursor='pointer';
@@ -442,6 +543,14 @@
                     </td>
                     <td><span class="version-badge">${processedDate}</span></td>
                     <td><span class="description">${docType}</span></td>
+                    <td style="padding:12px 24px;">
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <div style="font-weight:700;font-size:1.1em;color:${overallConfidence >= 80 ? '#10b981' : overallConfidence >= 60 ? '#f59e0b' : '#ef4444'};">${overallConfidence.toFixed(1)}%</div>
+                            <div style="width:60px;height:6px;background:#e5e7eb;border-radius:3px;overflow:hidden;">
+                                <div style="width:${overallConfidence}%;height:100%;background:${overallConfidence >= 80 ? '#10b981' : overallConfidence >= 60 ? '#f59e0b' : '#ef4444'};transition:width 0.3s ease;"></div>
+                            </div>
+                        </div>
+                    </td>
                     <td style="padding:12px 24px;">
                         ${costDisplay}
                     </td>

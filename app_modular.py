@@ -1905,7 +1905,7 @@ def load_documents_db():
 def save_documents_db(documents):
     """Save processed documents to file"""
     with open(DOCUMENTS_DB_FILE, 'w', encoding='utf-8') as f:
-        json.dump(documents, indent=2, fp=f)
+        json.dump(documents, f, indent=2)
 
 # Load existing documents on startup
 processed_documents = load_documents_db()
